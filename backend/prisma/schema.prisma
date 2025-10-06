@@ -1,0 +1,299 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  idUsuario         Int       @id @default(autoincrement()) @db.Integer
+  nombreUsuario     String?   @db.VarChar(100)
+  emailUsuario      String?   @db.VarChar(100)
+  contrasenaUsuario String?   @map("contraseñaUsuario") @db.VarChar(100)
+
+  // back-relations
+  roles      UsuarioRol[]
+  productos  Producto[] 
+  @@map("Usuario")
+}
+
+model Rol {
+  idRol      Int           @id @default(autoincrement())
+  nombreRol  String        @unique    
+  comentario String?
+  usuarios   UsuarioRol[]  
+  @@map("Rol")
+}
+
+model UsuarioRol {
+  idUsuario Int
+  idRol     Int
+
+  Usuario Usuario @relation(fields: [idUsuario], references: [idUsuario], onDelete: Cascade)
+  Rol     Rol     @relation(fields: [idRol], references: [idRol], onDelete: Restrict)
+
+  @@id([idUsuario, idRol])          
+  @@unique([idUsuario, idRol])    
+  @@map("UsuarioRol")
+}
+
+model TipoCliente {
+  idTipoCliente Int     @id @default(autoincrement()) @db.Integer
+  tipoCliente   String  @db.VarChar(100)
+
+  clientes Cliente[]
+
+  @@map("TipoCliente")
+}
+
+model NivelCliente {
+  idNivelCliente  Int  @id @default(autoincrement()) @db.Integer
+  indiceBeneficio Int
+
+  clientes Cliente[]
+
+  @@map("NivelCliente")
+}
+
+model Provincia {
+  idProvincia     Int     @id @default(autoincrement()) @db.Integer
+  nombreProvincia String  @db.Char(100)
+
+  localidades Localidad[]
+  clientes    Cliente[]
+  proveedores Proveedor[]
+
+  @@map("Provincia")
+}
+
+model Localidad {
+  idLocalidad     Int        @id @default(autoincrement()) @db.Integer
+  nombreLocalidad String     @db.Char(100)
+  idProvincia     Int
+  Provincia       Provincia  @relation(fields: [idProvincia], references: [idProvincia])
+
+  clientes    Cliente[]
+  proveedores Proveedor[]
+
+  @@map("Localidad")
+}
+
+model Cliente {
+  idCliente       Int      @id @default(autoincrement()) @db.Integer
+  nombreCliente   String   @db.VarChar(100)
+  apellidoCliente String   @db.VarChar(100)
+  cuil            BigInt?
+  emailCliente    String   @db.VarChar(100)
+  telefonoCliente BigInt?
+  observacion     String?  @db.Text
+  idTipoCliente   Int?
+  idNivelCliente  Int?
+  idProvincia     Int?
+  idLocalidad     Int?
+
+  TipoCliente  TipoCliente? @relation(fields: [idTipoCliente], references: [idTipoCliente])
+  NivelCliente NivelCliente? @relation(fields: [idNivelCliente], references: [idNivelCliente])
+  Provincia    Provincia?   @relation(fields: [idProvincia], references: [idProvincia])
+  Localidad    Localidad?   @relation(fields: [idLocalidad], references: [idLocalidad])
+
+  ventas Venta[]
+
+  @@map("Cliente")
+}
+
+model Familia {
+  idFamilia   Int     @id @default(autoincrement()) @db.Integer
+  tipoFamilia String  @db.Char(100)
+
+  subFamilias SubFamilia[]
+  productos   Producto[]
+
+  @@map("Familia")
+}
+
+model SubFamilia {
+  idSubFamilia   Int     @id @default(autoincrement()) @db.Integer
+  tipoSubFamilia String  @db.Char(100)
+  idFamilia      Int
+  Familia        Familia @relation(fields: [idFamilia], references: [idFamilia])
+
+  @@map("SubFamilia")
+}
+
+model Producto {
+  idProducto                 Int      @id @default(autoincrement()) @db.Integer
+  codigoBarrasProducto       BigInt?
+  codigoProducto             String   @db.VarChar(50)
+  nombreProducto             String   @db.VarChar(100)
+  descripcionProducto        String   @db.Text
+  ofertaProducto             Int?
+  precioProducto             Int
+  precioVentaPublicoProducto Int
+  utilidadProducto           Int
+  idUsuario                  Int?
+  idFamilia                  Int
+
+  Usuario Usuario? @relation(fields: [idUsuario], references: [idUsuario])
+  Familia Familia  @relation(fields: [idFamilia], references: [idFamilia])
+
+  stocks             Stock[]
+  proveedorProductos ProveedorProducto[]
+  detalleCompras     DetalleCompra[]
+  detalleVentas      DetalleVenta[]
+
+  @@map("Producto")
+}
+
+model Stock {
+  idStock                 Int     @id @default(autoincrement()) @db.Integer
+  idProducto              Int
+  bajoMinimoStock         Int
+  cantidadStock           Int
+  ultimaModificacionStock Int
+
+  Producto Producto @relation(fields: [idProducto], references: [idProducto])
+
+  @@map("Stock")
+}
+
+model Proveedor {
+  idProveedor          Int     @id @default(autoincrement()) @db.Integer
+  CIF_NIFProveedor     BigInt
+  nombreProveedor      String  @db.VarChar(100)
+  mailProveedor        String  @db.VarChar(100)
+  telefonoProveedor    BigInt
+  observacionProveedor String? @db.Text
+  idProvincia          Int
+  idLocalidad          Int
+
+  Provincia Provincia @relation(fields: [idProvincia], references: [idProvincia])
+  Localidad Localidad @relation(fields: [idLocalidad], references: [idLocalidad])
+
+  proveedorProductos ProveedorProducto[]
+  compras            Compra[]
+
+  @@map("Proveedor")
+}
+
+model ProveedorProducto {
+  idProveedorProducto     Int      @id @default(autoincrement()) @db.Integer
+  idProveedor             Int
+  idProducto              Int
+  codigoArticuloProveedor String   @db.VarChar(50)
+  fechaIngreso            DateTime @db.Date
+  precioHistorico         Int
+
+  Proveedor Proveedor @relation(fields: [idProveedor], references: [idProveedor])
+  Producto  Producto  @relation(fields: [idProducto], references: [idProducto])
+
+  @@map("ProveedorProducto")
+}
+
+model MetodoPago {
+  idMetodoPago Int     @id @default(autoincrement()) @db.Integer
+  metodoPago   String? @db.Char(100)
+
+  compras Compra[]
+
+  @@map("MetodoPago")
+}
+
+model Moneda {
+  idMoneda Int    @id @default(autoincrement()) @db.Integer
+  moneda   String @db.VarChar(50)
+  precio   Int
+
+  compras Compra[]
+  ventas  Venta[]
+
+  @@map("Moneda")
+}
+
+model Compra {
+  idCompra               Int      @id @default(autoincrement()) @db.Integer
+  fechaComprobanteCompra DateTime @db.Date
+  nroFactura             Int
+  observacion            String   @db.Char(255)
+  idProveedor            Int
+  idMetodoPago           Int
+  idMoneda               Int
+
+  Proveedor  Proveedor  @relation(fields: [idProveedor], references: [idProveedor])
+  MetodoPago MetodoPago @relation(fields: [idMetodoPago], references: [idMetodoPago])
+  Moneda     Moneda     @relation(fields: [idMoneda], references: [idMoneda])
+
+  detalles DetalleCompra[]
+
+  @@map("Compra")
+}
+
+model DetalleCompra {
+  idDetalleCompra Int  @id @default(autoincrement()) @db.Integer
+  idCompra        Int
+  idProducto      Int
+  cantidad        Int
+
+  Compra   Compra   @relation(fields: [idCompra], references: [idCompra])
+  Producto Producto @relation(fields: [idProducto], references: [idProducto])
+
+  @@map("DetalleCompra")
+}
+
+model TipoPago {
+  idTipoPago Int    @id @default(autoincrement()) @db.Integer
+  tipoPago   String @db.Char(100)
+  recargo    Int?
+
+  ventas Venta[]
+
+  @@map("TipoPago")
+}
+
+model EstadoVenta {
+  idEstadoVenta     Int     @id @default(autoincrement()) @db.Integer
+  nombreEstadoVenta String  @db.Char(100)
+
+  ventas Venta[]
+
+  @@map("EstadoVenta")
+}
+
+model Venta {
+  idVenta         Int      @id @default(autoincrement()) @db.Integer
+  fechaVenta      DateTime @db.Date
+  fechaCobroVenta DateTime @db.Date
+  observacion     String?  @db.Text
+  idCliente       Int
+  idEstadoVenta   Int
+  idTipoPago      Int
+  idMoneda        Int
+
+  Cliente     Cliente     @relation(fields: [idCliente], references: [idCliente])
+  EstadoVenta EstadoVenta @relation(fields: [idEstadoVenta], references: [idEstadoVenta])
+  TipoPago    TipoPago    @relation(fields: [idTipoPago], references: [idTipoPago])
+  Moneda      Moneda      @relation(fields: [idMoneda], references: [idMoneda])
+
+  detalles DetalleVenta[]
+
+  @@map("Venta")
+}
+
+model DetalleVenta {
+  idDetalleVenta Int  @id @default(autoincrement()) @db.Integer
+  idVenta        Int
+  idProducto     Int
+  cantidad       Int
+
+  Venta    Venta    @relation(fields: [idVenta], references: [idVenta])
+  Producto Producto @relation(fields: [idProducto], references: [idProducto])
+
+  @@map("DetalleVenta")
+}
