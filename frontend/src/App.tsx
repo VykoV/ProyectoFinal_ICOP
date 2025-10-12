@@ -7,6 +7,7 @@ import Clientes from "./pages/Clientes";
 import Proveedores from "./pages/Proveedores";
 import NotFound from "./pages/NotFound";
 import Ventas from "./pages/Ventas";
+import PreVentas from "./pages/PreVentas";
 import Usuarios from "./pages/Usuarios";
 import Compras from "./pages/Compras";
 
@@ -28,6 +29,7 @@ export default function App() {
             <Route path="clientes" element={<Clientes />} />
             <Route path="proveedores" element={<Proveedores />} />
             <Route path="ventas" element={<Ventas />} />
+            <Route path="pre-ventas" element={<PreVentas />} />
             <Route path="compras" element={<Compras />} />
             <Route path="usuarios" element={<Usuarios />} />
         </Route>
