@@ -5,6 +5,7 @@ import {
   Factory,
   LayoutDashboard,
   ShoppingCart,
+  ClipboardList,
   ShoppingBag,
 } from "lucide-react";
 import { useUI } from "../store/ui";
@@ -12,6 +13,7 @@ import { useUI } from "../store/ui";
 const items = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/ventas", icon: ShoppingCart, label: "Ventas" },
+  { to: "/pre-ventas", icon: ClipboardList, label: "Pre-Ventas" },
   { to: "/compras", icon: ShoppingBag, label: "Compras" },
   { to: "/productos", icon: Boxes, label: "Productos" },
   { to: "/clientes", icon: Users, label: "Clientes" },
