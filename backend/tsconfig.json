@@ -2,10 +2,11 @@
   "compilerOptions": {
     "target": "ES2022",         
     "module": "CommonJS",       
-    "esModuleInterop": true,    
-    "skipLibCheck": true,       
-    "strict": true,             
-    "types": ["node"]           
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "strict": true,
+    "outDir": "dist",
+    "skipLibCheck": true        
   },
   "include": ["src", "prisma"]
 }
