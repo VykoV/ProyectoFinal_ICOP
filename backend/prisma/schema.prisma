@@ -14,22 +14,23 @@ datasource db {
 }
 
 model Usuario {
-  idUsuario         Int       @id @default(autoincrement()) @db.Integer
-  nombreUsuario     String?   @db.VarChar(100)
-  emailUsuario      String?   @db.VarChar(100)
-  contrasenaUsuario String?   @map("contraseñaUsuario") @db.VarChar(100)
+  idUsuario         Int     @id @default(autoincrement()) @db.Integer
+  nombreUsuario     String? @db.VarChar(100)
+  emailUsuario      String? @db.VarChar(100)
+  contrasenaUsuario String? @map("contraseñaUsuario") @db.VarChar(100)
 
-  // back-relations
-  roles      UsuarioRol[]
-  productos  Producto[] 
+  roles     UsuarioRol[]
+  productos Producto[]
+
   @@map("Usuario")
 }
 
 model Rol {
-  idRol      Int           @id @default(autoincrement())
-  nombreRol  String        @unique    
+  idRol      Int          @id @default(autoincrement())
+  nombreRol  String       @unique
   comentario String?
-  usuarios   UsuarioRol[]  
+  usuarios   UsuarioRol[]
+
   @@map("Rol")
 }
 
@@ -40,14 +41,14 @@ model UsuarioRol {
   Usuario Usuario @relation(fields: [idUsuario], references: [idUsuario], onDelete: Cascade)
   Rol     Rol     @relation(fields: [idRol], references: [idRol], onDelete: Restrict)
 
-  @@id([idUsuario, idRol])          
-  @@unique([idUsuario, idRol])    
+  @@id([idUsuario, idRol])
+  @@unique([idUsuario, idRol])
   @@map("UsuarioRol")
 }
 
 model TipoCliente {
-  idTipoCliente Int     @id @default(autoincrement()) @db.Integer
-  tipoCliente   String  @db.VarChar(100)
+  idTipoCliente Int    @id @default(autoincrement()) @db.Integer
+  tipoCliente   String @db.VarChar(100)
 
   clientes Cliente[]
 
@@ -55,7 +56,7 @@ model TipoCliente {
 }
 
 model NivelCliente {
-  idNivelCliente  Int  @id @default(autoincrement()) @db.Integer
+  idNivelCliente  Int @id @default(autoincrement()) @db.Integer
   indiceBeneficio Int
 
   clientes Cliente[]
@@ -64,45 +65,42 @@ model NivelCliente {
 }
 
 model Provincia {
-  idProvincia     Int     @id @default(autoincrement()) @db.Integer
-  nombreProvincia String  @db.Char(100)
+  idProvincia     Int    @id @default(autoincrement()) @db.Integer
+  nombreProvincia String @db.Char(100)
 
   localidades Localidad[]
-  clientes    Cliente[]
-  proveedores Proveedor[]
 
   @@map("Provincia")
 }
 
 model Localidad {
-  idLocalidad     Int        @id @default(autoincrement()) @db.Integer
-  nombreLocalidad String     @db.Char(100)
+  idLocalidad     Int       @id @default(autoincrement()) @db.Integer
+  nombreLocalidad String    @db.Char(100)
   idProvincia     Int
-  Provincia       Provincia  @relation(fields: [idProvincia], references: [idProvincia])
+  Provincia       Provincia @relation(fields: [idProvincia], references: [idProvincia])
 
   clientes    Cliente[]
   proveedores Proveedor[]
 
+  @@unique([idProvincia, nombreLocalidad])
   @@map("Localidad")
 }
 
 model Cliente {
-  idCliente       Int      @id @default(autoincrement()) @db.Integer
-  nombreCliente   String   @db.VarChar(100)
-  apellidoCliente String   @db.VarChar(100)
+  idCliente       Int     @id @default(autoincrement()) @db.Integer
+  nombreCliente   String  @db.VarChar(100)
+  apellidoCliente String  @db.VarChar(100)
   cuil            BigInt?
-  emailCliente    String   @db.VarChar(100)
+  emailCliente    String  @db.VarChar(100)
   telefonoCliente BigInt?
-  observacion     String?  @db.Text
+  observacion     String? @db.Text
   idTipoCliente   Int?
   idNivelCliente  Int?
-  idProvincia     Int?
   idLocalidad     Int?
 
-  TipoCliente  TipoCliente? @relation(fields: [idTipoCliente], references: [idTipoCliente])
+  TipoCliente  TipoCliente?  @relation(fields: [idTipoCliente], references: [idTipoCliente])
   NivelCliente NivelCliente? @relation(fields: [idNivelCliente], references: [idNivelCliente])
-  Provincia    Provincia?   @relation(fields: [idProvincia], references: [idProvincia])
-  Localidad    Localidad?   @relation(fields: [idLocalidad], references: [idLocalidad])
+  Localidad    Localidad?    @relation(fields: [idLocalidad], references: [idLocalidad])
 
   ventas Venta[]
 
@@ -110,45 +108,46 @@ model Cliente {
 }
 
 model Familia {
-  idFamilia   Int     @id @default(autoincrement()) @db.Integer
-  tipoFamilia String  @db.Char(100)
-
+  idFamilia   Int          @id @default(autoincrement()) @db.Integer
+  tipoFamilia String       @unique @db.Char(100)
   subFamilias SubFamilia[]
-  productos   Producto[]
 
   @@map("Familia")
 }
 
 model SubFamilia {
-  idSubFamilia   Int     @id @default(autoincrement()) @db.Integer
-  tipoSubFamilia String  @db.Char(100)
+  idSubFamilia   Int        @id @default(autoincrement()) @db.Integer
+  tipoSubFamilia String     @db.Char(100)
   idFamilia      Int
-  Familia        Familia @relation(fields: [idFamilia], references: [idFamilia])
+  Familia        Familia    @relation(fields: [idFamilia], references: [idFamilia])
+  productos      Producto[]
 
+  @@unique([idFamilia, tipoSubFamilia])
   @@map("SubFamilia")
 }
 
 model Producto {
-  idProducto                 Int      @id @default(autoincrement()) @db.Integer
-  codigoBarrasProducto       BigInt?
-  codigoProducto             String   @db.VarChar(50)
-  nombreProducto             String   @db.VarChar(100)
-  descripcionProducto        String   @db.Text
-  ofertaProducto             Int?
-  precioProducto             Int
-  precioVentaPublicoProducto Int
-  utilidadProducto           Int
+  idProducto                 Int     @id @default(autoincrement()) @db.Integer
+  codigoBarrasProducto       BigInt? @unique
+  codigoProducto             String  @unique @db.VarChar(50)
+  nombreProducto             String  @db.VarChar(100)
+  descripcionProducto        String? @db.Text
+  ofertaProducto             Boolean @default(false)
+  precioProducto             Decimal @db.Decimal(12, 2)
+  precioVentaPublicoProducto Decimal @db.Decimal(12, 2)
+  utilidadProducto           Decimal @db.Decimal(6, 2)
   idUsuario                  Int?
-  idFamilia                  Int
+  idSubFamilia               Int
 
-  Usuario Usuario? @relation(fields: [idUsuario], references: [idUsuario])
-  Familia Familia  @relation(fields: [idFamilia], references: [idFamilia])
+  Usuario    Usuario?   @relation(fields: [idUsuario], references: [idUsuario])
+  SubFamilia SubFamilia @relation(fields: [idSubFamilia], references: [idSubFamilia])
 
   stocks             Stock[]
   proveedorProductos ProveedorProducto[]
   detalleCompras     DetalleCompra[]
   detalleVentas      DetalleVenta[]
 
+  @@index([idSubFamilia])
   @@map("Producto")
 }
 
@@ -156,7 +155,7 @@ model Stock {
   idStock                 Int     @id @default(autoincrement()) @db.Integer
   idProducto              Int
   bajoMinimoStock         Int
-  cantidadStock           Int
+  cantidadStock           Decimal @db.Decimal(12, 2)
   ultimaModificacionStock Int
 
   Producto Producto @relation(fields: [idProducto], references: [idProducto])
@@ -171,10 +170,8 @@ model Proveedor {
   mailProveedor        String  @db.VarChar(100)
   telefonoProveedor    BigInt
   observacionProveedor String? @db.Text
-  idProvincia          Int
   idLocalidad          Int
 
-  Provincia Provincia @relation(fields: [idProvincia], references: [idProvincia])
   Localidad Localidad @relation(fields: [idLocalidad], references: [idLocalidad])
 
   proveedorProductos ProveedorProducto[]
@@ -189,7 +186,7 @@ model ProveedorProducto {
   idProducto              Int
   codigoArticuloProveedor String   @db.VarChar(50)
   fechaIngreso            DateTime @db.Date
-  precioHistorico         Int
+  precioHistorico         Decimal  @db.Decimal(12, 2)
 
   Proveedor Proveedor @relation(fields: [idProveedor], references: [idProveedor])
   Producto  Producto  @relation(fields: [idProducto], references: [idProducto])
@@ -207,9 +204,9 @@ model MetodoPago {
 }
 
 model Moneda {
-  idMoneda Int    @id @default(autoincrement()) @db.Integer
-  moneda   String @db.VarChar(50)
-  precio   Int
+  idMoneda Int     @id @default(autoincrement()) @db.Integer
+  moneda   String  @db.VarChar(50)
+  precio   Decimal @db.Decimal(12, 4)
 
   compras Compra[]
   ventas  Venta[]
@@ -236,7 +233,7 @@ model Compra {
 }
 
 model DetalleCompra {
-  idDetalleCompra Int  @id @default(autoincrement()) @db.Integer
+  idDetalleCompra Int @id @default(autoincrement()) @db.Integer
   idCompra        Int
   idProducto      Int
   cantidad        Int
@@ -248,9 +245,9 @@ model DetalleCompra {
 }
 
 model TipoPago {
-  idTipoPago Int    @id @default(autoincrement()) @db.Integer
-  tipoPago   String @db.Char(100)
-  recargo    Int?
+  idTipoPago Int      @id @default(autoincrement()) @db.Integer
+  tipoPago   String   @db.Char(100)
+  recargo    Decimal? @db.Decimal(6, 2)
 
   ventas Venta[]
 
@@ -258,8 +255,8 @@ model TipoPago {
 }
 
 model EstadoVenta {
-  idEstadoVenta     Int     @id @default(autoincrement()) @db.Integer
-  nombreEstadoVenta String  @db.Char(100)
+  idEstadoVenta     Int    @id @default(autoincrement()) @db.Integer
+  nombreEstadoVenta String @db.Char(100)
 
   ventas Venta[]
 
@@ -287,7 +284,7 @@ model Venta {
 }
 
 model DetalleVenta {
-  idDetalleVenta Int  @id @default(autoincrement()) @db.Integer
+  idDetalleVenta Int @id @default(autoincrement()) @db.Integer
   idVenta        Int
   idProducto     Int
   cantidad       Int
