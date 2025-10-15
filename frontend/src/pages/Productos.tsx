@@ -1,7 +1,7 @@
 // src/pages/Productos.tsx
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "../components/DataTable";
-import { Search, Plus, Pencil, Trash, X } from "lucide-react";
+import { Search, Plus, Pencil, Trash, X, Eye } from "lucide-react";
 import { useForm, type SubmitHandler, type Resolver } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,18 +13,23 @@ import { api } from "../lib/api";
 // tipos simples locales para selects
 type Familia = { id: number; nombre: string };
 type Subfamilia = { id: number; nombre: string; familiaId: number };
+type Proveedor = { id: number; nombre: string };
 
-// Esquema del form (UI)
+// Esquema del form (UI) + nuevos campos
 const schema = z.object({
   codigoInterno: z.string().min(1, "Requerido"),
   codigoBarras: z.string().optional(),
   nombre: z.string().min(1, "Requerido"),
   descripcion: z.string().optional(),
-  familia: z.string().min(1, "Requerido"),     // guarda id en string
-  subfamilia: z.string().min(1, "Requerido"),  // guarda id en string
+  familia: z.string().min(1, "Requerido"),
+  subfamilia: z.string().min(1, "Requerido"),
+  proveedor: z.string().min(1, "Requerido"),
   precioCosto: z.coerce.number().nonnegative(">= 0"),
   utilidad: z.coerce.number().nonnegative(">= 0"),
   precioVenta: z.coerce.number().nonnegative(">= 0"),
+  stock: z.coerce.number().int().nonnegative(">= 0"),
+  bajoMinimoStock: z.coerce.number().int().nonnegative(">= 0"),
+  ultimaModificacionStock: z.string().min(1, "Requerido"),
   oferta: z.boolean().optional(),
 });
 type FormData = z.infer<typeof schema>;
@@ -33,9 +38,30 @@ export default function Productos() {
   const [rows, setRows] = useState<Producto[]>([]);
   const [familias, setFamilias] = useState<Familia[]>([]);
   const [subfamilias, setSubfamilias] = useState<Subfamilia[]>([]);
+  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [editItem, setEditItem] = useState<Producto | null>(null);
+
+  // buscador
+  const [q, setQ] = useState("");
+  const norm = (s: any) =>
+    String(s ?? "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "");
+
+  const filteredRows = useMemo(() => {
+    const nq = norm(q);
+    if (!nq) return rows;
+    return rows.filter(
+      (r) => norm(r.nombre).includes(nq) || norm((r as any).sku).includes(nq)
+    );
+  }, [rows, q]);
+
+  // "Ver"
+  const [openView, setOpenView] = useState(false);
+  const [viewId, setViewId] = useState<number | null>(null);
 
   async function loadProducts() {
     setLoading(true);
@@ -48,7 +74,11 @@ export default function Productos() {
   }
 
   async function loadTaxonomies() {
-    const [f, s] = await Promise.all([api.get("/familias"), api.get("/subfamilias")]);
+    const [f, s, p] = await Promise.all([
+      api.get("/familias"),
+      api.get("/subfamilias"),
+      api.get("/proveedores"),
+    ]);
 
     const fams = (f.data as any[])
       .map((x) => ({
@@ -60,15 +90,25 @@ export default function Productos() {
     const subs = (s.data as any[])
       .map((x) => ({
         id: Number(x.id ?? x.idSubFamilia),
-        nombre: String(x.nombre ?? x.tipoSubFamilia ?? x.nombreSubFamilia ?? ""),
+        nombre: String(
+          x.nombre ?? x.tipoSubFamilia ?? x.nombreSubFamilia ?? ""
+        ),
         familiaId: Number(x.familiaId ?? x.idFamilia),
       }))
       .filter(
         (x) => Number.isFinite(x.id) && Number.isFinite(x.familiaId) && x.nombre
       );
 
+    const provs = (p.data as any[])
+      .map((x) => ({
+        id: Number(x.id ?? x.idProveedor),
+        nombre: String(x.nombre ?? x.razonSocial ?? x.nombreProveedor ?? ""),
+      }))
+      .filter((x) => Number.isFinite(x.id) && x.nombre);
+
     setFamilias(fams);
     setSubfamilias(subs);
+    setProveedores(provs);
   }
 
   useEffect(() => {
@@ -84,21 +124,65 @@ export default function Productos() {
     setEditItem(p);
     setOpen(true);
   }
+  function onView(p: Producto) {
+    setViewId((p as any).id);
+    setOpenView(true);
+  }
 
   const columns: ColumnDef<Producto>[] = [
-    { header: "ID", accessorKey: "id" },
+    { header: "Código", accessorKey: "sku" },
     { header: "Nombre", accessorKey: "nombre" },
-    { header: "SKU", accessorKey: "sku" },
     { header: "Stock", accessorKey: "stock" },
-    { header: "Precio", accessorKey: "precio" },
     {
-      header: "Acción",
+      header: "Precio",
+      accessorKey: "precio",
+      cell: ({ getValue }) => {
+        const v = Number(getValue());
+        return isNaN(v)
+          ? "-"
+          : new Intl.NumberFormat("es-AR", {
+              style: "currency",
+              currency: "ARS",
+              maximumFractionDigits: 2,
+            }).format(v);
+      },
+    },
+    {
+      header: "Estado",
+      accessorKey: "oferta",
+      cell: ({ getValue }) => {
+        const oferta = !!getValue();
+        return (
+          <span
+            className={
+              "inline-flex items-center rounded-full px-2 py-0.5 text-xs " +
+              (oferta
+                ? "bg-green-100 text-green-700 border border-green-200"
+                : "bg-gray-100 text-gray-700 border border-gray-200")
+            }
+          >
+            {oferta ? "En oferta" : "Normal"}
+          </span>
+        );
+      },
+      size: 120,
+    },
+    {
+      header: "Acciones",
       id: "accion",
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
           <button
             className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+            onClick={() => onView(row.original as Producto)}
+            title="Ver"
+          >
+            <Eye className="h-3.5 w-3.5" /> Ver
+          </button>
+          <button
+            className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
             onClick={() => onEdit(row.original as Producto)}
+            title="Editar"
           >
             <Pencil className="h-3.5 w-3.5" /> Editar
           </button>
@@ -120,12 +204,13 @@ export default function Productos() {
                 console.error(err);
               }
             }}
+            title="Eliminar"
           >
             <Trash className="h-3.5 w-3.5" /> Eliminar
           </button>
         </div>
       ),
-      size: 180,
+      size: 220,
     },
   ];
 
@@ -138,8 +223,9 @@ export default function Productos() {
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
             <input
               className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
-              placeholder="Buscar"
-              onChange={() => {}}
+              placeholder="Buscar por código o nombre"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
             />
           </div>
           <button
@@ -155,7 +241,7 @@ export default function Productos() {
       {loading ? (
         <div className="rounded-xl border bg-white p-6 text-sm">Cargando…</div>
       ) : (
-        <DataTable columns={columns} data={rows} />
+        <DataTable columns={columns} data={filteredRows} />
       )}
 
       {open && (
@@ -163,9 +249,20 @@ export default function Productos() {
           initial={editItem}
           familias={familias}
           subfamilias={subfamilias}
+          proveedores={proveedores}
           onClose={async (reload?: boolean) => {
             setOpen(false);
             if (reload) await loadProducts();
+          }}
+        />
+      )}
+
+      {openView && viewId != null && (
+        <ProductoView
+          id={viewId}
+          onClose={() => {
+            setOpenView(false);
+            setViewId(null);
           }}
         />
       )}
@@ -173,16 +270,18 @@ export default function Productos() {
   );
 }
 
-/* Popup alta/edición */
+/* Popup alta/edición (sin cambios relevantes para el buscador) */
 function ProductoPopup({
   onClose,
   familias,
   subfamilias,
+  proveedores,
   initial,
 }: {
   onClose: (reload?: boolean) => void;
   familias: Familia[];
   subfamilias: Subfamilia[];
+  proveedores: Proveedor[];
   initial?: Producto | null;
 }) {
   const {
@@ -201,38 +300,48 @@ function ProductoPopup({
       descripcion: "",
       familia: "",
       subfamilia: "",
+      proveedor: "",
       precioCosto: 0,
       utilidad: 0,
       precioVenta: 0,
+      stock: 0,
+      bajoMinimoStock: 0,
+      ultimaModificacionStock: new Date().toISOString().slice(0, 10),
       oferta: false,
     },
   });
 
-  // si edita, traer datos completos y precargar
   useEffect(() => {
     if (!initial?.id) return;
     (async () => {
       const { data } = await api.get(`/products/${initial.id}`);
-      const sfId: number | undefined = data?.subFamiliaId;
+      const sfId: number | undefined = data?.subFamiliaId ?? data?.idSubFamilia;
       const famId =
         subfamilias.find((sf) => sf.id === sfId)?.familiaId ?? undefined;
 
       reset({
-        codigoInterno: data?.sku ?? "",
-        codigoBarras: data?.codigoBarras ?? "",
-        nombre: data?.nombre ?? "",
-        descripcion: data?.descripcion ?? "",
+        codigoInterno: data?.sku ?? data?.codigoProducto ?? "",
+        codigoBarras: data?.codigoBarras ?? data?.codigoBarrasProducto ?? "",
+        nombre: data?.nombre ?? data?.nombreProducto ?? "",
+        descripcion: data?.descripcion ?? data?.descripcionProducto ?? "",
         familia: famId ? String(famId) : "",
         subfamilia: sfId ? String(sfId) : "",
+        proveedor: data?.proveedorId ? String(data.proveedorId) : "",
         precioCosto: Number(data?.precioCosto ?? 0),
-        utilidad: Number(data?.utilidad ?? 0),
-        precioVenta: Number(data?.precio ?? 0),
+        utilidad: Number(data?.utilidad ?? data?.utilidadProducto ?? 0),
+        precioVenta: Number(
+          data?.precio ?? data?.precioVentaPublicoProducto ?? 0
+        ),
+        stock: Number(data?.stock ?? 0),
+        bajoMinimoStock: Number(data?.bajoMinimoStock ?? 0),
+        ultimaModificacionStock: data?.ultimaModificacionStock
+          ? String(data.ultimaModificacionStock).slice(0, 10)
+          : new Date().toISOString().slice(0, 10),
         oferta: !!data?.oferta,
       });
     })();
   }, [initial, reset, subfamilias]);
 
-  // cálculo de precio venta
   const calcVenta = (c?: number, u?: number) => {
     const costo = c ?? Number(watch("precioCosto") || 0);
     const util = u ?? Number(watch("utilidad") || 0);
@@ -243,8 +352,7 @@ function ProductoPopup({
   const onCostoChange = (e: any) => calcVenta(Number(e.target.value), undefined);
   const onUtilChange = (e: any) => calcVenta(undefined, Number(e.target.value));
 
-  // dependencias de selects
-  const familiaSelected = watch("familia"); // string id
+  const familiaSelected = watch("familia");
   const subfamiliasFiltradas = useMemo(
     () =>
       subfamilias.filter(
@@ -256,21 +364,25 @@ function ProductoPopup({
   const onSubmit: SubmitHandler<FormData> = async (v) => {
     const payload = {
       nombre: v.nombre,
-      sku: v.codigoInterno, // UNIQUE
+      sku: v.codigoInterno,
       precio: v.precioVenta,
       precioCosto: v.precioCosto,
       utilidad: v.utilidad,
       descripcion: v.descripcion || null,
       codigoBarras: v.codigoBarras?.trim() || null,
       oferta: !!v.oferta,
+      stock: v.stock,
+      bajoMinimoStock: v.bajoMinimoStock,
+      ultimaModificacionStock: v.ultimaModificacionStock,
       subFamiliaId: Number(v.subfamilia),
+      proveedorId: Number(v.proveedor),
     };
 
     try {
       if (initial?.id) {
-        await api.put(`/products/${initial.id}`, payload); // EDIT
+        await api.put(`/products/${initial.id}`, payload);
       } else {
-        await api.post("/products", payload); // CREATE
+        await api.post("/products", payload);
       }
       reset();
       onClose(true);
@@ -295,28 +407,22 @@ function ProductoPopup({
       <div className="fixed inset-0 z-40 bg-black/20" onClick={() => onClose()} />
       <div className="fixed inset-0 z-50 p-0 md:p-4">
         <div className="mx-auto h-dvh md:h-[90vh] w-full max-w-3xl md:rounded-2xl border bg-white shadow-xl flex flex-col">
-          {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b">
             <h3 className="text-base font-semibold">
               {initial?.id ? "Editar Producto" : "Agregar Nuevo Producto"}
             </h3>
-            <button
-              onClick={() => onClose()}
-              className="p-2 rounded hover:bg-gray-100"
-              aria-label="Cerrar"
-            >
+            <button onClick={() => onClose()} className="p-2 rounded hover:bg-gray-100" aria-label="Cerrar">
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          {/* Body */}
           <div className="p-4 overflow-auto flex-1 space-y-4">
             <form id="producto-form" onSubmit={handleSubmit(onSubmit)} className="grid gap-3">
               {/* Código Interno + Código de Barras */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="codigoInterno">Código Interno</Label>
-                  <Input id="codigoInterno" placeholder="LAN-MER-001" {...register("codigoInterno")} />
+                  <Input id="codigoInterno" placeholder="FF-SS-0001" {...register("codigoInterno")} />
                   <p className="text-[11px] text-gray-500 mt-1">Formato: Familia-Subfamilia-ID</p>
                   <FieldError message={errors.codigoInterno?.message} />
                 </div>
@@ -327,11 +433,23 @@ function ProductoPopup({
                 </div>
               </div>
 
-              {/* Nombre */}
-              <div>
-                <Label htmlFor="nombre">Nombre</Label>
-                <Input id="nombre" placeholder="Ovillo Merino 100 g" {...register("nombre")} />
-                <FieldError message={errors.nombre?.message} />
+              {/* Nombre y Proveedor */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="nombre">Nombre</Label>
+                  <Input id="nombre" placeholder="Ovillo Merino 100 g" {...register("nombre")} />
+                  <FieldError message={errors.nombre?.message} />
+                </div>
+                <div>
+                  <Label htmlFor="proveedor">Proveedor</Label>
+                  <Select id="proveedor" {...register("proveedor")}>
+                    <option value="">Seleccionar proveedor</option>
+                    {proveedores.map((p) => (
+                      <option key={p.id} value={String(p.id)}>{p.nombre}</option>
+                    ))}
+                  </Select>
+                  <FieldError message={errors.proveedor?.message} />
+                </div>
               </div>
 
               {/* Descripción */}
@@ -350,9 +468,7 @@ function ProductoPopup({
                 <div>
                   <Label htmlFor="familia">Familia</Label>
                   <Select id="familia" {...register("familia")}>
-                    <option key="empty-fam" value="">
-                      Seleccionar familia
-                    </option>
+                    <option key="empty-fam" value="">Seleccionar familia</option>
                     {familias.map((f, i) => (
                       <option key={`fam-${f.id ?? `i${i}`}`} value={String(f.id)}>
                         {f.nombre}
@@ -364,9 +480,7 @@ function ProductoPopup({
                 <div>
                   <Label htmlFor="subfamilia">Subfamilia</Label>
                   <Select id="subfamilia" {...register("subfamilia")}>
-                    <option key="empty-sub" value="">
-                      Seleccionar subfamilia
-                    </option>
+                    <option key="empty-sub" value="">Seleccionar subfamilia</option>
                     {subfamiliasFiltradas.map((sf, i) => (
                       <option key={`sub-${sf.id ?? `i${i}`}`} value={String(sf.id)}>
                         {sf.nombre}
@@ -377,7 +491,7 @@ function ProductoPopup({
                 </div>
               </div>
 
-              {/* Precio costo / Utilidad / Precio venta */}
+              {/* Precios */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <Label htmlFor="precioCosto">Precio de Costo</Label>
@@ -417,10 +531,28 @@ function ProductoPopup({
                   <FieldError message={errors.precioVenta?.message} />
                 </div>
               </div>
+
+              {/* Stock */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <Label htmlFor="stock">Stock</Label>
+                  <Input id="stock" type="number" inputMode="numeric" {...register("stock", { valueAsNumber: true })} />
+                  <FieldError message={errors.stock?.message} />
+                </div>
+                <div>
+                  <Label htmlFor="bajoMinimoStock">Bajo mínimo</Label>
+                  <Input id="bajoMinimoStock" type="number" inputMode="numeric" {...register("bajoMinimoStock", { valueAsNumber: true })} />
+                  <FieldError message={errors.bajoMinimoStock?.message} />
+                </div>
+                <div>
+                  <Label htmlFor="ultimaModificacionStock">Última modificación</Label>
+                  <Input id="ultimaModificacionStock" type="date" {...register("ultimaModificacionStock")} />
+                  <FieldError message={errors.ultimaModificacionStock?.message} />
+                </div>
+              </div>
             </form>
           </div>
 
-          {/* Footer */}
           <div className="px-4 py-3 border-t bg-gray-50">
             <div className="flex items-center justify-between gap-3">
               <label className="flex items-center gap-2 text-sm">
@@ -436,6 +568,142 @@ function ProductoPopup({
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* MODAL "VER" detalle completo (sin cambios para el buscador) */
+function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
+  const [data, setData] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get(`/products/${id}`);
+        setData(data);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [id]);
+
+  const precioFmt = (n: any) =>
+    typeof n === "number"
+      ? new Intl.NumberFormat("es-AR", {
+          style: "currency",
+          currency: "ARS",
+          maximumFractionDigits: 2,
+        }).format(n)
+      : "-";
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
+      <div className="fixed inset-0 z-50 p-0 md:p-4">
+        <div className="mx-auto w-full max-w-2xl md:rounded-2xl border bg-white shadow-xl">
+          <div className="flex items-center justify-between px-4 py-3 border-b">
+            <h3 className="text-base font-semibold">Detalle de Producto</h3>
+            <button onClick={onClose} className="p-2 rounded hover:bg-gray-100" aria-label="Cerrar">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="p-4 text-sm">
+            {loading ? (
+              <div className="text-gray-600">Cargando…</div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-gray-500">ID Producto</p>
+                    <p className="font-medium">{data?.id ?? data?.idProducto ?? "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Código (SKU)</p>
+                    <p className="font-medium">{data?.sku ?? data?.codigoProducto ?? "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Código de barras</p>
+                    <p className="font-medium">{data?.codigoBarras ?? data?.codigoBarrasProducto ?? "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Nombre</p>
+                    <p className="font-medium">{data?.nombre ?? data?.nombreProducto ?? "-"}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-gray-500">Descripción</p>
+                    <p className="font-normal">{data?.descripcion ?? data?.descripcionProducto ?? "-"}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-gray-500">Precio costo</p>
+                    <p className="font-medium">{precioFmt(data?.precioCosto)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Precio venta público</p>
+                    <p className="font-medium">{precioFmt(data?.precio ?? data?.precioVentaPublicoProducto)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Utilidad (%)</p>
+                    <p className="font-medium">{data?.utilidad ?? data?.utilidadProducto ?? 0}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-gray-500">Stock</p>
+                    <p className="font-medium">{data?.stock ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Bajo mínimo</p>
+                    <p className="font-medium">{data?.bajoMinimoStock ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Última mod. stock</p>
+                    <p className="font-medium">
+                      {data?.ultimaModificacionStock
+                        ? String(data.ultimaModificacionStock).slice(0, 10)
+                        : "-"}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-gray-500">Familia</p>
+                    <p className="font-medium">{data?.familia?.nombre ?? data?.nombreFamilia ?? "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Subfamilia</p>
+                    <p className="font-medium">{data?.subfamilia?.nombre ?? data?.nombreSubfamilia ?? "-"}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-gray-500">Proveedor</p>
+                    <p className="font-medium">{data?.proveedor?.nombre ?? data?.nombreProveedor ?? "-"}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-gray-500">Estado</p>
+                    <span
+                      className={
+                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs " +
+                        (data?.oferta
+                          ? "bg-green-100 text-green-700 border border-green-200"
+                          : "bg-gray-100 text-gray-700 border border-gray-200")
+                      }
+                    >
+                      {data?.oferta ? "En oferta" : "Normal"}
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="px-4 py-3 border-t bg-gray-50 flex justify-end">
+            <button onClick={onClose} className="rounded-lg border px-3 py-2 text-sm">
+              Cerrar
+            </button>
           </div>
         </div>
       </div>
