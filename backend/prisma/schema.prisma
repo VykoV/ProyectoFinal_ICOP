@@ -10,11 +10,12 @@ datasource db {
 model Usuario {
   idUsuario         Int     @id @default(autoincrement()) @db.Integer
   nombreUsuario     String  @db.VarChar(100)
-  emailUsuario      String  @db.VarChar(100)
+  emailUsuario      String  @db.VarChar(100)  @unique
   contrasenaUsuario String  @map("contraseñaUsuario") @db.VarChar(100)
 
   roles     UsuarioRol[]
   productos Producto[]
+  createdAt DateTime @default(now())
 
   @@map("Usuario")
 }

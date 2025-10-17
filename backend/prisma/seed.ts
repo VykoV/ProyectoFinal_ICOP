@@ -59,7 +59,7 @@ async function seed() {
   const admin = await upsertBy(
     () => prisma.usuario.findUnique({ where: { idUsuario: 1 } }),
     () => prisma.usuario.create({
-      data: { nombreUsuario: 'admin', emailUsuario: 'admin@admin.com', contrasenaUsuario: 'admin' }
+      data: { nombreUsuario: 'admin', emailUsuario: 'admin@admin.com', contrasenaUsuario: 'adminadmin' }
     })
   )
 
@@ -273,9 +273,9 @@ const catalogo = [
 
   // ---------- Usuarios adicionales ----------
   const usuarios = [
-    { nombreUsuario: 'Victor Luis Valli', emailUsuario: 'Victor_jefe01@gmail.com',  contrasenaUsuario: '1235' },
-    { nombreUsuario: 'Mirta Griselda',    emailUsuario: 'Mirta_jefa02@gmail.com',  contrasenaUsuario: '4455' },
-    { nombreUsuario: 'Giuliano Valli',    emailUsuario: 'Empleado01@gmail.com',    contrasenaUsuario: '1998' },
+    { nombreUsuario: 'Victor Luis Valli', emailUsuario: 'Victor_jefe01@gmail.com',  contrasenaUsuario: '123456' },
+    { nombreUsuario: 'Mirta Griselda',    emailUsuario: 'Mirta_jefa02@gmail.com',  contrasenaUsuario: '445566' },
+    { nombreUsuario: 'Giuliano Valli',    emailUsuario: 'Empleado01@gmail.com',    contrasenaUsuario: '199899' },
   ]
 
   for (const u of usuarios) {

@@ -1,26 +1,77 @@
-import express, { Request, Response } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
+import session from "express-session";
+import pgSession from "connect-pg-simple";
+import bcrypt from "bcrypt";
+import { z } from "zod";
 import { PrismaClient, Prisma } from "@prisma/client";
+import authRoutes from "./auth";
+
 
 const app = express();
 const prisma = new PrismaClient();
+const PgSession = pgSession(session);
 
-app.use(express.json());
+// ==========================
+// 1) CONFIGURACIÓN DE CORS
+// ==========================
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+    origin: "http://localhost:5173",
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Accept"],
+  })
+);
+app.options("*", cors({ origin: "http://localhost:5173", credentials: true }));
+
+// ==========================
+// 2) PARSER JSON
+// ==========================
+app.use(express.json());
+
+// ==========================
+// 3) SESIONES
+// ==========================
+app.use(
+  session({
+    store: new PgSession({
+      conString: process.env.DATABASE_URL!,
+      createTableIfMissing: true,
+      schemaName: "public",
+      tableName: "session",
+    }),
+    name: "sid",
+    secret: process.env.SESSION_SECRET ?? "dev_secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: false,
+      maxAge: 1000 * 60 * 60 * 24 * 7,
+    },
   })
 );
 
-// logger simple
+// ==========================
+// 4) RUTA DE AUTENTICACIÓN
+// ==========================
+app.use("/auth", authRoutes);
+
+// ==========================
+// 5) LOG SIMPLE
+// ==========================
 app.use((req, _res, next) => {
   console.log(req.method, req.url);
   next();
 });
 
-// health
-app.get("/api/health", (_req: Request, res: Response) => res.json({ ok: true }));
+// ==========================
+// 6) ENDPOINT HEALTH
+// ==========================
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
 
 // ====== SELECTS ======
 app.get("/api/familias", async (_req, res) => {

@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
-import Login from "../src/components/Login.tsx";
+import Login from "./components/Login";
 import Dashboard from "./pages/Dashboard";
 import Productos from "./pages/Productos";
 import Clientes from "./pages/Clientes";
@@ -10,29 +10,43 @@ import Ventas from "./pages/Ventas";
 import PreVentas from "./pages/PreVentas";
 import Usuarios from "./pages/Usuarios";
 import Compras from "./pages/Compras";
+import ProtectedRoute from "./routes/ProtectedRoute";
 
 export default function App() {
-    const isAuthenticated = true; // solo diseño
+    const isAuthenticated = false; // false al inicio: fuerza el login
 
     return (
         <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route
-            path="/"
-            element={
-            isAuthenticated ? <Layout /> : <Navigate to="/login" replace />
-            }
-        >
-            <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard />} />
-            <Route path="productos" element={<Productos />} />
-            <Route path="clientes" element={<Clientes />} />
-            <Route path="proveedores" element={<Proveedores />} />
-            <Route path="ventas" element={<Ventas />} />
-            <Route path="pre-ventas" element={<PreVentas />} />
-            <Route path="compras" element={<Compras />} />
-            <Route path="usuarios" element={<Usuarios />} />
-        </Route>
-        <Route path="*" element={<NotFound />} /></Routes>
+            {/* redirección inicial */}
+            <Route
+                path="/"
+                element={
+                    isAuthenticated ? (
+                        <Navigate to="/dashboard" replace />
+                    ) : (
+                        <Navigate to="/login" replace />
+                    )
+                }
+            />
+
+            {/* login público */}
+            <Route path="/login" element={<Login />} />
+
+            {/* rutas protegidas */}
+            <Route element={<ProtectedRoute />}>
+                <Route element={<Layout />}>
+                    <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/productos" element={<Productos />} />
+                    <Route path="/clientes" element={<Clientes />} />
+                    <Route path="/proveedores" element={<Proveedores />} />
+                    <Route path="/ventas" element={<Ventas />} />
+                    <Route path="/pre-ventas" element={<PreVentas />} />
+                    <Route path="/compras" element={<Compras />} />
+                    <Route path="/usuarios" element={<Usuarios />} />
+                </Route>
+            </Route>
+
+            <Route path="*" element={<NotFound />} />
+        </Routes>
     );
 }

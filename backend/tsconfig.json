@@ -9,5 +9,5 @@
     "types": ["node"],  
     "skipLibCheck": true        
   },
-  "include": ["src", "prisma",  "scripts"]
+  "include": ["src", "prisma",  "scripts", "src/types/**/*.d.ts"]
 }
