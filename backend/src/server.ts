@@ -7,7 +7,6 @@ import { z } from "zod";
 import { PrismaClient, Prisma } from "@prisma/client";
 import authRoutes from "./auth";
 
-
 const app = express();
 const prisma = new PrismaClient();
 const PgSession = pgSession(session);
@@ -454,6 +453,126 @@ app.delete("/api/products/:id", async (req, res) => {
     res.status(400).json({ error: "DELETE_FAILED" });
   }
 });
+
+// ====== ROLES ======
+app.get("/api/roles", async (_req, res) => {
+  const rows = await prisma.rol.findMany({
+    select: { idRol: true, nombreRol: true, comentario: true },
+    orderBy: { idRol: "asc" },
+  });
+  res.json(rows.map(r => ({
+    id: r.idRol,
+    nombre: r.nombreRol,
+    comentario: r.comentario ?? null,
+  })));
+});
+
+// ====== USUARIOS (listado) ======
+app.get("/api/usuarios", async (_req, res) => {
+  const rows = await prisma.usuario.findMany({
+    select: {
+      idUsuario: true,
+      nombreUsuario: true,
+      emailUsuario: true,
+      roles: {
+        select: { Rol: { select: { idRol: true, nombreRol: true, comentario: true } } }
+      }
+    },
+    orderBy: { idUsuario: "asc" },
+  });
+
+  res.json(rows.map(u => ({
+    id: u.idUsuario,
+    nombre: u.nombreUsuario,
+    email: u.emailUsuario,
+    roles: u.roles.map(x => ({
+      id: x.Rol.idRol,
+      nombre: x.Rol.nombreRol,
+      comentario: x.Rol.comentario ?? null,
+    })),
+  })));
+});
+
+
+
+// ====== CREAR USUARIO ======
+app.post("/api/usuarios", async (req, res) => {
+  try {
+    const { nombreUsuario, emailUsuario, contrasenaUsuario, idRol } = req.body;
+
+    if (!nombreUsuario || !emailUsuario || !contrasenaUsuario)
+      return res.status(400).json({ error: "FALTAN_DATOS" });
+
+    const exists = await prisma.usuario.findUnique({
+      where: { emailUsuario },
+    });
+    if (exists) return res.status(409).json({ error: "EMAIL_TAKEN" });
+
+    const hash = await bcrypt.hash(contrasenaUsuario, 12);
+
+    // crear usuario
+    const user = await prisma.usuario.create({
+      data: {
+        nombreUsuario,
+        emailUsuario,
+        contrasenaUsuario: hash,
+        roles: idRol
+          ? {
+              create: [{ Rol: { connect: { idRol: Number(idRol) } } }],
+            }
+          : undefined,
+      },
+      include: { roles: { include: { Rol: true } } },
+    });
+
+    res.status(201).json(user);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "CREATE_FAILED" });
+  }
+});
+
+// ACTUALIZAR USUARIO
+app.put("/api/usuarios/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const { nombreUsuario, emailUsuario, contrasenaUsuario, idRol } = req.body;
+
+  // preparar data básica
+  const data: any = {};
+  if (nombreUsuario !== undefined) data.nombreUsuario = nombreUsuario;
+  if (emailUsuario !== undefined) data.emailUsuario = emailUsuario;
+  if (contrasenaUsuario) data.contrasenaUsuario = await bcrypt.hash(contrasenaUsuario, 12);
+
+  try {
+    // update básico
+    await prisma.usuario.update({ where: { idUsuario: id }, data });
+
+    // rol: reemplazar asignación
+    if (idRol !== undefined) {
+      await prisma.usuarioRol.deleteMany({ where: { idUsuario: id } });
+      if (idRol) {
+        await prisma.usuarioRol.create({
+          data: { idUsuario: id, idRol: Number(idRol) },
+        });
+      }
+    }
+
+    res.status(200).json({ ok: true });
+  } catch (e: any) {
+    if (e.code === "P2002") return res.status(409).json({ error: "EMAIL_TAKEN" });
+    res.status(400).json({ error: "UPDATE_FAILED" });
+  }
+});
+
+// ELIMINAR USUARIO
+app.delete("/api/usuarios/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  await prisma.usuarioRol.deleteMany({ where: { idUsuario: id } });
+  await prisma.usuario.delete({ where: { idUsuario: id } });
+  res.status(204).end();
+});
+
+
 
 // ====== META ======
 app.get("/api/_meta/product-columns", async (_req, res) => {

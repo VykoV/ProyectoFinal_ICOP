@@ -39,7 +39,15 @@ r.post("/register", async (req: Request, res: Response) => {
 r.post("/login", async (req: Request, res: Response) => {
   const { email, password } = creds.parse(req.body);
 
-  const u = await findByEmail(email);
+    const u = await prisma.usuario.findFirst({
+    where: {
+      emailUsuario: {
+        equals: email,
+        mode: "insensitive", // <- esto hace que ignore mayúsculas/minúsculas
+      },
+    },
+  });
+  
   if (!u) return res.status(401).json({ error: "CREDENCIALES" });
 
   const ok = await bcrypt.compare(password, u.contrasenaUsuario);
