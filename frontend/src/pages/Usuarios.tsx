@@ -138,14 +138,14 @@ export default function Usuarios() {
   async function loadUsers() {
     setLoading(true);
     try {
-      const { data } = await api.get("/api/usuarios");
+      const { data } = await api.get("/usuarios");
       setRows(data as Usuario[]);
     } finally {
       setLoading(false);
     }
   }
   async function loadRoles() {
-    const { data } = await api.get("/api/roles");
+    const { data } = await api.get("/roles");
     setRoles(data);
   }
   useEffect(() => { loadUsers(); loadRoles(); }, []);
@@ -163,10 +163,10 @@ export default function Usuarios() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (editId) {
-      await api.put(`/api/usuarios/${editId}`, form);
+      await api.put(`/usuarios/${editId}`, form);
       setEditId(null);
     } else {
-      await api.post("/api/usuarios", form);
+      await api.post("/usuarios", form);
     }
     setForm({ nombreUsuario: "", emailUsuario: "", contrasenaUsuario: "", idRol: "" });
     setOpen(false);
@@ -211,7 +211,7 @@ export default function Usuarios() {
             title="Eliminar"
             onClick={async () => {
               if (!confirm("¿Eliminar usuario?")) return;
-              await api.delete(`/api/usuarios/${row.original.id}`);
+              await api.delete(`/usuarios/${row.original.id}`);
               loadUsers();
             }}
           >

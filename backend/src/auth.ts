@@ -1,71 +1,64 @@
-import { Router, type Request, type Response } from "express";
+import express from "express";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
-import { z } from "zod";
 
+const router = express.Router();
 const prisma = new PrismaClient();
-const r = Router();
 
-const creds = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
-});
-const reg = creds.extend({ nombre: z.string().min(1) });
+// ===============================
+// LOGIN
+// ===============================
+router.post("/login", async (req, res) => {
+  const { email, password } = req.body;
 
-async function findByEmail(email: string) {
-  return prisma.usuario.findFirst({ where: { emailUsuario: email } });
-}
+  if (!email || !password)
+    return res.status(400).json({ error: "FALTAN_DATOS" });
 
-r.post("/register", async (req: Request, res: Response) => {
-  const { email, password, nombre } = reg.parse(req.body);
-
-  const exists = await findByEmail(email);
-  if (exists) return res.status(409).json({ error: "EMAIL_TAKEN" });
-
-  const hash = await bcrypt.hash(password, 12);
-  const u = await prisma.usuario.create({
-    data: {
-      emailUsuario: email,
-      contrasenaUsuario: hash,
-      nombreUsuario: nombre,
-    },
-    select: { idUsuario: true, emailUsuario: true },
+  const user = await prisma.usuario.findFirst({
+    where: { emailUsuario: { equals: email, mode: "insensitive" } },
   });
 
-  req.session.userId = u.idUsuario;
-  res.json({ id: u.idUsuario, email: u.emailUsuario });
-});
+  if (!user) return res.status(401).json({ error: "INVALID_CREDENTIALS" });
 
-r.post("/login", async (req: Request, res: Response) => {
-  const { email, password } = creds.parse(req.body);
+  const ok = await bcrypt.compare(password, user.contrasenaUsuario);
+  if (!ok) return res.status(401).json({ error: "INVALID_CREDENTIALS" });
 
-    const u = await prisma.usuario.findFirst({
-    where: {
-      emailUsuario: {
-        equals: email,
-        mode: "insensitive", // <- esto hace que ignore mayúsculas/minúsculas
-      },
-    },
+  // guardar sesión
+  (req.session as any).userId = user.idUsuario;
+
+  res.json({
+    id: user.idUsuario,
+    nombre: user.nombreUsuario,
+    email: user.emailUsuario,
   });
-  
-  if (!u) return res.status(401).json({ error: "CREDENCIALES" });
-
-  const ok = await bcrypt.compare(password, u.contrasenaUsuario);
-  if (!ok) return res.status(401).json({ error: "CREDENCIALES" });
-
-  req.session.userId = u.idUsuario;
-  res.json({ id: u.idUsuario, email: u.emailUsuario, nombre: u.nombreUsuario });
 });
 
-r.get("/me", (req: Request, res: Response) => {
-  if (!req.session.userId) return res.status(401).json({ error: "UNAUTHORIZED" });
-  res.json({ id: req.session.userId });
+// ===============================
+// LOGOUT
+// ===============================
+router.post("/logout", (req, res) => {
+  req.session.destroy(() => res.status(204).end());
 });
 
-r.post("/logout", (req: Request, res: Response) => {
-  req.session.destroy(() => {});
-  res.clearCookie("sid");
-  res.json({ ok: true });
+// ===============================
+// AUTH/ME
+// ===============================
+router.get("/me", async (req, res) => {
+  const userId = (req.session as any).userId;
+  if (!userId) return res.status(401).json({ error: "UNAUTHORIZED" });
+
+  const user = await prisma.usuario.findUnique({
+    where: { idUsuario: userId },
+    select: { idUsuario: true, nombreUsuario: true, emailUsuario: true },
+  });
+
+  if (!user) return res.status(401).json({ error: "NOT_FOUND" });
+
+  res.json({
+    id: user.idUsuario,
+    nombre: user.nombreUsuario,
+    email: user.emailUsuario,
+  });
 });
 
-export default r;
+export default router;

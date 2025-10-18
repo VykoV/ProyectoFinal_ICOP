@@ -3,7 +3,6 @@ import cors from "cors";
 import session from "express-session";
 import pgSession from "connect-pg-simple";
 import bcrypt from "bcrypt";
-import { z } from "zod";
 import { PrismaClient, Prisma } from "@prisma/client";
 import authRoutes from "./auth";
 
@@ -16,13 +15,13 @@ const PgSession = pgSession(session);
 // ==========================
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Accept"],
   })
 );
-app.options("*", cors({ origin: "http://localhost:5173", credentials: true }));
+app.options("*", cors({ origin: ["http://localhost:5173", "http://127.0.0.1:5173"], credentials: true }));
 
 // ==========================
 // 2) PARSER JSON
@@ -56,7 +55,7 @@ app.use(
 // ==========================
 // 4) RUTA DE AUTENTICACIÓN
 // ==========================
-app.use("/auth", authRoutes);
+app.use("/api/auth", authRoutes);
 
 // ==========================
 // 5) LOG SIMPLE
@@ -71,6 +70,11 @@ app.use((req, _res, next) => {
 // ==========================
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
+// ==========================
+// HELPERS
+// ==========================
+const sumStock = (stocks: { cantidadStock: Prisma.Decimal }[]) =>
+  stocks.reduce((acc, s) => acc + Number(s.cantidadStock), 0);
 
 // ====== SELECTS ======
 app.get("/api/familias", async (_req, res) => {
@@ -101,9 +105,6 @@ app.get("/api/proveedores", async (_req, res) => {
   res.json(rows.map(r => ({ id: r.idProveedor, nombre: r.nombreProveedor })));
 });
 
-// ====== HELPERS ======
-const sumStock = (stocks: { cantidadStock: Prisma.Decimal }[]) =>
-  stocks.reduce((acc, s) => acc + Number(s.cantidadStock), 0);
 
 // ====== CRUD PRODUCTOS ======
 
@@ -132,6 +133,7 @@ app.get("/api/products", async (_req, res) => {
     }))
   );
 });
+
 
 // OBTENER UNO
 // OBTENER UNO (incluye proveedor y nombres de familia/subfamilia)
@@ -185,7 +187,6 @@ app.get("/api/products/:id", async (req, res) => {
   const s = r.stocks[0];
   const pp = r.proveedorProductos[0];
   res.json({
-    // básicos
     id: r.idProducto,
     sku: r.codigoProducto,
     nombre: r.nombreProducto,
@@ -193,23 +194,20 @@ app.get("/api/products/:id", async (req, res) => {
     descripcion: r.descripcionProducto ?? null,
     codigoBarras: r.codigoBarrasProducto ? String(r.codigoBarrasProducto) : null,
     oferta: r.ofertaProducto,
-    // precios
     precioCosto: Number(r.precioProducto),
     utilidad: Number(r.utilidadProducto),
-    // taxonomías
     subFamiliaId: r.SubFamilia?.idSubFamilia ?? r.idSubFamilia,
     nombreSubfamilia: r.SubFamilia?.tipoSubFamilia ?? null,
     familiaId: r.SubFamilia?.Familia?.idFamilia ?? null,
     nombreFamilia: r.SubFamilia?.Familia?.tipoFamilia ?? null,
-    // stock último snapshot
     stock: s ? Number(s.cantidadStock) : 0,
     bajoMinimoStock: s ? Number(s.bajoMinimoStock) : 0,
     ultimaModificacionStock: s ? s.ultimaModificacionStock : null,
-    // proveedor último asignado
     proveedorId: pp?.idProveedor ?? pp?.Proveedor?.idProveedor ?? null,
     nombreProveedor: pp?.Proveedor?.nombreProveedor ?? null,
   });
 });
+
 
 // CREAR con código FF-SS-000X
 app.post("/api/products", async (req, res) => {
@@ -475,8 +473,8 @@ app.get("/api/usuarios", async (_req, res) => {
       nombreUsuario: true,
       emailUsuario: true,
       roles: {
-        select: { Rol: { select: { idRol: true, nombreRol: true, comentario: true } } }
-      }
+        select: { Rol: { select: { idRol: true, nombreRol: true, comentario: true } } },
+      },
     },
     orderBy: { idUsuario: "asc" },
   });
@@ -492,7 +490,6 @@ app.get("/api/usuarios", async (_req, res) => {
     })),
   })));
 });
-
 
 
 // ====== CREAR USUARIO ======
@@ -586,5 +583,5 @@ app.get("/api/_meta/product-columns", async (_req, res) => {
 });
 
 app.listen(4000, () =>
-  console.log("API corriendo en http://127.0.0.1:4000")
+  console.log("✅ API corriendo en http://localhost:4000 (rutas bajo /api)")
 );
