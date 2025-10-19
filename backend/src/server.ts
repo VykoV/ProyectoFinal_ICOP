@@ -23,10 +23,19 @@ app.use(
 );
 app.options("*", cors({ origin: ["http://localhost:5173", "http://127.0.0.1:5173"], credentials: true }));
 
+
+
 // ==========================
 // 2) PARSER JSON
 // ==========================
 app.use(express.json());
+
+
+app.set(
+  "json replacer",
+  (key: string, value: unknown): unknown =>
+    typeof value === "bigint" ? value.toString() : value
+);
 
 // ==========================
 // 3) SESIONES
@@ -75,6 +84,7 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 // ==========================
 const sumStock = (stocks: { cantidadStock: Prisma.Decimal }[]) =>
   stocks.reduce((acc, s) => acc + Number(s.cantidadStock), 0);
+
 
 // ====== SELECTS ======
 app.get("/api/familias", async (_req, res) => {
@@ -561,6 +571,7 @@ app.put("/api/usuarios/:id", async (req, res) => {
   }
 });
 
+
 // ELIMINAR USUARIO
 app.delete("/api/usuarios/:id", async (req, res) => {
   const id = Number(req.params.id);
@@ -569,6 +580,159 @@ app.delete("/api/usuarios/:id", async (req, res) => {
   res.status(204).end();
 });
 
+/* === API === */
+const api = express.Router();
+
+/* ---- CLIENTES ---- */
+api.get("/clientes", async (req, res) => {
+  const q = String(req.query.q ?? "").trim();
+
+  // armar filtro
+  let where: any = undefined;
+  if (q) {
+    const qNum = q.replace(/\D/g, "");
+    where = {
+      OR: [
+        { nombreCliente: { contains: q, mode: "insensitive" } },
+        { apellidoCliente: { contains: q, mode: "insensitive" } },
+        { emailCliente: { contains: q, mode: "insensitive" } },
+        ...(qNum
+          ? [
+              { cuil: BigInt(qNum) },
+              { telefonoCliente: BigInt(qNum) },
+            ]
+          : []),
+      ],
+    };
+  }
+
+  const rows = await prisma.cliente.findMany({
+    where,
+    select: {
+      idCliente: true,
+      nombreCliente: true,
+      apellidoCliente: true,
+      cuil: true,
+      emailCliente: true,
+      telefonoCliente: true,
+    },
+    orderBy: { idCliente: "asc" },
+  });
+
+  res.json(rows);
+});
+
+
+api.get("/clientes/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const row = await prisma.cliente.findUnique({
+    where: { idCliente: id },
+    include: {
+      TipoCliente: true,
+      NivelCliente: true,
+      Localidad: { include: { Provincia: true } },
+    },
+  });
+  if (!row) return res.status(404).json({ error: "NOT_FOUND" });
+  res.json(row);
+});
+
+// crear
+api.post("/clientes", async (req, res) => {
+  try {
+    const {
+      cuil, nombreCliente, apellidoCliente, emailCliente, telefonoCliente,
+      observacion, idTipoCliente, idNivelCliente, idLocalidad, fechaRegistro,
+    } = req.body;
+
+    const created = await prisma.cliente.create({
+      data: {
+        cuil: cuil ? BigInt(cuil) : null,
+        nombreCliente, apellidoCliente,
+        emailCliente: emailCliente ?? null,
+        telefonoCliente: telefonoCliente ? BigInt(telefonoCliente) : null,
+        observacion: observacion ?? null,
+        idTipoCliente: idTipoCliente ? Number(idTipoCliente) : null,
+        idNivelCliente: idNivelCliente ? Number(idNivelCliente) : null,
+        idLocalidad: idLocalidad ? Number(idLocalidad) : null,
+        fechaRegistro: fechaRegistro ? new Date(fechaRegistro) : undefined,
+      },
+    });
+
+    res.status(201).json(created);
+  } catch (e: any) {
+    res.status(400).json({ error: "CREATE_FAILED" });
+  }
+});
+
+// actualizar
+api.put("/clientes/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const {
+    cuil, nombreCliente, apellidoCliente, emailCliente, telefonoCliente,
+    observacion, idTipoCliente, idNivelCliente, idLocalidad, fechaRegistro,
+  } = req.body;
+
+  try {
+    const updated = await prisma.cliente.update({
+      where: { idCliente: id },
+      data: {
+        ...(cuil !== undefined && { cuil: cuil ? BigInt(cuil) : null }),
+        ...(nombreCliente !== undefined && { nombreCliente }),
+        ...(apellidoCliente !== undefined && { apellidoCliente }),
+        ...(emailCliente !== undefined && { emailCliente }),
+        ...(telefonoCliente !== undefined && { telefonoCliente: telefonoCliente ? BigInt(telefonoCliente) : null }),
+        ...(observacion !== undefined && { observacion }),
+        ...(idTipoCliente !== undefined && { idTipoCliente: idTipoCliente ? Number(idTipoCliente) : null }),
+        ...(idNivelCliente !== undefined && { idNivelCliente: idNivelCliente ? Number(idNivelCliente) : null }),
+        ...(idLocalidad !== undefined && { idLocalidad: idLocalidad ? Number(idLocalidad) : null }),
+        ...(fechaRegistro !== undefined && { fechaRegistro: new Date(fechaRegistro) }),
+      },
+    });
+    res.json(updated);
+  } catch (e: any) {
+    res.status(400).json({ error: "UPDATE_FAILED" });
+  }
+});
+
+// eliminar
+api.delete("/clientes/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    await prisma.cliente.delete({ where: { idCliente: id } });
+    res.status(204).end();
+  } catch (e: any) {
+    if (e.code === "P2003") return res.status(409).json({ error: "FK_CONSTRAINT_IN_USE" }); // tiene ventas
+    res.status(400).json({ error: "DELETE_FAILED" });
+  }
+});
+
+// Catálogos
+app.get("/api/tipos-cliente", async (_req, res) => {
+  const rows = await prisma.tipoCliente.findMany({ orderBy: { idTipoCliente: "asc" } });
+  res.json(rows);
+});
+
+app.get("/api/niveles-cliente", async (_req, res) => {
+  const rows = await prisma.nivelCliente.findMany({ orderBy: { idNivelCliente: "asc" } });
+  res.json(rows);
+});
+
+app.get("/api/provincias", async (_req, res) => {
+  const rows = await prisma.provincia.findMany({ orderBy: { idProvincia: "asc" } });
+  res.json(rows);
+});
+
+app.get("/api/localidades", async (req, res) => {
+  const provinciaId = req.query.provinciaId ? Number(req.query.provinciaId) : undefined;
+  const where = provinciaId ? { idProvincia: provinciaId } : {};
+  const rows = await prisma.localidad.findMany({ where, orderBy: { idLocalidad: "asc" } });
+  res.json(rows);
+});
+
+
+/* ---- montar router ---- */
+app.use("/api", api);
 
 
 // ====== META ======
@@ -583,5 +747,5 @@ app.get("/api/_meta/product-columns", async (_req, res) => {
 });
 
 app.listen(4000, () =>
-  console.log("✅ API corriendo en http://localhost:4000 (rutas bajo /api)")
+  console.log("✅ API corriendo en http://localhost:4000")
 );

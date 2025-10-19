@@ -208,21 +208,21 @@ const catalogo = [
     {
       nombreCliente: 'Camilo',
       apellidoCliente: 'Valli',
-      cuil: toBigIntOrNull('20-41656829-2'),
+      cuil: toBigIntOrNull('20416568292'),
       emailCliente: 'Prueba@gmail.com',
-      telefonoCliente: toBigIntOrNull('0342-502-4601'),
+      telefonoCliente: toBigIntOrNull('03425024601'),
     },
     {
       nombreCliente: 'Victoria',
       apellidoCliente: 'Valli',
-      cuil: toBigIntOrNull('27-42611589-1'),
+      cuil: toBigIntOrNull('20426115891'),
       emailCliente: 'Prueba2@gmail.com',
       telefonoCliente: toBigIntOrNull('12345678'),
     },
     {
       nombreCliente: 'Luz',
       apellidoCliente: 'Guinea',
-      cuil: toBigIntOrNull('42-611282'),
+      cuil: toBigIntOrNull('42611282'),
       emailCliente: 'Luz_Mascota@gmail.com',
       telefonoCliente: toBigIntOrNull('87654321'),
     },
@@ -240,23 +240,23 @@ const catalogo = [
   // ---------- Proveedores (coincide con schema) ----------
   const proveedores = [
     {
-      CIF_NIFProveedor: toBigIntOrNull('30-58962149-9'),
+      CIF_NIFProveedor: toBigIntOrNull('30589621499'),
       nombreProveedor: 'Makor',
       telefonoProveedor: toBigIntOrNull('3415045131'),
       mailProveedor: 'administración@makorsa.com.ar',
       observacionProveedor: 'Alvear (2130), Santa Fe',
     },
     {
-      CIF_NIFProveedor: toBigIntOrNull('30-71122736-5'),
+      CIF_NIFProveedor: toBigIntOrNull('30711227365'),
       nombreProveedor: 'Scolari Distribuciones SRL',
       telefonoProveedor: toBigIntOrNull('3425689525'),
       mailProveedor: 'ventas@scolaridistribuciones.com.ar',
       observacionProveedor: '1º de Mayo 2278, S3000 Santa Fe de la Vera Cruz, Santa Fe',
     },
     {
-      CIF_NIFProveedor: toBigIntOrNull('30-52117965-8'),
+      CIF_NIFProveedor: toBigIntOrNull('30521179658'),
       nombreProveedor: 'Scolari Hermanos',
-      telefonoProveedor: toBigIntOrNull('0342 522-2504'),
+      telefonoProveedor: toBigIntOrNull('03425222504'),
       mailProveedor: null,
       observacionProveedor: '1º de Mayo 2277, S3000 Santa Fe de la Vera Cruz, Santa Fe',
     },

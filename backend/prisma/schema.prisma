@@ -8,14 +8,14 @@ datasource db {
 }
 
 model Usuario {
-  idUsuario         Int     @id @default(autoincrement()) @db.Integer
-  nombreUsuario     String  @db.VarChar(100)
-  emailUsuario      String  @unique @db.Citext
-  contrasenaUsuario String  @map("contraseñaUsuario") @db.VarChar(100)
+  idUsuario         Int    @id @default(autoincrement()) @db.Integer
+  nombreUsuario     String @db.VarChar(100)
+  emailUsuario      String  @db.VarChar(320) @unique
+  contrasenaUsuario String @map("contraseñaUsuario") @db.VarChar(100)
 
   roles     UsuarioRol[]
   productos Producto[]
-  createdAt DateTime @default(now())
+  createdAt DateTime     @default(now())
 
   @@map("Usuario")
 }
@@ -82,13 +82,14 @@ model Localidad {
 }
 
 model Cliente {
-  idCliente       Int     @id @default(autoincrement()) @db.Integer
-  nombreCliente   String  @db.VarChar(100)
-  apellidoCliente String  @db.VarChar(100)
+  idCliente       Int      @id @default(autoincrement()) @db.Integer
+  nombreCliente   String   @db.VarChar(100)
+  apellidoCliente String   @db.VarChar(100)
   cuil            BigInt?
-  emailCliente    String  @db.VarChar(100)
+  emailCliente    String   @db.VarChar(100)
   telefonoCliente BigInt?
-  observacion     String? @db.Text
+  observacion     String?  @db.Text
+  fechaRegistro   DateTime @default(now())
   idTipoCliente   Int?
   idNivelCliente  Int?
   idLocalidad     Int?
@@ -147,10 +148,10 @@ model Producto {
 }
 
 model Stock {
-  idStock                 Int     @id @default(autoincrement()) @db.Integer
+  idStock                 Int      @id @default(autoincrement()) @db.Integer
   idProducto              Int
   bajoMinimoStock         Int
-  cantidadStock           Decimal @db.Decimal(12, 2)
+  cantidadStock           Decimal  @db.Decimal(12, 2)
   ultimaModificacionStock DateTime @default(now())
 
   Producto Producto @relation(fields: [idProducto], references: [idProducto])
@@ -218,9 +219,9 @@ model Compra {
   idMetodoPago           Int
   idMoneda               Int
 
-  Proveedor  Proveedor?  @relation(fields: [idProveedor], references: [idProveedor], onDelete: SetNull, onUpdate: Cascade)
-  MetodoPago MetodoPago  @relation(fields: [idMetodoPago], references: [idMetodoPago])
-  Moneda     Moneda      @relation(fields: [idMoneda], references: [idMoneda])
+  Proveedor  Proveedor? @relation(fields: [idProveedor], references: [idProveedor], onDelete: SetNull, onUpdate: Cascade)
+  MetodoPago MetodoPago @relation(fields: [idMetodoPago], references: [idMetodoPago])
+  Moneda     Moneda     @relation(fields: [idMoneda], references: [idMoneda])
 
   detalles DetalleCompra[]
 
