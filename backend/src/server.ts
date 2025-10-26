@@ -44,9 +44,10 @@ app.use(
   session({
     store: new PgSession({
       conString: process.env.DATABASE_URL!,
-      createTableIfMissing: true,
-      schemaName: "public",
+      schemaName: "auth",
       tableName: "session",
+      createTableIfMissing: false,
+
     }),
     name: "sid",
     secret: process.env.SESSION_SECRET ?? "dev_secret",
@@ -82,9 +83,13 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 // ==========================
 // HELPERS
 // ==========================
-const sumStock = (stocks: { cantidadStock: Prisma.Decimal }[]) =>
-  stocks.reduce((acc, s) => acc + Number(s.cantidadStock), 0);
-
+const sumStock = (stocks: { cantidadRealStock: Prisma.Decimal; stockComprometido: Prisma.Decimal }[]) =>
+  stocks.reduce(
+    (acc, s) =>
+      acc +
+      (Number(s.cantidadRealStock) - Number(s.stockComprometido || 0)),
+    0
+  );
 
 // ====== SELECTS ======
 app.get("/api/familias", async (_req, res) => {
@@ -127,7 +132,12 @@ app.get("/api/products", async (_req, res) => {
       codigoProducto: true,
       precioVentaPublicoProducto: true,
       ofertaProducto: true,
-      stocks: { select: { cantidadStock: true } },
+      stocks: {
+        select: {
+          cantidadRealStock: true,
+          stockComprometido: true,
+        },
+      },
     },
     orderBy: { idProducto: "desc" },
   });
@@ -146,7 +156,6 @@ app.get("/api/products", async (_req, res) => {
 
 
 // OBTENER UNO
-// OBTENER UNO (incluye proveedor y nombres de familia/subfamilia)
 app.get("/api/products/:id", async (req, res) => {
   const id = Number(req.params.id);
 
@@ -173,7 +182,8 @@ app.get("/api/products/:id", async (req, res) => {
       stocks: {
         select: {
           idStock: true,
-          cantidadStock: true,
+          cantidadRealStock: true,
+          stockComprometido: true,
           bajoMinimoStock: true,
           ultimaModificacionStock: true,
         },
@@ -184,7 +194,9 @@ app.get("/api/products/:id", async (req, res) => {
         select: {
           idProveedor: true,
           fechaIngreso: true,
-          Proveedor: { select: { idProveedor: true, nombreProveedor: true } },
+          Proveedor: {
+            select: { idProveedor: true, nombreProveedor: true },
+          },
         },
         orderBy: { fechaIngreso: "desc" },
         take: 1,
@@ -196,13 +208,21 @@ app.get("/api/products/:id", async (req, res) => {
 
   const s = r.stocks[0];
   const pp = r.proveedorProductos[0];
+
+  // stockDisponible = real - comprometido
+  const stockDisponible = s
+    ? Number(s.cantidadRealStock) - Number(s.stockComprometido || 0)
+    : 0;
+
   res.json({
     id: r.idProducto,
     sku: r.codigoProducto,
     nombre: r.nombreProducto,
     precio: Number(r.precioVentaPublicoProducto),
     descripcion: r.descripcionProducto ?? null,
-    codigoBarras: r.codigoBarrasProducto ? String(r.codigoBarrasProducto) : null,
+    codigoBarras: r.codigoBarrasProducto
+      ? String(r.codigoBarrasProducto)
+      : null,
     oferta: r.ofertaProducto,
     precioCosto: Number(r.precioProducto),
     utilidad: Number(r.utilidadProducto),
@@ -210,9 +230,11 @@ app.get("/api/products/:id", async (req, res) => {
     nombreSubfamilia: r.SubFamilia?.tipoSubFamilia ?? null,
     familiaId: r.SubFamilia?.Familia?.idFamilia ?? null,
     nombreFamilia: r.SubFamilia?.Familia?.tipoFamilia ?? null,
-    stock: s ? Number(s.cantidadStock) : 0,
+
+    stock: stockDisponible,
     bajoMinimoStock: s ? Number(s.bajoMinimoStock) : 0,
     ultimaModificacionStock: s ? s.ultimaModificacionStock : null,
+
     proveedorId: pp?.idProveedor ?? pp?.Proveedor?.idProveedor ?? null,
     nombreProveedor: pp?.Proveedor?.nombreProveedor ?? null,
   });
@@ -284,17 +306,19 @@ app.post("/api/products", async (req, res) => {
       },
     });
 
-    // stock inicial
-    await prisma.stock.create({
-      data: {
-        idProducto: row.idProducto,
-        cantidadStock: Number(stock ?? 0),
-        bajoMinimoStock: Number(bajoMinimoStock ?? 0),
-        ultimaModificacionStock: ultimaModificacionStock
-          ? new Date(ultimaModificacionStock)
-          : new Date(),
-      },
-    });
+// stock inicial
+await prisma.stock.create({
+  data: {
+    idProducto: row.idProducto,
+    cantidadRealStock: new Prisma.Decimal(stock ?? 0),
+    stockComprometido: new Prisma.Decimal(0),
+    bajoMinimoStock: new Prisma.Decimal(bajoMinimoStock ?? 0),
+    ultimaModificacionStock: ultimaModificacionStock
+      ? new Date(ultimaModificacionStock)
+      : new Date(),
+  },
+});
+
 
     // relación proveedor–producto histórica (opcional)
     if (proveedorId) {
@@ -380,32 +404,43 @@ app.put("/api/products/:id", async (req, res) => {
     });
 
     // stock: create/update simple
-    if (stock !== undefined || bajoMinimoStock !== undefined || ultimaModificacionStock !== undefined) {
-      const s = await prisma.stock.findFirst({ where: { idProducto: id } });
-      if (s) {
-        await prisma.stock.update({
-          where: { idStock: s.idStock },
-          data: {
-            ...(stock !== undefined && { cantidadStock: Number(stock) }),
-            ...(bajoMinimoStock !== undefined && { bajoMinimoStock: Number(bajoMinimoStock) }),
-            ...(ultimaModificacionStock !== undefined && {
-              ultimaModificacionStock: new Date(ultimaModificacionStock),
-            }),
-          },
-        });
-      } else {
-        await prisma.stock.create({
-          data: {
-            idProducto: id,
-            cantidadStock: Number(stock ?? 0),
-            bajoMinimoStock: Number(bajoMinimoStock ?? 0),
-            ultimaModificacionStock: ultimaModificacionStock
-              ? new Date(ultimaModificacionStock)
-              : new Date(),
-          },
-        });
-      }
-    }
+if (
+  stock !== undefined ||
+  bajoMinimoStock !== undefined ||
+  ultimaModificacionStock !== undefined
+) {
+  const s = await prisma.stock.findFirst({ where: { idProducto: id } });
+
+  if (s) {
+    await prisma.stock.update({
+      where: { idStock: s.idStock },
+      data: {
+        ...(stock !== undefined && {
+          cantidadRealStock: new Prisma.Decimal(stock),
+        }),
+        ...(bajoMinimoStock !== undefined && {
+          bajoMinimoStock: new Prisma.Decimal(bajoMinimoStock),
+        }),
+        ...(ultimaModificacionStock !== undefined && {
+          ultimaModificacionStock: new Date(ultimaModificacionStock),
+        }),
+      },
+    });
+  } else {
+    await prisma.stock.create({
+      data: {
+        idProducto: id,
+        cantidadRealStock: new Prisma.Decimal(stock ?? 0),
+        stockComprometido: new Prisma.Decimal(0),
+        bajoMinimoStock: new Prisma.Decimal(bajoMinimoStock ?? 0),
+        ultimaModificacionStock: ultimaModificacionStock
+          ? new Date(ultimaModificacionStock)
+          : new Date(),
+      },
+    });
+  }
+}
+
 
     // proveedor histórico opcional
     if (proveedorId) {
@@ -525,8 +560,8 @@ app.post("/api/usuarios", async (req, res) => {
         contrasenaUsuario: hash,
         roles: idRol
           ? {
-              create: [{ Rol: { connect: { idRol: Number(idRol) } } }],
-            }
+            create: [{ Rol: { connect: { idRol: Number(idRol) } } }],
+          }
           : undefined,
       },
       include: { roles: { include: { Rol: true } } },
@@ -598,9 +633,9 @@ api.get("/clientes", async (req, res) => {
         { emailCliente: { contains: q, mode: "insensitive" } },
         ...(qNum
           ? [
-              { cuil: BigInt(qNum) },
-              { telefonoCliente: BigInt(qNum) },
-            ]
+            { cuil: BigInt(qNum) },
+            { telefonoCliente: BigInt(qNum) },
+          ]
           : []),
       ],
     };
@@ -730,6 +765,233 @@ app.get("/api/localidades", async (req, res) => {
   res.json(rows);
 });
 
+app.post("/api/preventas", async (req, res) => {
+  try {
+    const { idCliente, idTipoPago, observacion, detalles = [] } = req.body;
+
+    if (!idCliente || !idTipoPago || !Array.isArray(detalles) || detalles.length === 0)
+      return res.status(400).json({ error: "FALTAN_DATOS" });
+
+    // estado = Pendiente
+    const estado = await prisma.estadoVenta.findFirst({
+      where: { nombreEstadoVenta: { equals: "Pendiente", mode: "insensitive" } },
+      select: { idEstadoVenta: true },
+    });
+    const idEstadoVenta = estado?.idEstadoVenta ?? 1;
+
+    // moneda por defecto
+    const moneda = await prisma.moneda.findFirst({ select: { idMoneda: true } });
+    const idMoneda = moneda?.idMoneda ?? 1;
+
+    const ahora = new Date();
+
+    const v = await prisma.venta.create({
+      data: {
+        fechaVenta: ahora,
+        fechaCobroVenta: ahora, 
+        observacion: observacion ?? null,
+        idCliente: Number(idCliente),
+        idEstadoVenta,
+        idTipoPago: Number(idTipoPago),
+        idMoneda,
+        detalles: {
+          create: detalles.map((d: any) => ({
+            idProducto: Number(d.idProducto),
+            cantidad: Number(d.cantidad),
+          })),
+        },
+      },
+      select: { idVenta: true },
+    });
+
+    res.status(201).json({ id: v.idVenta });
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: "CREATE_FAILED" });
+  }
+});
+
+app.get("/api/preventas", async (req, res) => {
+  const q = String(req.query.q ?? "").trim();
+
+  // id del estado "Pendiente"
+  const estado = await prisma.estadoVenta.findFirst({
+    where: { nombreEstadoVenta: { equals: "Pendiente", mode: "insensitive" } },
+    select: { idEstadoVenta: true },
+  });
+  const pendienteId = estado?.idEstadoVenta ?? 0;
+
+  const rows = await prisma.venta.findMany({
+    where: {
+      idEstadoVenta: pendienteId,
+      ...(q
+        ? {
+            Cliente: {
+              OR: [
+                { nombreCliente: { contains: q, mode: "insensitive" } },
+                { apellidoCliente: { contains: q, mode: "insensitive" } },
+                { emailCliente: { contains: q, mode: "insensitive" } },
+              ],
+            },
+          }
+        : {}),
+    },
+    include: { Cliente: true, TipoPago: true },
+    orderBy: { idVenta: "desc" },
+    take: 100,
+  });
+
+  const out = await Promise.all(
+    rows.map(async v => ({
+      id: v.idVenta,
+      cliente: `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`,
+      fecha: v.fechaVenta,
+      metodoPago: v.TipoPago?.tipoPago ?? null,
+      total: await calcularTotal(v.idVenta),
+    }))
+  );
+
+  res.json(out);
+});
+
+app.get("/api/preventas/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const v = await prisma.venta.findUnique({
+    where: { idVenta: id },
+    include: {
+      Cliente: true,
+      TipoPago: true,
+      EstadoVenta: true,
+      detalles: { include: { Producto: true } }, 
+    },
+  });
+  if (!v) return res.status(404).json({ error: "NOT_FOUND" });
+  res.json(v);
+});
+
+app.put("/api/preventas/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const { idCliente, idTipoPago, observacion, detalles = [] } = req.body;
+
+  const v = await prisma.venta.update({
+    where: { idVenta: id },
+    data: {
+      ...(idCliente && { idCliente: Number(idCliente) }),
+      ...(idTipoPago && { idTipoPago: Number(idTipoPago) }),
+      observacion: observacion ?? null,
+    },
+    select: { idVenta: true },
+  });
+
+  // remplazar detalles
+  await prisma.detalleVenta.deleteMany({ where: { idVenta: id } });
+  if (detalles.length) {
+    await prisma.detalleVenta.createMany({
+      data: detalles.map((d: any) => ({
+        idVenta: id,
+        idProducto: Number(d.idProducto),
+        cantidad: Number(d.cantidad),
+      })),
+    });
+  }
+
+  res.json({ id: v.idVenta });
+});
+
+app.delete("/api/preventas/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  await prisma.$transaction([
+    prisma.detalleVenta.deleteMany({ where: { idVenta: id } }),
+    prisma.venta.delete({ where: { idVenta: id } }),
+  ]);
+  res.status(204).end();
+});
+
+
+// Tipos de pago (para el select)
+app.get("/api/tipos-pago", async (_req, res) => {
+  const rows = await prisma.tipoPago.findMany({ orderBy: { idTipoPago: "asc" } });
+  res.json(rows.map(r => ({ id: r.idTipoPago, nombre: r.tipoPago })));
+});
+
+// Búsqueda de productos (por nombre/código/barras)
+app.get("/api/products/search", async (req, res) => {
+  const q = String(req.query.q ?? "").trim();
+  const where = q
+    ? {
+        OR: [
+          {
+            nombreProducto: {
+              contains: q,
+              mode: "insensitive" as const,
+            },
+          },
+          {
+            codigoProducto: {
+              contains: q,
+              mode: "insensitive" as const,
+            },
+          },
+        ],
+      }
+    : undefined;
+
+  const rows = await prisma.producto.findMany({
+    where,
+    select: {
+      idProducto: true,
+      nombreProducto: true,
+      codigoProducto: true,
+      precioVentaPublicoProducto: true,
+    },
+    orderBy: { idProducto: "desc" },
+    take: q ? 20 : 100,
+  });
+
+  res.json(
+    rows.map(r => ({
+      id: r.idProducto,
+      nombre: r.nombreProducto,
+      sku: r.codigoProducto,
+      precio: Number(r.precioVentaPublicoProducto),
+    }))
+  );
+});
+
+
+/* ==== PREVENTAS (Venta con estado 'Pendiente') ==== */
+
+async function getDefaultMonedaId() {
+  const m = await prisma.moneda.findFirst({
+    select: { idMoneda: true },
+    orderBy: { idMoneda: "asc" },
+  });
+  return m?.idMoneda ?? 1;
+}
+
+// resolver id del estado 'Pendiente' una sola vez
+async function getPendienteId() {
+  const e = await prisma.estadoVenta.findFirst({
+    where: { nombreEstadoVenta: { equals: "Pendiente", mode: "insensitive" } },
+    select: { idEstadoVenta: true },
+  });
+  return e?.idEstadoVenta ?? 1; // fallback si ya sabés que 1 = Pendiente
+}
+
+// helper: total = Σ(detalle.cantidad * producto.precioVentaPublicoProducto)
+async function calcularTotal(idVenta: number) {
+  const dets = await prisma.detalleVenta.findMany({
+    where: { idVenta },
+    select: {
+      cantidad: true,
+      Producto: { select: { precioVentaPublicoProducto: true } },
+    },
+  });
+  return dets.reduce(
+    (a, d) => a + Number(d.cantidad) * Number(d.Producto.precioVentaPublicoProducto ?? 0),
+    0
+  );
+}
 
 /* ---- montar router ---- */
 app.use("/api", api);
