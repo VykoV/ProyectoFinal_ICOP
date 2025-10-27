@@ -306,18 +306,18 @@ app.post("/api/products", async (req, res) => {
       },
     });
 
-// stock inicial
-await prisma.stock.create({
-  data: {
-    idProducto: row.idProducto,
-    cantidadRealStock: new Prisma.Decimal(stock ?? 0),
-    stockComprometido: new Prisma.Decimal(0),
-    bajoMinimoStock: new Prisma.Decimal(bajoMinimoStock ?? 0),
-    ultimaModificacionStock: ultimaModificacionStock
-      ? new Date(ultimaModificacionStock)
-      : new Date(),
-  },
-});
+    // stock inicial
+    await prisma.stock.create({
+      data: {
+        idProducto: row.idProducto,
+        cantidadRealStock: new Prisma.Decimal(stock ?? 0),
+        stockComprometido: new Prisma.Decimal(0),
+        bajoMinimoStock: new Prisma.Decimal(bajoMinimoStock ?? 0),
+        ultimaModificacionStock: ultimaModificacionStock
+          ? new Date(ultimaModificacionStock)
+          : new Date(),
+      },
+    });
 
 
     // relación proveedor–producto histórica (opcional)
@@ -404,42 +404,42 @@ app.put("/api/products/:id", async (req, res) => {
     });
 
     // stock: create/update simple
-if (
-  stock !== undefined ||
-  bajoMinimoStock !== undefined ||
-  ultimaModificacionStock !== undefined
-) {
-  const s = await prisma.stock.findFirst({ where: { idProducto: id } });
+    if (
+      stock !== undefined ||
+      bajoMinimoStock !== undefined ||
+      ultimaModificacionStock !== undefined
+    ) {
+      const s = await prisma.stock.findFirst({ where: { idProducto: id } });
 
-  if (s) {
-    await prisma.stock.update({
-      where: { idStock: s.idStock },
-      data: {
-        ...(stock !== undefined && {
-          cantidadRealStock: new Prisma.Decimal(stock),
-        }),
-        ...(bajoMinimoStock !== undefined && {
-          bajoMinimoStock: new Prisma.Decimal(bajoMinimoStock),
-        }),
-        ...(ultimaModificacionStock !== undefined && {
-          ultimaModificacionStock: new Date(ultimaModificacionStock),
-        }),
-      },
-    });
-  } else {
-    await prisma.stock.create({
-      data: {
-        idProducto: id,
-        cantidadRealStock: new Prisma.Decimal(stock ?? 0),
-        stockComprometido: new Prisma.Decimal(0),
-        bajoMinimoStock: new Prisma.Decimal(bajoMinimoStock ?? 0),
-        ultimaModificacionStock: ultimaModificacionStock
-          ? new Date(ultimaModificacionStock)
-          : new Date(),
-      },
-    });
-  }
-}
+      if (s) {
+        await prisma.stock.update({
+          where: { idStock: s.idStock },
+          data: {
+            ...(stock !== undefined && {
+              cantidadRealStock: new Prisma.Decimal(stock),
+            }),
+            ...(bajoMinimoStock !== undefined && {
+              bajoMinimoStock: new Prisma.Decimal(bajoMinimoStock),
+            }),
+            ...(ultimaModificacionStock !== undefined && {
+              ultimaModificacionStock: new Date(ultimaModificacionStock),
+            }),
+          },
+        });
+      } else {
+        await prisma.stock.create({
+          data: {
+            idProducto: id,
+            cantidadRealStock: new Prisma.Decimal(stock ?? 0),
+            stockComprometido: new Prisma.Decimal(0),
+            bajoMinimoStock: new Prisma.Decimal(bajoMinimoStock ?? 0),
+            ultimaModificacionStock: ultimaModificacionStock
+              ? new Date(ultimaModificacionStock)
+              : new Date(),
+          },
+        });
+      }
+    }
 
 
     // proveedor histórico opcional
@@ -641,23 +641,23 @@ api.get("/clientes", async (req, res) => {
     };
   }
 
- const rows = await prisma.cliente.findMany({
-  where,
-  select: {
-    idCliente: true,
-    nombreCliente: true,
-    apellidoCliente: true,
-    cuil: true,
-    emailCliente: true,
-    telefonoCliente: true,
-    NivelCliente: {
-      select: {
-        indiceBeneficio: true,
+  const rows = await prisma.cliente.findMany({
+    where,
+    select: {
+      idCliente: true,
+      nombreCliente: true,
+      apellidoCliente: true,
+      cuil: true,
+      emailCliente: true,
+      telefonoCliente: true,
+      NivelCliente: {
+        select: {
+          indiceBeneficio: true,
+        },
       },
     },
-  },
-  orderBy: { idCliente: "asc" },
-});
+    orderBy: { idCliente: "asc" },
+  });
 
   res.json(rows);
 });
@@ -793,7 +793,7 @@ app.post("/api/preventas", async (req, res) => {
     const v = await prisma.venta.create({
       data: {
         fechaVenta: ahora,
-        fechaCobroVenta: ahora, 
+        fechaCobroVenta: ahora,
         observacion: observacion ?? null,
         idCliente: Number(idCliente),
         idEstadoVenta,
@@ -831,14 +831,14 @@ app.get("/api/preventas", async (req, res) => {
       idEstadoVenta: pendienteId,
       ...(q
         ? {
-            Cliente: {
-              OR: [
-                { nombreCliente: { contains: q, mode: "insensitive" } },
-                { apellidoCliente: { contains: q, mode: "insensitive" } },
-                { emailCliente: { contains: q, mode: "insensitive" } },
-              ],
-            },
-          }
+          Cliente: {
+            OR: [
+              { nombreCliente: { contains: q, mode: "insensitive" } },
+              { apellidoCliente: { contains: q, mode: "insensitive" } },
+              { emailCliente: { contains: q, mode: "insensitive" } },
+            ],
+          },
+        }
         : {}),
     },
     include: { Cliente: true, TipoPago: true },
@@ -867,13 +867,13 @@ app.get("/api/preventas/:id", async (req, res) => {
       Cliente: true,
       TipoPago: true,
       EstadoVenta: true,
-      detalles: { include: { Producto: true } }, 
+      detalles: { include: { Producto: true } },
     },
   });
   if (!v) return res.status(404).json({ error: "NOT_FOUND" });
   res.json(v);
 });
-
+/*
 app.put("/api/preventas/:id", async (req, res) => {
   const id = Number(req.params.id);
   const { idCliente, idTipoPago, observacion, detalles = [] } = req.body;
@@ -901,7 +901,75 @@ app.put("/api/preventas/:id", async (req, res) => {
   }
 
   res.json({ id: v.idVenta });
+});*/
+app.put("/api/preventas/:id", async (req, res) => {
+  const id = Number(req.params.id);
+
+  const {
+    idCliente,
+    idTipoPago,
+    observacion,
+    fechaFacturacion, // "YYYY-MM-DD"
+    fechaCobro,       // "YYYY-MM-DD"
+    idMoneda,
+    accion,           // "guardar" | "finalizar" | "cancelar"
+  } = req.body;
+
+  // resolver nuevo estadoVenta si corresponde
+  let estadoVentaData: { idEstadoVenta?: number } = {};
+
+  if (accion === "finalizar") {
+    const est = await prisma.estadoVenta.findFirst({
+      where: { nombreEstadoVenta: { equals: "Finalizada", mode: "insensitive" } },
+      select: { idEstadoVenta: true },
+    });
+    if (est) estadoVentaData.idEstadoVenta = est.idEstadoVenta;
+  } else if (accion === "cancelar") {
+    const est = await prisma.estadoVenta.findFirst({
+      where: { nombreEstadoVenta: { equals: "Cancelada", mode: "insensitive" } },
+      select: { idEstadoVenta: true },
+    });
+    if (est) estadoVentaData.idEstadoVenta = est.idEstadoVenta;
+  }
+  // "guardar": no tocamos estado
+
+  // armamos solo columnas que sabemos que existen en Venta
+  const dataToUpdate: any = {
+    ...(idCliente !== undefined && idCliente !== null && idCliente !== "" && {
+      idCliente: Number(idCliente),
+    }),
+    ...(idTipoPago !== undefined && idTipoPago !== null && idTipoPago !== "" && {
+      idTipoPago: Number(idTipoPago),
+    }),
+    ...(observacion !== undefined && { observacion: observacion ?? null }),
+
+    ...(fechaFacturacion && {
+      fechaVenta: new Date(fechaFacturacion),
+    }),
+    ...(fechaCobro && {
+      fechaCobroVenta: new Date(fechaCobro),
+    }),
+    ...(idMoneda !== undefined && idMoneda !== null && idMoneda !== "" && {
+      idMoneda: Number(idMoneda),
+    }),
+
+    ...estadoVentaData,
+  };
+
+  try {
+    const updated = await prisma.venta.update({
+      where: { idVenta: id },
+      data: dataToUpdate,
+      select: { idVenta: true },
+    });
+
+    res.json({ ok: true, idVenta: updated.idVenta });
+  } catch (err) {
+    console.error("PUT /api/preventas/:id failed", err);
+    res.status(500).json({ error: "UPDATE_FAILED" });
+  }
 });
+
 
 app.delete("/api/preventas/:id", async (req, res) => {
   const id = Number(req.params.id);
@@ -912,33 +980,332 @@ app.delete("/api/preventas/:id", async (req, res) => {
   res.status(204).end();
 });
 
+app.post("/api/ventas", async (req, res) => {
+  try {
+    const {
+      idCliente,
+      idTipoPago,
+      idMoneda,
+      observacion,
+      items = [], // [{ idProducto, cantidad }]
+    } = req.body;
 
-// Tipos de pago (para el select)
-app.get("/api/tipos-pago", async (_req, res) => {
-  const rows = await prisma.tipoPago.findMany({ orderBy: { idTipoPago: "asc" } });
-  res.json(rows.map(r => ({ id: r.idTipoPago, nombre: r.tipoPago })));
+    // validación básica
+    if (
+      !idTipoPago ||
+      !idMoneda ||
+      !Array.isArray(items) ||
+      items.length === 0
+    ) {
+      return res.status(400).json({ error: "FALTAN_DATOS" });
+    }
+
+    // estado = Finalizada
+    const estadoRow = await prisma.estadoVenta.findFirst({
+      where: { nombreEstadoVenta: { equals: "Finalizada", mode: "insensitive" } },
+      select: { idEstadoVenta: true },
+    });
+    const idEstadoVenta = estadoRow?.idEstadoVenta;
+    if (!idEstadoVenta) {
+      return res
+        .status(500)
+        .json({ error: "NO_ESTADO_FINALIZADA" });
+    }
+
+    // timestamps
+    const ahora = new Date();
+
+    // creamos Venta + DetalleVenta en una transacción
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. crear venta
+      const data: any = {
+  fechaVenta: ahora,
+  fechaCobroVenta: ahora,
+  observacion: observacion ?? null,
+  idEstadoVenta,
+  idTipoPago: Number(idTipoPago),
+  idMoneda: Number(idMoneda),
+};
+
+// agregar idCliente solo si existe
+if (idCliente) data.idCliente = Number(idCliente);
+
+const v = await tx.venta.create({
+  data,
+  select: { idVenta: true },
 });
+
+
+
+      // 2. crear cada detalle y bajar stock
+      for (const it of items) {
+        const prodId = Number(it.idProducto);
+        const cant = Number(it.cantidad);
+
+        if (!prodId || !(cant > 0)) continue;
+
+        // 2a. insertar detalleVenta
+        await tx.detalleVenta.create({
+          data: {
+            idVenta: v.idVenta,
+            idProducto: prodId,
+            cantidad: cant,
+          },
+        });
+
+        // 2b. descontar stock real
+        // estrategia simple: traer el primer stock de ese producto
+        const st = await tx.stock.findFirst({
+          where: { idProducto: prodId },
+          orderBy: { ultimaModificacionStock: "desc" },
+        });
+
+        if (st) {
+          const nuevaCantidadReal =
+            Number(st.cantidadRealStock) - cant;
+
+          await tx.stock.update({
+            where: { idStock: st.idStock },
+            data: {
+              cantidadRealStock: new Prisma.Decimal(
+                nuevaCantidadReal < 0 ? 0 : nuevaCantidadReal
+              ),
+              ultimaModificacionStock: ahora,
+            },
+          });
+        }
+      }
+
+      return v;
+    });
+
+    res.status(201).json({ idVenta: result.idVenta });
+  } catch (err) {
+    console.error("POST /api/ventas error", err);
+    res.status(500).json({ error: "CREATE_FAILED" });
+  }
+});
+
+app.post("/api/ventas", async (req, res) => {
+  try {
+    const {
+      idCliente,
+      idTipoPago,
+      idMoneda,
+      observacion,
+      items = [], // [{ idProducto, cantidad }]
+    } = req.body;
+
+    // validación básica
+    if (
+      !idTipoPago ||
+      !idMoneda ||
+      !Array.isArray(items) ||
+      items.length === 0
+    ) {
+      return res.status(400).json({ error: "FALTAN_DATOS" });
+    }
+
+    // buscar estado "Finalizada"
+    const estadoRow = await prisma.estadoVenta.findFirst({
+      where: {
+        nombreEstadoVenta: {
+          equals: "Finalizada",
+          mode: "insensitive",
+        },
+      },
+      select: { idEstadoVenta: true },
+    });
+
+    if (!estadoRow) {
+      return res.status(500).json({ error: "NO_ESTADO_FINALIZADA" });
+    }
+
+    const idEstadoVenta = estadoRow.idEstadoVenta;
+    const ahora = new Date();
+
+    // transacción
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. armar data dinámica para Venta
+      const data: any = {
+        fechaVenta: ahora,
+        fechaCobroVenta: ahora,
+        observacion: observacion ?? null,
+        idEstadoVenta,
+        idTipoPago: Number(idTipoPago),
+        idMoneda: Number(idMoneda),
+        // idUsuario: pendiente de auth
+      };
+
+      if (idCliente) {
+        data.idCliente = Number(idCliente);
+      }
+
+      // 2. crear venta
+      const v = await tx.venta.create({
+        data,
+        select: { idVenta: true },
+      });
+
+      // 3. crear cada detalle y bajar stock
+      for (const it of items) {
+        const prodID = Number(it.idProducto);
+        const cant = Number(it.cantidad);
+
+        if (!prodID || !(cant > 0)) continue;
+
+        // 3a. detalleVenta
+        await tx.detalleVenta.create({
+          data: {
+            idVenta: v.idVenta,
+            idProducto: prodID,
+            cantidad: cant,
+          },
+        });
+
+        // 3b. bajar stock real
+        const st = await tx.stock.findFirst({
+          where: { idProducto: prodID },
+          orderBy: { ultimaModificacionStock: "desc" },
+        });
+
+        if (st) {
+          const nuevaCantidadReal =
+            Number(st.cantidadRealStock) - cant;
+
+          await tx.stock.update({
+            where: { idStock: st.idStock },
+            data: {
+              cantidadRealStock: new Prisma.Decimal(
+                nuevaCantidadReal < 0 ? 0 : nuevaCantidadReal
+              ),
+              ultimaModificacionStock: ahora,
+            },
+          });
+        }
+      }
+
+      return v;
+    });
+
+    return res.status(201).json({ idVenta: result.idVenta });
+  } catch (err) {
+    console.error("POST /api/ventas error", err);
+    return res.status(500).json({ error: "CREATE_FAILED" });
+  }
+});
+
+
+app.get("/api/ventas", async (req, res) => {
+  // opcional: q por cliente
+  const q = String(req.query.q ?? "").trim().toLowerCase();
+
+  // traemos ventas que NO estén Pendiente
+  // o sea Finalizada o Cancelada
+  // buscamos los ids de esos estados
+  const estados = await prisma.estadoVenta.findMany({
+    where: {
+      nombreEstadoVenta: {
+        in: ["Finalizada", "Cancelada"],
+        mode: "insensitive",
+      } as any,
+    },
+    select: { idEstadoVenta: true, nombreEstadoVenta: true },
+  });
+
+  const estadoIds = estados.map((e) => e.idEstadoVenta);
+
+  const rows = await prisma.venta.findMany({
+    where: {
+      idEstadoVenta: { in: estadoIds },
+      ...(q
+        ? {
+          Cliente: {
+            OR: [
+              { nombreCliente: { contains: q, mode: "insensitive" } },
+              { apellidoCliente: { contains: q, mode: "insensitive" } },
+              { emailCliente: { contains: q, mode: "insensitive" } },
+            ],
+          },
+        }
+        : {}),
+    },
+    include: {
+      Cliente: true,
+      TipoPago: true,
+      EstadoVenta: true,
+      detalles: {
+        include: { Producto: { select: { precioVentaPublicoProducto: true } } },
+      },
+    },
+    orderBy: { idVenta: "desc" },
+    take: 100,
+  });
+
+  // calculamos total por venta
+  const out = rows.map((v) => {
+    const total = v.detalles.reduce((acc, d) => {
+      const cant = Number(d.cantidad ?? 0);
+      const pu = Number(
+        d.Producto?.precioVentaPublicoProducto ?? 0
+      );
+      return acc + cant * pu;
+    }, 0);
+
+    return {
+      id: v.idVenta,
+      cliente: v.Cliente
+        ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
+        : "",
+      fecha: v.fechaVenta?.toISOString().slice(0, 10) ?? "",
+      metodoPago: v.TipoPago?.tipoPago ?? null,
+      estado: v.EstadoVenta?.nombreEstadoVenta ?? "",
+      total,
+    };
+  });
+
+  res.json(out);
+});
+
+// lista tipos de pago (única versión)
+app.get("/api/tipos-pago", async (_req, res) => {
+  const rows = await prisma.tipoPago.findMany({
+    select: {
+      idTipoPago: true,
+      tipoPago: true,
+    },
+    orderBy: { tipoPago: "asc" },
+  });
+  // respuesta canonical
+  res.json(
+    rows.map(r => ({
+      idTipoPago: r.idTipoPago,
+      tipoPago: r.tipoPago,
+    }))
+  );
+});
+
 
 // Búsqueda de productos (por nombre/código/barras)
 app.get("/api/products/search", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
   const where = q
     ? {
-        OR: [
-          {
-            nombreProducto: {
-              contains: q,
-              mode: "insensitive" as const,
-            },
+      OR: [
+        {
+          nombreProducto: {
+            contains: q,
+            mode: "insensitive" as const,
           },
-          {
-            codigoProducto: {
-              contains: q,
-              mode: "insensitive" as const,
-            },
+        },
+        {
+          codigoProducto: {
+            contains: q,
+            mode: "insensitive" as const,
           },
-        ],
-      }
+        },
+      ],
+    }
     : undefined;
 
   const rows = await prisma.producto.findMany({
@@ -997,6 +1364,47 @@ async function calcularTotal(idVenta: number) {
     0
   );
 }
+
+// lista clientes para selects
+app.get("/api/clientes", async (_req, res) => {
+  const rows = await prisma.cliente.findMany({
+    select: {
+      idCliente: true,
+      nombreCliente: true,
+      apellidoCliente: true,
+    },
+    orderBy: { apellidoCliente: "asc" },
+  });
+
+  res.json(
+    rows.map(r => ({
+      idCliente: r.idCliente,
+      nombreCliente: r.nombreCliente,
+      apellidoCliente: r.apellidoCliente,
+    }))
+  );
+});
+
+// lista monedas
+app.get("/api/monedas", async (_req, res) => {
+  const rows = await prisma.moneda.findMany({
+    select: {
+      idMoneda: true,
+      moneda: true,
+      precio: true,
+    },
+    orderBy: { moneda: "asc" },
+  });
+
+  res.json(
+    rows.map(r => ({
+      idMoneda: r.idMoneda,
+      moneda: r.moneda,
+      precio: Number(r.precio),
+    }))
+  );
+});
+
 
 /* ---- montar router ---- */
 app.use("/api", api);
