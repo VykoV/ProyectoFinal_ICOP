@@ -299,66 +299,62 @@ function PreventaForm({
 
   /* ===== Helpers negocio ===== */
   async function fetchBeneficioCliente(idC: string) {
-  if (!idC) {
-    setBeneficioCliente(0);
-    return;
-  }
-  try {
-    const { data } = await api.get(`/clientes/${idC}`);
+    if (!idC) {
+      setBeneficioCliente(0);
+      return;
+    }
+    try {
+      const { data } = await api.get(`/clientes/${idC}`);
 
-    const nivel = data?.NivelCliente ??
-      data?.nivelCliente ??
-      data?.Nivel ??
-      data?.nivel ??
-      {};
+      const nivel =
+        data?.NivelCliente ??
+        data?.nivelCliente ??
+        data?.Nivel ??
+        data?.nivel ??
+        {};
 
-    const directCandidates = [
-      data?.indiceBeneficio,
-      data?.beneficio,
-      data?.descuentoCliente,
-      data?.descuento,
-      data?.porcentajeDescuento,
-    ];
+      const directCandidates = [
+        data?.indiceBeneficio,
+        data?.beneficio,
+        data?.descuentoCliente,
+        data?.descuento,
+        data?.porcentajeDescuento,
+      ];
 
-    const nivelCandidates = [
-      nivel?.indiceBeneficio,
-      nivel?.beneficio,
-      nivel?.descuentoCliente,
-      nivel?.descuento,
-      nivel?.porcentajeDescuento,
-      nivel?.porcentaje,
-    ];
+      const nivelCandidates = [
+        nivel?.indiceBeneficio,
+        nivel?.beneficio,
+        nivel?.descuentoCliente,
+        nivel?.descuento,
+        nivel?.porcentajeDescuento,
+        nivel?.porcentaje,
+      ];
 
-    const all = [...directCandidates, ...nivelCandidates];
-    const chosen = all.find(
-      (v) =>
-        Number.isFinite(Number(v)) &&
-        Number(v) >= 0 &&
-        Number(v) <= 100
-    );
+      const all = [...directCandidates, ...nivelCandidates];
+      const chosen = all.find(
+        (v) => Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100
+      );
 
-    if (chosen !== undefined) {
-      setBeneficioCliente(Number(chosen));
-    } else {
+      if (chosen !== undefined) {
+        setBeneficioCliente(Number(chosen));
+      } else {
+        setBeneficioCliente(0);
+      }
+    } catch {
       setBeneficioCliente(0);
     }
-  } catch {
-    setBeneficioCliente(0);
   }
-}
-
 
   // sincroniza descuento cliente cuando idCliente queda confirmado
-useEffect(() => {
-  if (!idCliente) {
-    setBeneficioCliente(0);
-    return;
-  }
-  (async () => {
-    await fetchBeneficioCliente(idCliente);
-  })();
-}, [idCliente]);
-
+  useEffect(() => {
+    if (!idCliente) {
+      setBeneficioCliente(0);
+      return;
+    }
+    (async () => {
+      await fetchBeneficioCliente(idCliente);
+    })();
+  }, [idCliente]);
 
   /* ===== Cargas iniciales catálogos ===== */
   useEffect(() => {
@@ -377,7 +373,13 @@ useEffect(() => {
         }))
       );
 
-      setTiposPago(tp.data ?? []);
+      // normalizamos tiposPago aquí:
+      setTiposPago(
+        (tp.data ?? []).map((t: any) => ({
+          id: t.idTipoPago,
+          nombre: t.tipoPago,
+        }))
+      );
     })();
   }, []);
 
