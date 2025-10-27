@@ -873,35 +873,7 @@ app.get("/api/preventas/:id", async (req, res) => {
   if (!v) return res.status(404).json({ error: "NOT_FOUND" });
   res.json(v);
 });
-/*
-app.put("/api/preventas/:id", async (req, res) => {
-  const id = Number(req.params.id);
-  const { idCliente, idTipoPago, observacion, detalles = [] } = req.body;
 
-  const v = await prisma.venta.update({
-    where: { idVenta: id },
-    data: {
-      ...(idCliente && { idCliente: Number(idCliente) }),
-      ...(idTipoPago && { idTipoPago: Number(idTipoPago) }),
-      observacion: observacion ?? null,
-    },
-    select: { idVenta: true },
-  });
-
-  // remplazar detalles
-  await prisma.detalleVenta.deleteMany({ where: { idVenta: id } });
-  if (detalles.length) {
-    await prisma.detalleVenta.createMany({
-      data: detalles.map((d: any) => ({
-        idVenta: id,
-        idProducto: Number(d.idProducto),
-        cantidad: Number(d.cantidad),
-      })),
-    });
-  }
-
-  res.json({ id: v.idVenta });
-});*/
 app.put("/api/preventas/:id", async (req, res) => {
   const id = Number(req.params.id);
 
@@ -913,62 +885,186 @@ app.put("/api/preventas/:id", async (req, res) => {
     fechaCobro,       // "YYYY-MM-DD"
     idMoneda,
     accion,           // "guardar" | "finalizar" | "cancelar"
+    motivoCancelacion // string opcional
   } = req.body;
 
-  // resolver nuevo estadoVenta si corresponde
-  let estadoVentaData: { idEstadoVenta?: number } = {};
-
-  if (accion === "finalizar") {
-    const est = await prisma.estadoVenta.findFirst({
-      where: { nombreEstadoVenta: { equals: "Finalizada", mode: "insensitive" } },
-      select: { idEstadoVenta: true },
-    });
-    if (est) estadoVentaData.idEstadoVenta = est.idEstadoVenta;
-  } else if (accion === "cancelar") {
-    const est = await prisma.estadoVenta.findFirst({
-      where: { nombreEstadoVenta: { equals: "Cancelada", mode: "insensitive" } },
-      select: { idEstadoVenta: true },
-    });
-    if (est) estadoVentaData.idEstadoVenta = est.idEstadoVenta;
-  }
-  // "guardar": no tocamos estado
-
-  // armamos solo columnas que sabemos que existen en Venta
-  const dataToUpdate: any = {
-    ...(idCliente !== undefined && idCliente !== null && idCliente !== "" && {
-      idCliente: Number(idCliente),
-    }),
-    ...(idTipoPago !== undefined && idTipoPago !== null && idTipoPago !== "" && {
-      idTipoPago: Number(idTipoPago),
-    }),
-    ...(observacion !== undefined && { observacion: observacion ?? null }),
-
-    ...(fechaFacturacion && {
-      fechaVenta: new Date(fechaFacturacion),
-    }),
-    ...(fechaCobro && {
-      fechaCobroVenta: new Date(fechaCobro),
-    }),
-    ...(idMoneda !== undefined && idMoneda !== null && idMoneda !== "" && {
-      idMoneda: Number(idMoneda),
-    }),
-
-    ...estadoVentaData,
-  };
-
   try {
-    const updated = await prisma.venta.update({
-      where: { idVenta: id },
-      data: dataToUpdate,
-      select: { idVenta: true },
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. leer venta antes del cambio
+      const ventaAntes = await tx.venta.findUnique({
+        where: { idVenta: id },
+        select: {
+          idEstadoVenta: true,
+        },
+      });
+
+      if (!ventaAntes) {
+        throw new Error("NOT_FOUND");
+      }
+
+      // 2. decidir próximo estado
+      //    hacemos la lógica inline para no tener lío de tipos
+      let nuevoEstadoId: number | null = null;
+
+      if (accion === "finalizar") {
+        const row = await tx.estadoVenta.findFirst({
+          where: {
+            nombreEstadoVenta: { equals: "Finalizada", mode: "insensitive" },
+          },
+          select: { idEstadoVenta: true },
+        });
+        nuevoEstadoId = row?.idEstadoVenta ?? null;
+      } else if (accion === "cancelar") {
+        const row = await tx.estadoVenta.findFirst({
+          where: {
+            nombreEstadoVenta: { equals: "Cancelada", mode: "insensitive" },
+          },
+          select: { idEstadoVenta: true },
+        });
+        nuevoEstadoId = row?.idEstadoVenta ?? null;
+      } else {
+        // "guardar"
+        nuevoEstadoId = null;
+      }
+
+      // 3. armar payload dinámico de update
+      const dataToUpdate: any = {
+        ...(idCliente !== undefined &&
+          idCliente !== null &&
+          idCliente !== "" && {
+            idCliente: Number(idCliente),
+          }),
+        ...(idTipoPago !== undefined &&
+          idTipoPago !== null &&
+          idTipoPago !== "" && {
+            idTipoPago: Number(idTipoPago),
+          }),
+        ...(observacion !== undefined && {
+          observacion: observacion ?? null,
+        }),
+
+        ...(fechaFacturacion && {
+          fechaVenta: new Date(fechaFacturacion),
+        }),
+        ...(fechaCobro && {
+          fechaCobroVenta: new Date(fechaCobro),
+        }),
+        ...(idMoneda !== undefined &&
+          idMoneda !== null &&
+          idMoneda !== "" && {
+            idMoneda: Number(idMoneda),
+          }),
+
+        ...(nuevoEstadoId ? { idEstadoVenta: nuevoEstadoId } : {}),
+      };
+
+      // 4. update de la venta
+      await tx.venta.update({
+        where: { idVenta: id },
+        data: dataToUpdate,
+      });
+
+      // 5. si cambió de estado registrar evento en VentaEvento y VentaActor
+      if (
+        nuevoEstadoId &&
+        nuevoEstadoId !== ventaAntes.idEstadoVenta
+      ) {
+        // mientras tanto usamos el usuario fijo 1
+        const actorId = 1;
+
+        // VentaEvento
+        await tx.ventaEvento.create({
+          data: {
+            idVenta: id,
+            idUsuario: actorId,
+            estadoDesde: ventaAntes.idEstadoVenta,
+            estadoHasta: nuevoEstadoId,
+            motivo:
+              accion === "cancelar"
+                ? (motivoCancelacion ?? "Cancelada por caja")
+                : accion === "finalizar"
+                ? "Finalizada por caja"
+                : null,
+          },
+        });
+
+        // VentaActor
+        await tx.ventaActor.create({
+          data: {
+            idVenta: id,
+            idUsuario: actorId,
+            papel:
+              accion === "finalizar"
+                ? "CAJERO"
+                : accion === "cancelar"
+                ? "ANULADOR"
+                : "EDITOR",
+          },
+        });
+      }
+
+      return { ok: true };
     });
 
-    res.json({ ok: true, idVenta: updated.idVenta });
-  } catch (err) {
-    console.error("PUT /api/preventas/:id failed", err);
-    res.status(500).json({ error: "UPDATE_FAILED" });
+    return res.json(result);
+  } catch (err: any) {
+    if (err.message === "NOT_FOUND") {
+      return res.status(404).json({ error: "NOT_FOUND" });
+    }
+    console.error("PUT /api/preventas/:id audit error", err);
+    return res.status(500).json({ error: "UPDATE_FAILED" });
   }
 });
+
+app.get("/api/preventas/:id/historial", async (req, res) => {
+  const id = Number(req.params.id);
+
+  const eventos = await prisma.ventaEvento.findMany({
+    where: { idVenta: id },
+    orderBy: { createdAt: "desc" },
+    select: {
+      idVentaEvento: true,
+      estadoDesde: true,
+      estadoHasta: true,
+      motivo: true,
+      createdAt: true,
+      Usuario: {
+        select: {
+          idUsuario: true,
+          nombreUsuario: true,
+          emailUsuario: true,
+        },
+      },
+    },
+  });
+
+  const estados = await prisma.estadoVenta.findMany({
+    select: { idEstadoVenta: true, nombreEstadoVenta: true },
+  });
+  const lookup = new Map(
+    estados.map(e => [e.idEstadoVenta, e.nombreEstadoVenta])
+  );
+
+  const eventosDecorados = eventos.map(ev => ({
+    id: ev.idVentaEvento,
+    desde: ev.estadoDesde
+      ? lookup.get(ev.estadoDesde) ?? ev.estadoDesde
+      : null,
+    hasta: lookup.get(ev.estadoHasta) ?? ev.estadoHasta,
+    motivo: ev.motivo ?? null,
+    fecha: ev.createdAt,
+    usuario: ev.Usuario
+      ? {
+          idUsuario: ev.Usuario.idUsuario,
+          nombreUsuario: ev.Usuario.nombreUsuario,
+          emailUsuario: ev.Usuario.emailUsuario,
+        }
+      : null,
+  }));
+
+  res.json(eventosDecorados);
+});
+
 
 
 app.delete("/api/preventas/:id", async (req, res) => {

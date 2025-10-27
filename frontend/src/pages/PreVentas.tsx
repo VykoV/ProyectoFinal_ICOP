@@ -159,22 +159,70 @@ export default function PreVentas() {
 
 /* ===== Modal Ver ===== */
 function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
-  const [data, setData] = useState<any>(null);
+  const [venta, setVenta] = useState<any>(null);
+  const [hist, setHist] = useState<
+    Array<{
+      id: number;
+      fecha: string;
+      desde: string | number | null;
+      hasta: string | number;
+      motivo: string | null;
+      usuario: { idUsuario: number; nombreUsuario: string; emailUsuario: string } | null;
+    }>
+  >([]);
+  const [loadingVenta, setLoadingVenta] = useState(true);
+  const [loadingHist, setLoadingHist] = useState(true);
+
+  async function loadVenta() {
+    setLoadingVenta(true);
+    try {
+      const { data } = await api.get(`/preventas/${id}`);
+      setVenta(data);
+    } finally {
+      setLoadingVenta(false);
+    }
+  }
+
+  async function loadHist() {
+    setLoadingHist(true);
+    try {
+      const { data } = await api.get(`/preventas/${id}/historial`);
+      setHist(
+        (data ?? []).map((ev: any) => ({
+          id: ev.id,
+          fecha: new Date(ev.fecha).toLocaleString(),
+          desde: ev.desde ?? null,
+          hasta: ev.hasta,
+          motivo: ev.motivo ?? null,
+          usuario: ev.usuario ?? null,
+        }))
+      );
+    } finally {
+      setLoadingHist(false);
+    }
+  }
 
   useEffect(() => {
-    (async () => {
-      const { data } = await api.get(`/preventas/${id}`);
-      setData(data);
-    })();
+    loadVenta();
+    loadHist();
   }, [id]);
+
+  const estadoStr =
+    venta?.EstadoVenta?.nombreEstadoVenta ??
+    (venta?.idEstadoVenta ? `Estado ${venta.idEstadoVenta}` : "-");
+
+  const lineItems = venta?.detalles ?? [];
 
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
       <div className="fixed inset-0 z-50 p-0 md:p-4">
-        <div className="mx-auto w-full max-w-3xl md:rounded-2xl border bg-white shadow-xl">
+        <div className="mx-auto w-full max-w-3xl md:rounded-2xl border bg-white shadow-xl flex flex-col max-h-[90vh]">
+          {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b">
-            <h3 className="text-base font-semibold">Detalle de Pre-venta</h3>
+            <h3 className="text-base font-semibold">
+              Detalle de Pre-venta #{id}
+            </h3>
             <button
               onClick={onClose}
               className="p-2 rounded hover:bg-gray-100"
@@ -184,42 +232,197 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
             </button>
           </div>
 
-          <div className="p-4 text-sm grid grid-cols-2 gap-3">
-            <div>
-              <p className="text-gray-500">N°</p>
-              <p className="font-medium">{data?.idVenta ?? id}</p>
+          {/* Body */}
+          <div className="flex-1 overflow-auto px-4 py-3 text-sm space-y-6">
+            {/* Datos venta */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-gray-500">N°</p>
+                <p className="font-medium">
+                  {loadingVenta ? "..." : venta?.idVenta ?? id}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-500">Fecha</p>
+                <p className="font-medium">
+                  {loadingVenta
+                    ? "..."
+                    : String(venta?.fechaVenta ?? "").slice(0, 10)}
+                </p>
+              </div>
+
+              <div className="col-span-2">
+                <p className="text-gray-500">Cliente</p>
+                <p className="font-medium">
+                  {loadingVenta
+                    ? "..."
+                    : venta?.Cliente
+                    ? `${venta.Cliente.apellidoCliente}, ${venta.Cliente.nombreCliente}`
+                    : "-"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-gray-500">Método de pago</p>
+                <p className="font-medium">
+                  {loadingVenta ? "..." : venta?.TipoPago?.tipoPago ?? "-"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-gray-500">Estado actual</p>
+                <p className="font-medium">
+                  {loadingVenta ? "..." : estadoStr}
+                </p>
+              </div>
+
+              <div className="col-span-2">
+                <p className="text-gray-500">Observación</p>
+                <p className="font-normal">
+                  {loadingVenta ? "..." : venta?.observacion ?? "-"}
+                </p>
+              </div>
             </div>
+
+            {/* Productos */}
             <div>
-              <p className="text-gray-500">Fecha</p>
-              <p className="font-medium">
-                {String(data?.fechaVenta ?? "").slice(0, 10)}
+              <p className="text-gray-700 font-medium mb-2">Productos</p>
+
+              <div className="rounded-xl border overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 text-gray-500">
+                    <tr>
+                      <th className="px-2 py-2 text-left">Producto</th>
+                      <th className="px-2 py-2 text-center">Cant.</th>
+                      <th className="px-2 py-2 text-center">P.Unit.</th>
+                      <th className="px-2 py-2 text-center">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loadingVenta ? (
+                      <tr>
+                        <td
+                          className="px-2 py-4 text-center text-gray-500"
+                          colSpan={4}
+                        >
+                          Cargando productos...
+                        </td>
+                      </tr>
+                    ) : lineItems.length > 0 ? (
+                      lineItems.map((d: any, idx: number) => {
+                        const cant = Number(d.cantidad ?? 0);
+                        const pu = Number(
+                          d.Producto?.precioVentaPublicoProducto ?? 0
+                        );
+                        const subtotal = cant * pu;
+                        return (
+                          <tr key={idx} className="border-t">
+                            <td className="px-2 py-2">
+                              {d.Producto?.codigoProducto ?? ""} —{" "}
+                              {d.Producto?.nombreProducto ?? ""}
+                            </td>
+                            <td className="px-2 py-2 text-center">{cant}</td>
+                            <td className="px-2 py-2 text-center">
+                              ${pu.toFixed(2)}
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              ${subtotal.toFixed(2)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td
+                          className="px-2 py-4 text-center text-gray-500"
+                          colSpan={4}
+                        >
+                          Sin items
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Historial */}
+            <div>
+              <p className="text-gray-700 font-medium mb-2">
+                Historial de estado
               </p>
-            </div>
 
-            <div className="col-span-2">
-              <p className="text-gray-500">Cliente</p>
-              <p className="font-medium">
-                {data?.Cliente
-                  ? `${data.Cliente.apellidoCliente}, ${data.Cliente.nombreCliente}`
-                  : "-"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-gray-500">Método de pago</p>
-              <p className="font-medium">{data?.TipoPago?.tipoPago ?? "-"}</p>
-            </div>
-
-            <div className="col-span-2">
-              <p className="text-gray-500">Observación</p>
-              <p className="font-normal">{data?.observacion ?? "-"}</p>
+              <div className="rounded-xl border max-h-40 overflow-auto">
+                <table className="w-full text-[11px]">
+                  <thead className="bg-gray-50 text-gray-500">
+                    <tr>
+                      <th className="px-2 py-1 text-left">Fecha</th>
+                      <th className="px-2 py-1 text-left">Cambio</th>
+                      <th className="px-2 py-1 text-left">Motivo</th>
+                      <th className="px-2 py-1 text-left">Usuario</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loadingHist ? (
+                      <tr>
+                        <td
+                          className="px-2 py-4 text-center text-gray-500"
+                          colSpan={4}
+                        >
+                          Cargando historial...
+                        </td>
+                      </tr>
+                    ) : hist.length === 0 ? (
+                      <tr>
+                        <td
+                          className="px-2 py-4 text-center text-gray-500"
+                          colSpan={4}
+                        >
+                          Sin movimientos de estado.
+                        </td>
+                      </tr>
+                    ) : (
+                      hist.map((ev) => (
+                        <tr key={ev.id} className="border-t align-top">
+                          <td className="px-2 py-1">{ev.fecha}</td>
+                          <td className="px-2 py-1">
+                            {ev.desde
+                              ? `${ev.desde} → ${ev.hasta}`
+                              : ev.hasta}
+                          </td>
+                          <td className="px-2 py-1">
+                            {ev.motivo ?? "-"}
+                          </td>
+                          <td className="px-2 py-1">
+                            {ev.usuario
+                              ? ev.usuario.nombreUsuario ||
+                                ev.usuario.emailUsuario
+                              : "-"}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
 
+          {/* Footer solo lectura */}
           <div className="px-4 py-3 border-t bg-gray-50 flex justify-end">
+            {/* TODO: botón "Finalizar edición" acá cuando exista estado intermedio.
+            <button
+              className="rounded-lg border border-blue-600 text-blue-600 px-3 py-2 text-xs font-medium hover:bg-blue-50 disabled:opacity-50 mr-2"
+              type="button"
+              onClick={() => {/* llamar endpoint accion:"lock" *\/}}
+            >
+              Finalizar edición
+            </button>
+            */}
             <button
               onClick={onClose}
-              className="rounded-lg border px-3 py-2 text-sm"
+              className="rounded-lg border px-3 py-2 text-xs font-medium bg-white"
+              type="button"
             >
               Cerrar
             </button>
@@ -229,6 +432,8 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
     </>
   );
 }
+
+
 
 /* ===== Modal Crear / Editar ===== */
 function PreventaForm({
