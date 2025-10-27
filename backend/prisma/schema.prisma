@@ -242,7 +242,7 @@ model DetalleCompra {
 model TipoPago {
   idTipoPago Int      @id @default(autoincrement()) @db.Integer
   tipoPago   String   @db.Char(100)
-  recargo    Decimal? @db.Decimal(6, 2)
+  
   ventas Venta[]
   @@map("TipoPago")
 }

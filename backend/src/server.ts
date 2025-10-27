@@ -641,18 +641,23 @@ api.get("/clientes", async (req, res) => {
     };
   }
 
-  const rows = await prisma.cliente.findMany({
-    where,
-    select: {
-      idCliente: true,
-      nombreCliente: true,
-      apellidoCliente: true,
-      cuil: true,
-      emailCliente: true,
-      telefonoCliente: true,
+ const rows = await prisma.cliente.findMany({
+  where,
+  select: {
+    idCliente: true,
+    nombreCliente: true,
+    apellidoCliente: true,
+    cuil: true,
+    emailCliente: true,
+    telefonoCliente: true,
+    NivelCliente: {
+      select: {
+        indiceBeneficio: true,
+      },
     },
-    orderBy: { idCliente: "asc" },
-  });
+  },
+  orderBy: { idCliente: "asc" },
+});
 
   res.json(rows);
 });

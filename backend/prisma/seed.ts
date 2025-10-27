@@ -650,25 +650,25 @@ async function seed() {
 
   // 7. tipoPago (venta)
   for (const t of [
-    { tipoPago: 'Efectivo',      recargo: D(0) },
-    { tipoPago: 'Transferencia', recargo: D(0) },
-    { tipoPago: 'Débito',        recargo: D(0) },
-    { tipoPago: 'Crédito 5%',    recargo: D(5) },
-    { tipoPago: 'Crédito 7%',    recargo: D(7) },
-    { tipoPago: 'QR 5%',         recargo: D(5) },
-    { tipoPago: 'QR 7%',         recargo: D(7) },
-  ]) {
-    await upsertBy(
-      () => prisma.tipoPago.findFirst({ where: { tipoPago: t.tipoPago } }),
-      () => prisma.tipoPago.create({ data: t }),
-      () => prisma.tipoPago.updateMany({
+  { tipoPago: "Efectivo" },
+  { tipoPago: "Transferencia" },
+  { tipoPago: "Débito" },
+  { tipoPago: "Crédito" },
+  { tipoPago: "QR" },
+]) {
+  await upsertBy(
+    () =>
+      prisma.tipoPago.findFirst({
         where: { tipoPago: t.tipoPago },
-        data: { recargo: t.recargo }
-      }).then(() =>
-        prisma.tipoPago.findFirst({ where: { tipoPago: t.tipoPago } }) as any
-      )
-    )
-  }
+      }),
+    () =>
+      prisma.tipoPago.create({
+        data: { tipoPago: t.tipoPago },
+      })
+    // sin update on purpose
+  );
+}
+
 
   // 8. estadoVenta (incluye Cancelada ahora)
   for (const e of ['Pendiente', 'Finalizada', 'Cancelada']) {
