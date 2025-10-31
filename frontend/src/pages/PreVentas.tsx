@@ -12,7 +12,9 @@ type PreRow = {
   fecha: string;
   metodoPago?: string | null;
   total: number;
+  estado: string; // "Pendiente" | "ListoCaja" | etc
 };
+
 type Opt = { id: number; label: string };
 type ProdOpt = Opt & { precio: number };
 type Item = {
@@ -38,18 +40,24 @@ export default function PreVentas() {
         params: { ...(query ? { q: query } : {}), estado: "pendiente" },
       });
       setRows(
-        (data ?? []).map((v: any) => ({
-          id: v.id ?? v.idVenta,
-          cliente:
-            v.cliente ??
-            (v.Cliente
-              ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
-              : ""),
-          fecha: String(v.fecha ?? v.fechaVenta ?? "").slice(0, 10),
-          metodoPago: v.metodoPago ?? v.TipoPago?.tipoPago ?? null,
-          total: Number(v.total ?? 0),
-        }))
-      );
+  (data ?? []).map((v: any) => ({
+    id: v.id ?? v.idVenta,
+    cliente: v.cliente
+      ? v.cliente
+      : v.Cliente
+      ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
+      : "",
+    fecha: String(v.fecha ?? v.fechaVenta ?? "").slice(0, 10),
+    metodoPago: v.metodoPago ?? v.TipoPago?.tipoPago ?? null,
+    total: Number(v.total ?? 0),
+    estado:
+      v.estado ??
+      v.estadoVenta ??
+      v.EstadoVenta?.nombreEstadoVenta ??
+      "Pendiente",
+  }))
+);
+
     } finally {
       setLoading(false);
     }
@@ -73,18 +81,24 @@ export default function PreVentas() {
       cell: ({ row }) => `$${row.original.total.toFixed(2)}`,
     },
     {
-      header: "Acciones",
-      id: "acciones",
-      size: 220,
-      cell: ({ row }) => (
-        <div className="flex gap-2">
-          <button
-            className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
-            onClick={() => setOpenView(row.original.id)}
-            title="Ver"
-          >
-            <Eye className="h-3.5 w-3.5" /> Ver
-          </button>
+  header: "Acciones",
+  id: "acciones",
+  size: 220,
+  cell: ({ row }) => {
+    const estado = (row.original.estado || "").toLowerCase();
+    const isEditable = estado === "pendiente";
+
+    return (
+      <div className="flex gap-2">
+        <button
+          className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+          onClick={() => setOpenView(row.original.id)}
+          title="Ver"
+        >
+          <Eye className="h-3.5 w-3.5" /> Ver
+        </button>
+
+        {isEditable && (
           <button
             className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
             onClick={() => setOpenForm(row.original.id)}
@@ -92,6 +106,9 @@ export default function PreVentas() {
           >
             <Pencil className="h-3.5 w-3.5" /> Editar
           </button>
+        )}
+
+        {isEditable && (
           <button
             className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
             onClick={async () => {
@@ -103,9 +120,12 @@ export default function PreVentas() {
           >
             <Trash2 className="h-3.5 w-3.5" /> Eliminar
           </button>
-        </div>
-      ),
-    },
+        )}
+      </div>
+    );
+  },
+},
+
   ];
 
   return (
@@ -158,7 +178,13 @@ export default function PreVentas() {
 }
 
 /* ===== Modal Ver ===== */
-function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
+function PreventaView({
+  id,
+  onClose,
+}: {
+  id: number;
+  onClose: (reload?: boolean) => void;
+}) {
   const [venta, setVenta] = useState<any>(null);
   const [hist, setHist] = useState<
     Array<{
@@ -167,7 +193,11 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
       desde: string | number | null;
       hasta: string | number;
       motivo: string | null;
-      usuario: { idUsuario: number; nombreUsuario: string; emailUsuario: string } | null;
+      usuario: {
+        idUsuario: number;
+        nombreUsuario: string;
+        emailUsuario: string;
+      } | null;
     }>
   >([]);
   const [loadingVenta, setLoadingVenta] = useState(true);
@@ -207,15 +237,48 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
     loadHist();
   }, [id]);
 
+  // 1. Estado actual legible
   const estadoStr =
     venta?.EstadoVenta?.nombreEstadoVenta ??
     (venta?.idEstadoVenta ? `Estado ${venta.idEstadoVenta}` : "-");
+
+  // 2. Flag editable. Solo si está "Pendiente"
+  const isEditable =
+    (venta?.EstadoVenta?.nombreEstadoVenta ?? "")
+      .toLowerCase()
+      .trim() === "pendiente";
+
+  // 3. Handler para cerrar edición (lock -> ListoCaja)
+  async function terminarEdicion() {
+    const ok = window.confirm(
+      "¿Finalizar edición?\nYa no vas a poder modificar ni eliminar esta pre-venta."
+    );
+    if (!ok) return;
+
+    try {
+      await api.put(`/preventas/${id}`, {
+        accion: "lock",
+      });
+
+      // Cerramos modal y pedimos reload al padre
+      onClose(true);
+    } catch (e: any) {
+      alert(
+        e?.response?.data?.error ||
+          e?.message ||
+          "No se pudo finalizar la edición"
+      );
+    }
+  }
 
   const lineItems = venta?.detalles ?? [];
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
+      <div
+        className="fixed inset-0 z-40 bg-black/20"
+        onClick={() => onClose()}
+      />
       <div className="fixed inset-0 z-50 p-0 md:p-4">
         <div className="mx-auto w-full max-w-3xl md:rounded-2xl border bg-white shadow-xl flex flex-col max-h-[90vh]">
           {/* Header */}
@@ -224,7 +287,7 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
               Detalle de Pre-venta #{id}
             </h3>
             <button
-              onClick={onClose}
+              onClick={() => onClose()}
               className="p-2 rounded hover:bg-gray-100"
               aria-label="Cerrar"
             >
@@ -390,9 +453,7 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                               ? `${ev.desde} → ${ev.hasta}`
                               : ev.hasta}
                           </td>
-                          <td className="px-2 py-1">
-                            {ev.motivo ?? "-"}
-                          </td>
+                          <td className="px-2 py-1">{ev.motivo ?? "-"}</td>
                           <td className="px-2 py-1">
                             {ev.usuario
                               ? ev.usuario.nombreUsuario ||
@@ -408,19 +469,20 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
             </div>
           </div>
 
-          {/* Footer solo lectura */}
-          <div className="px-4 py-3 border-t bg-gray-50 flex justify-end">
-            {/* TODO: botón "Finalizar edición" acá cuando exista estado intermedio.
+          {/* Footer */}
+          <div className="px-4 py-3 border-t bg-gray-50 flex justify-end gap-2">
+            {isEditable && (
+              <button
+                className="rounded-lg border border-blue-600 text-blue-600 px-3 py-2 text-xs font-medium hover:bg-blue-50 disabled:opacity-50"
+                type="button"
+                onClick={terminarEdicion}
+              >
+                Finalizar edición
+              </button>
+            )}
+
             <button
-              className="rounded-lg border border-blue-600 text-blue-600 px-3 py-2 text-xs font-medium hover:bg-blue-50 disabled:opacity-50 mr-2"
-              type="button"
-              onClick={() => {/* llamar endpoint accion:"lock" *\/}}
-            >
-              Finalizar edición
-            </button>
-            */}
-            <button
-              onClick={onClose}
+              onClick={() => onClose()}
               className="rounded-lg border px-3 py-2 text-xs font-medium bg-white"
               type="button"
             >
@@ -432,8 +494,6 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
     </>
   );
 }
-
-
 
 /* ===== Modal Crear / Editar ===== */
 function PreventaForm({

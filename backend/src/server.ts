@@ -3,7 +3,7 @@ import cors from "cors";
 import session from "express-session";
 import pgSession from "connect-pg-simple";
 import bcrypt from "bcrypt";
-import { PrismaClient, Prisma } from "@prisma/client";
+import { PrismaClient, Prisma, PapelEnVenta } from "@prisma/client";
 import authRoutes from "./auth";
 
 const app = express();
@@ -884,8 +884,8 @@ app.put("/api/preventas/:id", async (req, res) => {
     fechaFacturacion, // "YYYY-MM-DD"
     fechaCobro,       // "YYYY-MM-DD"
     idMoneda,
-    accion,           // "guardar" | "finalizar" | "cancelar"
-    motivoCancelacion // string opcional
+    accion,           // "guardar" | "finalizar" | "cancelar" | "lock"
+    motivoCancelacion // string opcional (solo cancelar)
   } = req.body;
 
   try {
@@ -902,8 +902,7 @@ app.put("/api/preventas/:id", async (req, res) => {
         throw new Error("NOT_FOUND");
       }
 
-      // 2. decidir próximo estado
-      //    hacemos la lógica inline para no tener lío de tipos
+      // 2. decidir próximo estado según accion
       let nuevoEstadoId: number | null = null;
 
       if (accion === "finalizar") {
@@ -922,23 +921,32 @@ app.put("/api/preventas/:id", async (req, res) => {
           select: { idEstadoVenta: true },
         });
         nuevoEstadoId = row?.idEstadoVenta ?? null;
+      } else if (accion === "lock") {
+        // nuevo caso: pasar a 'ListoCaja'
+        const row = await tx.estadoVenta.findFirst({
+          where: {
+            nombreEstadoVenta: { equals: "ListoCaja", mode: "insensitive" },
+          },
+          select: { idEstadoVenta: true },
+        });
+        nuevoEstadoId = row?.idEstadoVenta ?? null;
       } else {
-        // "guardar"
+        // "guardar": no cambia estado
         nuevoEstadoId = null;
       }
 
-      // 3. armar payload dinámico de update
+      // 3. armar payload dinámico del update de Venta
       const dataToUpdate: any = {
         ...(idCliente !== undefined &&
           idCliente !== null &&
           idCliente !== "" && {
-            idCliente: Number(idCliente),
-          }),
+          idCliente: Number(idCliente),
+        }),
         ...(idTipoPago !== undefined &&
           idTipoPago !== null &&
           idTipoPago !== "" && {
-            idTipoPago: Number(idTipoPago),
-          }),
+          idTipoPago: Number(idTipoPago),
+        }),
         ...(observacion !== undefined && {
           observacion: observacion ?? null,
         }),
@@ -952,56 +960,59 @@ app.put("/api/preventas/:id", async (req, res) => {
         ...(idMoneda !== undefined &&
           idMoneda !== null &&
           idMoneda !== "" && {
-            idMoneda: Number(idMoneda),
-          }),
+          idMoneda: Number(idMoneda),
+        }),
 
         ...(nuevoEstadoId ? { idEstadoVenta: nuevoEstadoId } : {}),
       };
 
-      // 4. update de la venta
       await tx.venta.update({
         where: { idVenta: id },
         data: dataToUpdate,
       });
 
-      // 5. si cambió de estado registrar evento en VentaEvento y VentaActor
-      if (
-        nuevoEstadoId &&
-        nuevoEstadoId !== ventaAntes.idEstadoVenta
-      ) {
-        // mientras tanto usamos el usuario fijo 1
-        const actorId = 1;
+      // 4. si cambió de estado insertamos VentaEvento y VentaActor
+      if (nuevoEstadoId && nuevoEstadoId !== ventaAntes.idEstadoVenta) {
+        const actorId = 1; // usuario fijo por ahora
 
-        // VentaEvento
+        let motivoEvento: string | null = null;
+        if (accion === "cancelar") {
+          motivoEvento = motivoCancelacion ?? "Cancelada por caja";
+        } else if (accion === "finalizar") {
+          motivoEvento = "Finalizada por caja";
+        } else if (accion === "lock") {
+          motivoEvento = "Cerrada por vendedor (ListoCaja)";
+        }
+
         await tx.ventaEvento.create({
           data: {
             idVenta: id,
             idUsuario: actorId,
             estadoDesde: ventaAntes.idEstadoVenta,
             estadoHasta: nuevoEstadoId,
-            motivo:
-              accion === "cancelar"
-                ? (motivoCancelacion ?? "Cancelada por caja")
-                : accion === "finalizar"
-                ? "Finalizada por caja"
-                : null,
+            motivo: motivoEvento,
           },
         });
 
-        // VentaActor
+        // papel del actor según acción
+        let papelActor: PapelEnVenta = PapelEnVenta.EDITOR;
+        if (accion === "finalizar") {
+          papelActor = PapelEnVenta.CAJERO;
+        } else if (accion === "cancelar") {
+          papelActor = PapelEnVenta.ANULADOR;
+        } else if (accion === "lock") {
+          papelActor = PapelEnVenta.EDITOR;
+        }
+
         await tx.ventaActor.create({
           data: {
             idVenta: id,
             idUsuario: actorId,
-            papel:
-              accion === "finalizar"
-                ? "CAJERO"
-                : accion === "cancelar"
-                ? "ANULADOR"
-                : "EDITOR",
+            papel: papelActor,
           },
         });
       }
+
 
       return { ok: true };
     });
@@ -1015,6 +1026,7 @@ app.put("/api/preventas/:id", async (req, res) => {
     return res.status(500).json({ error: "UPDATE_FAILED" });
   }
 });
+
 
 app.get("/api/preventas/:id/historial", async (req, res) => {
   const id = Number(req.params.id);
@@ -1055,17 +1067,15 @@ app.get("/api/preventas/:id/historial", async (req, res) => {
     fecha: ev.createdAt,
     usuario: ev.Usuario
       ? {
-          idUsuario: ev.Usuario.idUsuario,
-          nombreUsuario: ev.Usuario.nombreUsuario,
-          emailUsuario: ev.Usuario.emailUsuario,
-        }
+        idUsuario: ev.Usuario.idUsuario,
+        nombreUsuario: ev.Usuario.nombreUsuario,
+        emailUsuario: ev.Usuario.emailUsuario,
+      }
       : null,
   }));
 
   res.json(eventosDecorados);
 });
-
-
 
 app.delete("/api/preventas/:id", async (req, res) => {
   const id = Number(req.params.id);
@@ -1115,21 +1125,21 @@ app.post("/api/ventas", async (req, res) => {
     const result = await prisma.$transaction(async (tx) => {
       // 1. crear venta
       const data: any = {
-  fechaVenta: ahora,
-  fechaCobroVenta: ahora,
-  observacion: observacion ?? null,
-  idEstadoVenta,
-  idTipoPago: Number(idTipoPago),
-  idMoneda: Number(idMoneda),
-};
+        fechaVenta: ahora,
+        fechaCobroVenta: ahora,
+        observacion: observacion ?? null,
+        idEstadoVenta,
+        idTipoPago: Number(idTipoPago),
+        idMoneda: Number(idMoneda),
+      };
 
-// agregar idCliente solo si existe
-if (idCliente) data.idCliente = Number(idCliente);
+      // agregar idCliente solo si existe
+      if (idCliente) data.idCliente = Number(idCliente);
 
-const v = await tx.venta.create({
-  data,
-  select: { idVenta: true },
-});
+      const v = await tx.venta.create({
+        data,
+        select: { idVenta: true },
+      });
 
 
 

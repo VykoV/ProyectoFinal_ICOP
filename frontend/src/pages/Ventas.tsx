@@ -62,33 +62,56 @@ export default function Ventas() {
 
       // preventas pendientes
       let preData: any[] = [];
-      try {
-        const resP = await api.get("/preventas", {
-          params: { ...(query ? { q: query } : {}), estado: "pendiente" },
-        });
-        preData = resP.data ?? [];
-      } catch {
-        preData = [];
-      }
+try {
+  const resP = await api.get("/preventas", {
+    params: { ...(query ? { q: query } : {}) },
+  });
+  preData = resP.data ?? [];
+} catch {
+  preData = [];
+}
 
-      setPreRows(
-        preData.map((v: any) => ({
-          id: v.id ?? v.idVenta,
-          cliente: v.cliente
-            ? v.cliente
-            : v.Cliente
-            ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
-            : "",
-          fecha: String(v.fecha ?? v.fechaVenta ?? "").slice(0, 10),
-          metodoPago: v.metodoPago ?? v.TipoPago?.tipoPago ?? v.metodo ?? null,
-          estado:
-            v.estado ??
-            v.estadoVenta ??
-            v.EstadoVenta?.nombreEstadoVenta ??
-            "Pendiente",
-          total: Number(v.total ?? 0),
-        }))
-      );
+setPreRows(
+  preData
+    .filter((v: any) => {
+      const estadoNombre =
+        v.estado ??
+        v.estadoVenta ??
+        v.EstadoVenta?.nombreEstadoVenta ??
+        "Pendiente";
+
+      const norm = String(estadoNombre).toLowerCase().trim();
+
+      // Estados que NO queremos ver en la pestaña de "Pre-Ventas Pendientes" de caja:
+      // finalizada, finalizado, cerrado, cancelada, cancelado
+      const esCerrada =
+        norm.includes("finaliz") ||
+        norm.includes("cerrad") ||
+        norm.includes("cancel");
+
+      // Caja debe ver todo lo que no esté cerrado
+      return !esCerrada;
+    })
+    .map((v: any) => ({
+      id: v.id ?? v.idVenta,
+      cliente: v.cliente
+        ? v.cliente
+        : v.Cliente
+        ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
+        : "",
+      fecha: String(v.fecha ?? v.fechaVenta ?? "").slice(0, 10),
+      metodoPago:
+        v.metodoPago ?? v.TipoPago?.tipoPago ?? v.metodo ?? null,
+      estado:
+        v.estado ??
+        v.estadoVenta ??
+        v.EstadoVenta?.nombreEstadoVenta ??
+        "Pendiente",
+      total: Number(v.total ?? 0),
+    }))
+);
+
+
     } finally {
       setLoading(false);
     }
@@ -156,13 +179,34 @@ export default function Ventas() {
     { header: "Cliente", accessorKey: "cliente" },
     { header: "Fecha", accessorKey: "fecha" },
     {
-      header: "Estado",
-      cell: ({ row }) => (
-        <span className="rounded-full px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800">
-          {row.original.estado || "Pendiente"}
-        </span>
-      ),
-    },
+  header: "Estado",
+  cell: ({ row }) => {
+    const raw = row.original.estado || "Pendiente";
+    const norm = raw.toLowerCase().trim();
+
+    let cls = "bg-blue-100 text-blue-800"; // default intermedio / caja
+    if (norm.includes("pend")) {
+      cls = "bg-yellow-100 text-yellow-800"; // pendiente vendedor
+    } else if (
+      norm.includes("finaliz") ||
+      norm.includes("cerrad")
+    ) {
+      cls = "bg-green-100 text-green-800"; // cerrado ok
+    } else if (norm.includes("cancel")) {
+      cls = "bg-red-100 text-red-800"; // cancelado
+    }
+
+    return (
+      <span
+        className={`rounded-full px-2 py-1 text-xs font-medium ${cls}`}
+      >
+        {raw}
+      </span>
+    );
+  },
+},
+
+
     {
       header: "Total",
       cell: ({ row }) => `$${row.original.total.toFixed(2)}`,
@@ -341,7 +385,7 @@ function VentaPopup({ onClose }: { onClose: () => void }) {
   const clientDiscAmt = afterLine * (clienteDesc / 100);
   const afterClient = afterLine - clientDiscAmt;
   const generalDiscAmt = afterClient * (descGeneral / 100);
-  const afterAllDiscounts = afterClient - generalDiscAmt; // con IVA
+  const afterAllDiscounts = afterClient - generalDiscAmt;
   const totalFinal = afterAllDiscounts + ajuste;
   const subtotal = totalFinal / (1 + IVA);
   const impuestos = totalFinal - subtotal;
