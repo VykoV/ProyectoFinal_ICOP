@@ -112,7 +112,7 @@ export default function PreVentas() {
           <button
             className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
             onClick={async () => {
-              if (!confirm("¿Eliminar pre-venta?")) return;
+              if (!confirm("¿Eliminar presupuesto?")) return;
               await api.delete(`/preventas/${row.original.id}`);
               await load(q);
             }}
@@ -131,7 +131,7 @@ export default function PreVentas() {
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">Pre-Ventas</h1>
+        <h1 className="text-xl font-semibold">Presupuestos</h1>
         <div className="flex items-center gap-2">
           <div className="relative w-64">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
@@ -149,7 +149,7 @@ export default function PreVentas() {
             onClick={() => setOpenForm(0)}
             className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
           >
-            <Plus className="h-4 w-4" /> Nueva Pre-venta
+            <Plus className="h-4 w-4" /> Nuevo Presupuesto
           </button>
         </div>
       </div>
@@ -251,7 +251,7 @@ function PreventaView({
   // 3. Handler para cerrar edición (lock -> ListoCaja)
   async function terminarEdicion() {
     const ok = window.confirm(
-      "¿Finalizar edición?\nYa no vas a poder modificar ni eliminar esta pre-venta."
+      "¿Finalizar edición?\nYa no vas a poder modificar ni eliminar este presupuesto."
     );
     if (!ok) return;
 
@@ -284,7 +284,7 @@ function PreventaView({
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b">
             <h3 className="text-base font-semibold">
-              Detalle de Pre-venta #{id}
+              Detalle de Presupuesto #{id}
             </h3>
             <button
               onClick={() => onClose()}
@@ -874,7 +874,7 @@ function PreventaForm({
           {/* header */}
           <div className="flex items-center justify-between px-4 py-3 border-b">
             <h3 className="text-base font-semibold">
-              {isEdit ? "Editar Pre-venta" : "Nueva Pre-venta"}
+              {isEdit ? "Editar Presupuesto" : "Nuevo Presupuesto"}
             </h3>
             <button
               onClick={() => onClose()}
@@ -1218,7 +1218,7 @@ function PreventaForm({
             {/* === Resumen === */}
             <div className="rounded-2xl border bg-white p-4">
               <div className="flex items-start justify-between gap-4 mb-3">
-                <h2 className="font-medium">Resumen de la Pre-venta</h2>
+                <h2 className="font-medium">Resumen del Presupuesto</h2>
                 <span className="rounded-full px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800">
                   Estado: Pendiente
                 </span>
@@ -1295,7 +1295,7 @@ function PreventaForm({
                   type="submit"
                   className="rounded-lg bg-black text-white px-3 py-2 text-sm"
                 >
-                  {isEdit ? "Guardar cambios" : "Guardar Pre-venta"}
+                  {isEdit ? "Guardar cambios" : "Guardar Presupuesto"}
                 </button>
               </div>
             </div>

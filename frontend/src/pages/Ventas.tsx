@@ -272,7 +272,7 @@ setPreRows(
               : "text-gray-500"
           }`}
         >
-          Pre-Ventas Pendientes
+          Presupuestos Pendientes
         </button>
       </div>
 
@@ -284,7 +284,7 @@ setPreRows(
           placeholder={
             tab === "ventas"
               ? "Buscar ventas..."
-              : "Buscar pre-ventas pendientes..."
+              : "Buscar presupuestos pendientes..."
           }
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -592,7 +592,7 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b">
             <h3 className="text-base font-semibold">
-              Pre-venta #{id} (solo lectura)
+              Presupuesto #{id} (solo lectura)
             </h3>
             <button
               onClick={onClose}
@@ -990,7 +990,7 @@ function ValidarPreventaModal({
         <div className="mx-auto h-dvh md:h-[90vh] w-full max-w-4xl md:rounded-2xl border bg-white shadow-xl flex flex-col">
           {/* header */}
           <div className="flex items-center justify-between px-4 py-3 border-b">
-            <h3 className="text-base font-semibold">Validar Pre-venta #{id}</h3>
+            <h3 className="text-base font-semibold">Validar Presupuesto #{id}</h3>
             <button onClick={onClose} className="p-2 rounded hover:bg-gray-100">
               <X className="h-4 w-4" />
             </button>
