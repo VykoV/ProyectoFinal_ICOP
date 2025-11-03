@@ -282,7 +282,7 @@ model DetalleVenta {
   idDetalleVenta Int     @id @default(autoincrement()) @db.Integer
   idVenta        Int
   idProducto     Int
-  cantidad       Decimal @db.Decimal(12, 2)
+  cantidad       Decimal @db.Decimal(14, 3)
   Venta    Venta    @relation(fields: [idVenta], references: [idVenta])
   Producto Producto @relation(fields: [idProducto], references: [idProducto])
   @@map("DetalleVenta")

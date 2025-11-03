@@ -6,6 +6,7 @@ import bcrypt from "bcrypt";
 import { PrismaClient, Prisma, PapelEnVenta } from "@prisma/client";
 import authRoutes from "./auth";
 
+const DEV = process.env.NODE_ENV !== "production";
 const app = express();
 const prisma = new PrismaClient();
 const PgSession = pgSession(session);
@@ -18,18 +19,15 @@ app.use(
     origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Accept"],
+    allowedHeaders: ["Content-Type", "Accept", "X-User-Id"],
   })
 );
 app.options("*", cors({ origin: ["http://localhost:5173", "http://127.0.0.1:5173"], credentials: true }));
-
-
 
 // ==========================
 // 2) PARSER JSON
 // ==========================
 app.use(express.json());
-
 
 app.set(
   "json replacer",
@@ -47,7 +45,6 @@ app.use(
       schemaName: "auth",
       tableName: "session",
       createTableIfMissing: false,
-
     }),
     name: "sid",
     secret: process.env.SESSION_SECRET ?? "dev_secret",
@@ -120,7 +117,6 @@ app.get("/api/proveedores", async (_req, res) => {
   res.json(rows.map(r => ({ id: r.idProveedor, nombre: r.nombreProveedor })));
 });
 
-
 // ====== CRUD PRODUCTOS ======
 
 // LISTAR
@@ -153,7 +149,6 @@ app.get("/api/products", async (_req, res) => {
     }))
   );
 });
-
 
 // OBTENER UNO
 app.get("/api/products/:id", async (req, res) => {
@@ -209,7 +204,6 @@ app.get("/api/products/:id", async (req, res) => {
   const s = r.stocks[0];
   const pp = r.proveedorProductos[0];
 
-  // stockDisponible = real - comprometido
   const stockDisponible = s
     ? Number(s.cantidadRealStock) - Number(s.stockComprometido || 0)
     : 0;
@@ -240,13 +234,11 @@ app.get("/api/products/:id", async (req, res) => {
   });
 });
 
-
 // CREAR con código FF-SS-000X
 app.post("/api/products", async (req, res) => {
   try {
     const {
       nombre,
-      // sku ignorado
       precio,
       precioCosto,
       utilidad,
@@ -254,7 +246,6 @@ app.post("/api/products", async (req, res) => {
       codigoBarras,
       oferta,
       subFamiliaId,
-      // stock y proveedor opcionales
       stock = 0,
       bajoMinimoStock = 0,
       ultimaModificacionStock,
@@ -264,14 +255,12 @@ app.post("/api/products", async (req, res) => {
       precioHistorico,
     } = req.body;
 
-    // subfamilia y familia
     const sf = await prisma.subFamilia.findUnique({
       where: { idSubFamilia: Number(subFamiliaId) },
       include: { Familia: true },
     });
     if (!sf) return res.status(400).json({ error: "SUBFAMILIA_NOT_FOUND" });
 
-    // crear placeholder
     const created = await prisma.producto.create({
       data: {
         nombreProducto: nombre,
@@ -287,13 +276,11 @@ app.post("/api/products", async (req, res) => {
       select: { idProducto: true },
     });
 
-    // generar código
     const codigoGenerado =
       `${String(sf.Familia.idFamilia).padStart(2, "0")}-` +
       `${String(sf.idSubFamilia).padStart(2, "0")}-` +
       `${String(created.idProducto).padStart(4, "0")}`;
 
-    // guardar código
     const row = await prisma.producto.update({
       where: { idProducto: created.idProducto },
       data: { codigoProducto: codigoGenerado },
@@ -306,7 +293,6 @@ app.post("/api/products", async (req, res) => {
       },
     });
 
-    // stock inicial
     await prisma.stock.create({
       data: {
         idProducto: row.idProducto,
@@ -319,8 +305,6 @@ app.post("/api/products", async (req, res) => {
       },
     });
 
-
-    // relación proveedor–producto histórica (opcional)
     if (proveedorId) {
       await prisma.proveedorProducto.create({
         data: {
@@ -362,7 +346,6 @@ app.put("/api/products/:id", async (req, res) => {
   const id = Number(req.params.id);
   const {
     nombre,
-    // sku ignorado
     precio,
     precioCosto,
     utilidad,
@@ -403,7 +386,6 @@ app.put("/api/products/:id", async (req, res) => {
       },
     });
 
-    // stock: create/update simple
     if (
       stock !== undefined ||
       bajoMinimoStock !== undefined ||
@@ -441,8 +423,6 @@ app.put("/api/products/:id", async (req, res) => {
       }
     }
 
-
-    // proveedor histórico opcional
     if (proveedorId) {
       await prisma.proveedorProducto.create({
         data: {
@@ -488,7 +468,6 @@ app.delete("/api/products/:id", async (req, res) => {
 
     res.status(204).end();
   } catch (e: any) {
-    // Si algún FK externo sigue bloqueando
     if (e.code === "P2003") {
       return res.status(409).json({ error: "FK_CONSTRAINT_IN_USE" });
     }
@@ -536,7 +515,6 @@ app.get("/api/usuarios", async (_req, res) => {
   })));
 });
 
-
 // ====== CREAR USUARIO ======
 app.post("/api/usuarios", async (req, res) => {
   try {
@@ -552,7 +530,6 @@ app.post("/api/usuarios", async (req, res) => {
 
     const hash = await bcrypt.hash(contrasenaUsuario, 12);
 
-    // crear usuario
     const user = await prisma.usuario.create({
       data: {
         nombreUsuario,
@@ -579,17 +556,14 @@ app.put("/api/usuarios/:id", async (req, res) => {
   const id = Number(req.params.id);
   const { nombreUsuario, emailUsuario, contrasenaUsuario, idRol } = req.body;
 
-  // preparar data básica
   const data: any = {};
   if (nombreUsuario !== undefined) data.nombreUsuario = nombreUsuario;
   if (emailUsuario !== undefined) data.emailUsuario = emailUsuario;
   if (contrasenaUsuario) data.contrasenaUsuario = await bcrypt.hash(contrasenaUsuario, 12);
 
   try {
-    // update básico
     await prisma.usuario.update({ where: { idUsuario: id }, data });
 
-    // rol: reemplazar asignación
     if (idRol !== undefined) {
       await prisma.usuarioRol.deleteMany({ where: { idUsuario: id } });
       if (idRol) {
@@ -606,7 +580,6 @@ app.put("/api/usuarios/:id", async (req, res) => {
   }
 });
 
-
 // ELIMINAR USUARIO
 app.delete("/api/usuarios/:id", async (req, res) => {
   const id = Number(req.params.id);
@@ -622,7 +595,6 @@ const api = express.Router();
 api.get("/clientes", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
 
-  // armar filtro
   let where: any = undefined;
   if (q) {
     const qNum = q.replace(/\D/g, "");
@@ -661,7 +633,6 @@ api.get("/clientes", async (req, res) => {
 
   res.json(rows);
 });
-
 
 api.get("/clientes/:id", async (req, res) => {
   const id = Number(req.params.id);
@@ -742,7 +713,7 @@ api.delete("/clientes/:id", async (req, res) => {
     await prisma.cliente.delete({ where: { idCliente: id } });
     res.status(204).end();
   } catch (e: any) {
-    if (e.code === "P2003") return res.status(409).json({ error: "FK_CONSTRAINT_IN_USE" }); // tiene ventas
+    if (e.code === "P2003") return res.status(409).json({ error: "FK_CONSTRAINT_IN_USE" });
     res.status(400).json({ error: "DELETE_FAILED" });
   }
 });
@@ -770,6 +741,265 @@ app.get("/api/localidades", async (req, res) => {
   res.json(rows);
 });
 
+/* ========================
+   PREVENTAS + VENTAS (NUEVO)
+   ======================== */
+
+// — Estados de negocio:
+const ESTADOS = {
+  PENDIENTE: "Pendiente",
+  LISTO_CAJA: "ListoCaja",
+  FINALIZADA: "Finalizada",
+  CANCELADA: "Cancelada",
+} as const;
+
+// Estados requeridos al arrancar 
+const REQUIRED_ESTADOS = [
+  "Pendiente",
+  "ListoCaja",
+  "Finalizada",
+  "Cancelada",
+];
+
+// Normaliza nombres: sin espacios/guiones_bajos y lower 
+const norm = (s: string) => s.toLowerCase().replace(/[\s_]/g, "");
+
+// helper numérico robusto
+const toNum = (v: any) => {
+  if (v == null) return 0;
+  if (typeof v === "number") return v;
+  const n = Number(String(v).replace(",", ".").trim());
+  return Number.isFinite(n) ? n : 0;
+};
+
+// Normaliza cantidades a 3 decimales
+const toDec3 = (v: any) => new Prisma.Decimal(toNum(v).toFixed(3));
+
+// Asegura que existan los estados base 
+async function ensureEstadosBase() {
+  await prisma.$transaction(async (tx) => {
+    const existentes = await tx.estadoVenta.findMany({
+      select: { idEstadoVenta: true, nombreEstadoVenta: true },
+    });
+    const have = new Set(existentes.map(e => norm(e.nombreEstadoVenta)));
+    for (const n of REQUIRED_ESTADOS) {
+      if (!have.has(norm(n))) {
+        await tx.estadoVenta.create({ data: { nombreEstadoVenta: n } });
+      }
+    }
+  });
+}
+
+// Llamar una vez al inicio 
+ensureEstadosBase().catch(err =>
+  console.error("ensureEstadosBase error", err)
+);
+
+// — Usuario de la sesión o header para auditoría:
+function getUserId(req: any): number {
+  const sid = req?.session?.user?.idUsuario ?? req?.session?.idUsuario;
+  if (sid) return Number(sid);
+  const hdr = req.headers["x-user-id"];
+  if (hdr) return Number(hdr);
+  return 1; // fallback dev
+}
+
+// — EstadoVenta helpers:
+async function getEstadoId(tx: Prisma.TransactionClient, nombre: string) {
+  // variantes aceptadas: "ListoCaja", "Listo Caja", "listocaja" 
+  const candidates = Array.from(new Set([
+    nombre,
+    nombre.replace(/([a-z])([A-Z])/g, "$1 $2"),  // "ListoCaja" -> "Listo Caja" 
+    nombre.replace(/[\s_]/g, ""),               // "Listo Caja" -> "ListoCaja" 
+  ]));
+
+  // 1) intento por igualdad insensible con variantes 
+  for (const cand of candidates) {
+    const row = await tx.estadoVenta.findFirst({
+      where: { nombreEstadoVenta: { equals: cand, mode: "insensitive" } },
+      select: { idEstadoVenta: true },
+    });
+    if (row) return row.idEstadoVenta;
+  }
+
+  // 2) intento por normalización 
+  const all = await tx.estadoVenta.findMany({
+    select: { idEstadoVenta: true, nombreEstadoVenta: true },
+  });
+  const hit = all.find(e => norm(e.nombreEstadoVenta) === norm(nombre));
+  if (hit) return hit.idEstadoVenta;
+
+  // 3) en dev, créalo con el nombre solicitado 
+  if (DEV) {
+    const created = await tx.estadoVenta.create({
+      data: { nombreEstadoVenta: nombre },
+      select: { idEstadoVenta: true },
+    });
+    return created.idEstadoVenta;
+  }
+
+  throw new Error(`ESTADO_NO_DEFINIDO:${nombre}`);
+}
+
+// — Stock helpers:
+async function getStockFila(tx: Prisma.TransactionClient, idProducto: number) {
+  const s = await tx.stock.findFirst({ where: { idProducto } });
+  if (!s) return null;
+  return {
+    idStock: s.idStock,
+    real: Number(s.cantidadRealStock || 0),
+    comp: Number(s.stockComprometido || 0),
+  };
+}
+
+async function validarDisponible(tx: Prisma.TransactionClient, items: { idProducto: number; cantidad: number }[]) {
+  for (const it of items) {
+    const s = await getStockFila(tx, it.idProducto);
+    if (!s) throw new Error("STOCK_INEXISTENTE");
+    const disponible = s.real - s.comp;
+    if (disponible < Number(it.cantidad || 0)) throw new Error("STOCK_INSUFICIENTE");
+  }
+}
+
+async function validarReal(tx: Prisma.TransactionClient, items: { idProducto: number; cantidad: number }[]) {
+  for (const it of items) {
+    const s = await getStockFila(tx, it.idProducto);
+    if (!s) throw new Error("STOCK_INEXISTENTE");
+    if (s.real < Number(it.cantidad || 0)) throw new Error("STOCK_INSUFICIENTE");
+  }
+}
+
+async function reservarComprometido(tx: Prisma.TransactionClient, items: { idProducto: number; cantidad: number }[]) {
+  const orden = [...items].sort((a, b) => a.idProducto - b.idProducto);
+  for (const it of orden) {
+    const s = await getStockFila(tx, it.idProducto);
+    if (!s) throw new Error("STOCK_INEXISTENTE");
+    await tx.stock.update({
+      where: { idStock: s.idStock },
+      data: {
+        stockComprometido: new Prisma.Decimal(s.comp + Number(it.cantidad || 0)),
+        ultimaModificacionStock: new Date(),
+      },
+    });
+  }
+}
+
+async function liberarComprometido(tx: Prisma.TransactionClient, items: { idProducto: number; cantidad: number }[]) {
+  const orden = [...items].sort((a, b) => a.idProducto - b.idProducto);
+  for (const it of orden) {
+    const s = await getStockFila(tx, it.idProducto);
+    if (!s) continue;
+    const nuevo = Math.max(0, s.comp - Number(it.cantidad || 0));
+    await tx.stock.update({
+      where: { idStock: s.idStock },
+      data: {
+        stockComprometido: new Prisma.Decimal(nuevo),
+        ultimaModificacionStock: new Date(),
+      },
+    });
+  }
+}
+
+async function descontarRealYComprometido(tx: Prisma.TransactionClient, items: { idProducto: number; cantidad: number }[]) {
+  const orden = [...items].sort((a, b) => a.idProducto - b.idProducto);
+  for (const it of orden) {
+    const s = await getStockFila(tx, it.idProducto);
+    if (!s) throw new Error("STOCK_INEXISTENTE");
+    const real = Math.max(0, s.real - Number(it.cantidad || 0));
+    const comp = Math.max(0, s.comp - Number(it.cantidad || 0));
+    await tx.stock.update({
+      where: { idStock: s.idStock },
+      data: {
+        cantidadRealStock: new Prisma.Decimal(real),
+        stockComprometido: new Prisma.Decimal(comp),
+        ultimaModificacionStock: new Date(),
+      },
+    });
+  }
+}
+
+// — Auditoría helpers:
+// — Auditoría helpers (flex: intenta con IDs y si falla, usa nombres)
+async function registrarEventoIds(
+  tx: Prisma.TransactionClient,
+  args: { idVenta: number; idUsuario: number; desdeId: number | null; hastaId: number; motivo?: string | null }
+) {
+  try {
+    // Caso 1: el modelo tiene columnas numéricas estadoDesde/estadoHasta
+    return await tx.ventaEvento.create({
+      data: {
+        idVenta: args.idVenta,
+        idUsuario: args.idUsuario,
+        estadoDesde: args.desdeId,
+        estadoHasta: args.hastaId,
+        motivo: args.motivo ?? null,
+      } as any,
+    });
+  } catch (e: any) {
+    // Caso 2: fallback a columnas por nombre (ajusta nombres si tu schema usa otros)
+    return await tx.ventaEvento.create({
+      data: {
+        idVenta: args.idVenta,
+        idUsuario: args.idUsuario,
+        estadoDesdeNombre: args.desdeId == null ? null : String(args.desdeId),
+        estadoHastaNombre: String(args.hastaId),
+        motivo: args.motivo ?? null,
+      } as any,
+    });
+  }
+}
+
+async function registrarActor(
+  tx: Prisma.TransactionClient,
+  args: { idVenta: number; idUsuario: number; papel: PapelEnVenta }
+) {
+  try {
+    await tx.ventaActor.create({
+      data: { idVenta: args.idVenta, idUsuario: args.idUsuario, papel: args.papel } as any,
+    });
+  } catch {
+    /* sin unique compuesto puede duplicar; aceptable */
+  }
+}
+
+async function agregarComentario(
+  tx: Prisma.TransactionClient,
+  args: { idVenta: number; idUsuario: number; comentario: string }
+) {
+  await tx.ventaComentario.create({
+    data: {
+      idVenta: args.idVenta,
+      idUsuario: args.idUsuario,
+      comentario: args.comentario,
+    } as any,
+  });
+}
+
+// — Util detalle:
+async function leerItemsVenta(tx: Prisma.TransactionClient, idVenta: number) {
+  const items = await tx.detalleVenta.findMany({
+    where: { idVenta },
+    select: { idProducto: true, cantidad: true },
+  });
+  return items.map((r) => ({ idProducto: Number(r.idProducto), cantidad: Number(r.cantidad) }));
+}
+
+// — totales:
+async function calcularTotal(idVenta: number) {
+  const dets = await prisma.detalleVenta.findMany({
+    where: { idVenta },
+    select: {
+      cantidad: true,
+      Producto: { select: { precioVentaPublicoProducto: true } },
+    },
+  });
+  return dets.reduce(
+    (a, d) => a + Number(d.cantidad) * Number(d.Producto?.precioVentaPublicoProducto ?? 0),
+    0
+  );
+}
+
+// Crear PREVENTA = estado Pendiente + reservar comprometido
 app.post("/api/preventas", async (req, res) => {
   try {
     const { idCliente, idTipoPago, observacion, detalles = [] } = req.body;
@@ -777,58 +1007,93 @@ app.post("/api/preventas", async (req, res) => {
     if (!idCliente || !idTipoPago || !Array.isArray(detalles) || detalles.length === 0)
       return res.status(400).json({ error: "FALTAN_DATOS" });
 
-    // estado = Pendiente
-    const estado = await prisma.estadoVenta.findFirst({
-      where: { nombreEstadoVenta: { equals: "Pendiente", mode: "insensitive" } },
-      select: { idEstadoVenta: true },
-    });
-    const idEstadoVenta = estado?.idEstadoVenta ?? 1;
+    // Validar ítems antes de crear
+    if (
+      !Array.isArray(detalles) ||
+      detalles.length === 0 ||
+      detalles.some((d: any) => !Number(d.idProducto) || !(toNum(d.cantidad) > 0))
+    ) {
+      return res.status(400).json({ error: "SIN_ITEMS" });
+    }
 
-    // moneda por defecto
-    const moneda = await prisma.moneda.findFirst({ select: { idMoneda: true } });
-    const idMoneda = moneda?.idMoneda ?? 1;
+    const idUsuario = getUserId(req);
 
-    const ahora = new Date();
+    const result = await prisma.$transaction(async (tx) => {
+      const idPend = await getEstadoId(tx, ESTADOS.PENDIENTE);
+      const m = await tx.moneda.findFirst({ select: { idMoneda: true } });
+      const idMoneda = m?.idMoneda ?? 1;
 
-    const v = await prisma.venta.create({
-      data: {
-        fechaVenta: ahora,
-        fechaCobroVenta: ahora,
-        observacion: observacion ?? null,
-        idCliente: Number(idCliente),
-        idEstadoVenta,
-        idTipoPago: Number(idTipoPago),
-        idMoneda,
-        detalles: {
-          create: detalles.map((d: any) => ({
-            idProducto: Number(d.idProducto),
-            cantidad: Number(d.cantidad),
-          })),
+      const v = await tx.venta.create({
+        data: {
+          fechaVenta: new Date(),
+          fechaCobroVenta: new Date(),
+          observacion: observacion ?? null,
+          idCliente: Number(idCliente),
+          idEstadoVenta: idPend,
+          idTipoPago: Number(idTipoPago),
+          idMoneda,
+          detalles: {
+            create: detalles.map((d: any) => ({
+              idProducto: Number(d.idProducto),
+              cantidad: toDec3(d.cantidad),
+            })),
+          },
         },
-      },
-      select: { idVenta: true },
+        select: { idVenta: true },
+      });
+
+      const items = detalles.map((d: any) => ({
+        idProducto: Number(d.idProducto),
+        cantidad: toNum(d.cantidad),
+      }));
+
+      await validarDisponible(tx, items);
+      await reservarComprometido(tx, items);
+
+      const nomPend = ESTADOS.PENDIENTE;
+      await registrarEventoIds(tx, {
+        idVenta: v.idVenta, idUsuario,
+        desdeId: idPend, hastaId: idPend,
+        motivo: "creación"
+      });
+
+      await registrarActor(tx, { idVenta: v.idVenta, idUsuario, papel: PapelEnVenta.CREADOR });
+
+      return v;
     });
 
-    res.status(201).json({ id: v.idVenta });
-  } catch (e) {
-    console.error(e);
-    res.status(400).json({ error: "CREATE_FAILED" });
+    res.status(201).json({ id: result.idVenta });
+  } catch (e: any) {
+    console.error("POST /api/preventas error", e);
+    res.status(400).json({
+      error: e.message || "CREATE_FAILED",
+      ...(DEV ? { code: e.code, meta: e.meta, stack: e.stack } : {})
+    });
   }
 });
 
+// Listar PREVENTAS por estado (default: no cerradas)
 app.get("/api/preventas", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
+  const estadoQ = (req.query.estado as string | undefined)?.toLowerCase();
 
-  // id del estado "Pendiente"
-  const estado = await prisma.estadoVenta.findFirst({
-    where: { nombreEstadoVenta: { equals: "Pendiente", mode: "insensitive" } },
-    select: { idEstadoVenta: true },
+  const estados = await prisma.estadoVenta.findMany({
+    select: { idEstadoVenta: true, nombreEstadoVenta: true },
   });
-  const pendienteId = estado?.idEstadoVenta ?? 0;
+
+  let ids: number[] = [];
+  if (estadoQ) {
+    const e = estados.find(x => x.nombreEstadoVenta.toLowerCase() === estadoQ);
+    ids = e ? [e.idEstadoVenta] : [-1];
+  } else {
+    ids = estados
+      .filter(x => !["finalizada", "cancelada"].includes(x.nombreEstadoVenta.toLowerCase()))
+      .map(x => x.idEstadoVenta);
+  }
 
   const rows = await prisma.venta.findMany({
     where: {
-      idEstadoVenta: pendienteId,
+      idEstadoVenta: { in: ids },
       ...(q
         ? {
           Cliente: {
@@ -841,7 +1106,7 @@ app.get("/api/preventas", async (req, res) => {
         }
         : {}),
     },
-    include: { Cliente: true, TipoPago: true },
+    include: { Cliente: true, TipoPago: true, EstadoVenta: true },
     orderBy: { idVenta: "desc" },
     take: 100,
   });
@@ -849,9 +1114,10 @@ app.get("/api/preventas", async (req, res) => {
   const out = await Promise.all(
     rows.map(async v => ({
       id: v.idVenta,
-      cliente: `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`,
+      cliente: v.Cliente ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}` : "",
       fecha: v.fechaVenta,
       metodoPago: v.TipoPago?.tipoPago ?? null,
+      estado: v.EstadoVenta?.nombreEstadoVenta ?? "",
       total: await calcularTotal(v.idVenta),
     }))
   );
@@ -859,6 +1125,7 @@ app.get("/api/preventas", async (req, res) => {
   res.json(out);
 });
 
+// Detalle PREVENTA
 app.get("/api/preventas/:id", async (req, res) => {
   const id = Number(req.params.id);
   const v = await prisma.venta.findUnique({
@@ -874,160 +1141,7 @@ app.get("/api/preventas/:id", async (req, res) => {
   res.json(v);
 });
 
-app.put("/api/preventas/:id", async (req, res) => {
-  const id = Number(req.params.id);
-
-  const {
-    idCliente,
-    idTipoPago,
-    observacion,
-    fechaFacturacion, // "YYYY-MM-DD"
-    fechaCobro,       // "YYYY-MM-DD"
-    idMoneda,
-    accion,           // "guardar" | "finalizar" | "cancelar" | "lock"
-    motivoCancelacion // string opcional (solo cancelar)
-  } = req.body;
-
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. leer venta antes del cambio
-      const ventaAntes = await tx.venta.findUnique({
-        where: { idVenta: id },
-        select: {
-          idEstadoVenta: true,
-        },
-      });
-
-      if (!ventaAntes) {
-        throw new Error("NOT_FOUND");
-      }
-
-      // 2. decidir próximo estado según accion
-      let nuevoEstadoId: number | null = null;
-
-      if (accion === "finalizar") {
-        const row = await tx.estadoVenta.findFirst({
-          where: {
-            nombreEstadoVenta: { equals: "Finalizada", mode: "insensitive" },
-          },
-          select: { idEstadoVenta: true },
-        });
-        nuevoEstadoId = row?.idEstadoVenta ?? null;
-      } else if (accion === "cancelar") {
-        const row = await tx.estadoVenta.findFirst({
-          where: {
-            nombreEstadoVenta: { equals: "Cancelada", mode: "insensitive" },
-          },
-          select: { idEstadoVenta: true },
-        });
-        nuevoEstadoId = row?.idEstadoVenta ?? null;
-      } else if (accion === "lock") {
-        // nuevo caso: pasar a 'ListoCaja'
-        const row = await tx.estadoVenta.findFirst({
-          where: {
-            nombreEstadoVenta: { equals: "ListoCaja", mode: "insensitive" },
-          },
-          select: { idEstadoVenta: true },
-        });
-        nuevoEstadoId = row?.idEstadoVenta ?? null;
-      } else {
-        // "guardar": no cambia estado
-        nuevoEstadoId = null;
-      }
-
-      // 3. armar payload dinámico del update de Venta
-      const dataToUpdate: any = {
-        ...(idCliente !== undefined &&
-          idCliente !== null &&
-          idCliente !== "" && {
-          idCliente: Number(idCliente),
-        }),
-        ...(idTipoPago !== undefined &&
-          idTipoPago !== null &&
-          idTipoPago !== "" && {
-          idTipoPago: Number(idTipoPago),
-        }),
-        ...(observacion !== undefined && {
-          observacion: observacion ?? null,
-        }),
-
-        ...(fechaFacturacion && {
-          fechaVenta: new Date(fechaFacturacion),
-        }),
-        ...(fechaCobro && {
-          fechaCobroVenta: new Date(fechaCobro),
-        }),
-        ...(idMoneda !== undefined &&
-          idMoneda !== null &&
-          idMoneda !== "" && {
-          idMoneda: Number(idMoneda),
-        }),
-
-        ...(nuevoEstadoId ? { idEstadoVenta: nuevoEstadoId } : {}),
-      };
-
-      await tx.venta.update({
-        where: { idVenta: id },
-        data: dataToUpdate,
-      });
-
-      // 4. si cambió de estado insertamos VentaEvento y VentaActor
-      if (nuevoEstadoId && nuevoEstadoId !== ventaAntes.idEstadoVenta) {
-        const actorId = 1; // usuario fijo por ahora
-
-        let motivoEvento: string | null = null;
-        if (accion === "cancelar") {
-          motivoEvento = motivoCancelacion ?? "Cancelada por caja";
-        } else if (accion === "finalizar") {
-          motivoEvento = "Finalizada por caja";
-        } else if (accion === "lock") {
-          motivoEvento = "Cerrada por vendedor (ListoCaja)";
-        }
-
-        await tx.ventaEvento.create({
-          data: {
-            idVenta: id,
-            idUsuario: actorId,
-            estadoDesde: ventaAntes.idEstadoVenta,
-            estadoHasta: nuevoEstadoId,
-            motivo: motivoEvento,
-          },
-        });
-
-        // papel del actor según acción
-        let papelActor: PapelEnVenta = PapelEnVenta.EDITOR;
-        if (accion === "finalizar") {
-          papelActor = PapelEnVenta.CAJERO;
-        } else if (accion === "cancelar") {
-          papelActor = PapelEnVenta.ANULADOR;
-        } else if (accion === "lock") {
-          papelActor = PapelEnVenta.EDITOR;
-        }
-
-        await tx.ventaActor.create({
-          data: {
-            idVenta: id,
-            idUsuario: actorId,
-            papel: papelActor,
-          },
-        });
-      }
-
-
-      return { ok: true };
-    });
-
-    return res.json(result);
-  } catch (err: any) {
-    if (err.message === "NOT_FOUND") {
-      return res.status(404).json({ error: "NOT_FOUND" });
-    }
-    console.error("PUT /api/preventas/:id audit error", err);
-    return res.status(500).json({ error: "UPDATE_FAILED" });
-  }
-});
-
-
+// Historial PREVENTA
 app.get("/api/preventas/:id/historial", async (req, res) => {
   const id = Number(req.params.id);
 
@@ -1053,15 +1167,11 @@ app.get("/api/preventas/:id/historial", async (req, res) => {
   const estados = await prisma.estadoVenta.findMany({
     select: { idEstadoVenta: true, nombreEstadoVenta: true },
   });
-  const lookup = new Map(
-    estados.map(e => [e.idEstadoVenta, e.nombreEstadoVenta])
-  );
+  const lookup = new Map(estados.map(e => [e.idEstadoVenta, e.nombreEstadoVenta]));
 
   const eventosDecorados = eventos.map(ev => ({
     id: ev.idVentaEvento,
-    desde: ev.estadoDesde
-      ? lookup.get(ev.estadoDesde) ?? ev.estadoDesde
-      : null,
+    desde: ev.estadoDesde ? lookup.get(ev.estadoDesde) ?? ev.estadoDesde : null,
     hasta: lookup.get(ev.estadoHasta) ?? ev.estadoHasta,
     motivo: ev.motivo ?? null,
     fecha: ev.createdAt,
@@ -1077,238 +1187,252 @@ app.get("/api/preventas/:id/historial", async (req, res) => {
   res.json(eventosDecorados);
 });
 
+// Editar / Lock / Finalizar / Cancelar PREVENTA
+app.put("/api/preventas/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const idUsuario = getUserId(req);
+
+  // normalización de payload
+  const raw = req.body ?? {};
+  let { idCliente, idTipoPago, observacion, fechaFacturacion, fechaCobro, idMoneda, accion, motivoCancelacion } = raw;
+
+  let items = Array.isArray(raw.items)
+    ? raw.items
+    : Array.isArray(raw.detalles)
+      ? raw.detalles
+      : undefined;
+
+  if (accion === "editar") accion = "guardar";
+  if (!accion) {
+    if (Array.isArray(items) && items.length > 0) accion = "guardar";
+    else if (raw.lock === true) accion = "lock";
+  }
+
+  // normalizar ítems a {idProducto:number,cantidad:number}
+  // acepta alias: cant, qty, peso, gramos
+  if (Array.isArray(items)) {
+    items = items
+      .map((i: any) => ({
+        idProducto: Number(i.idProducto ?? i.productoId ?? i.id),
+        cantidad: toNum(i.cantidad ?? i.cant ?? i.qty ?? i.peso ?? i.gramos),
+      }));
+  }
+
+  if (!accion) return res.status(400).json({ error: "ACCION_REQUERIDA" });
+
+  try {
+    // Validación temprana SIN_ITEMS antes de tocar DB (solo para guardar)
+    if (accion === "guardar") {
+      if (
+        !Array.isArray(items) ||
+        items.length === 0 ||
+        items.some((i: any) => Number(i.cantidad) <= 0)
+      ) {
+        throw new Error("SIN_ITEMS");
+      }
+    }
+
+    // Lectura inicial fuera de la transacción (estado actual)
+    const ventaAntes = await prisma.venta.findUnique({
+      where: { idVenta: id },
+      include: { EstadoVenta: true },
+    });
+    if (!ventaAntes) throw new Error("NOT_FOUND");
+    const estadoActualNombre = ventaAntes.EstadoVenta.nombreEstadoVenta;
+
+    // --- SOLO escrituras dentro de la transacción. Sin lecturas finales aquí.
+    await prisma.$transaction(async (tx) => {
+      
+      const idPend = await getEstadoId(tx, ESTADOS.PENDIENTE);
+      const idLC = await getEstadoId(tx, ESTADOS.LISTO_CAJA);
+      const idFin = await getEstadoId(tx, ESTADOS.FINALIZADA);
+      const idCan = await getEstadoId(tx, ESTADOS.CANCELADA);
+
+      if (accion === "guardar") {
+        if (estadoActualNombre.toLowerCase() !== ESTADOS.PENDIENTE.toLowerCase())
+          throw new Error("ESTADO_INVALIDO");
+
+        const antes = await tx.detalleVenta.findMany({
+          where: { idVenta: id },
+          select: { idProducto: true, cantidad: true },
+        });
+
+        const dataToUpdate: any = {
+          ...(idCliente !== undefined && idCliente !== null && idCliente !== "" && { idCliente: Number(idCliente) }),
+          ...(idTipoPago !== undefined && idTipoPago !== null && idTipoPago !== "" && { idTipoPago: Number(idTipoPago) }),
+          ...(observacion !== undefined && { observacion: observacion ?? null }),
+          ...(fechaFacturacion && { fechaVenta: new Date(fechaFacturacion) }),
+          ...(fechaCobro && { fechaCobroVenta: new Date(fechaCobro) }),
+          ...(idMoneda !== undefined && idMoneda !== null && idMoneda !== "" && { idMoneda: Number(idMoneda) }),
+        };
+        if (Object.keys(dataToUpdate).length) {
+          await tx.venta.update({ where: { idVenta: id }, data: dataToUpdate });
+        }
+
+        // normalizar payload → lista compactada por producto
+        const comp = new Map<number, number>();
+        for (const raw of items as any[]) {
+          const pid = Number(raw.idProducto);
+          const cant = toNum(raw.cantidad ?? raw.cant ?? raw.qty ?? raw.peso ?? raw.gramos);
+          if (!pid || cant <= 0) continue;
+          comp.set(pid, (comp.get(pid) ?? 0) + cant);
+        }
+        const itemsOk = [...comp.entries()].map(([idProducto, cantidad]) => ({ idProducto, cantidad }));
+
+        if (itemsOk.length === 0) throw new Error("SIN_ITEMS");
+
+        // reemplazar detalles
+        try {
+          await tx.detalleVenta.deleteMany({ where: { idVenta: id } });
+          await tx.detalleVenta.createMany({
+            data: itemsOk.map(i => ({
+              idVenta: id,
+              idProducto: Number(i.idProducto),
+              cantidad: toDec3(i.cantidad),
+            })),
+          });
+          // fuerza error inmediato si la transacción quedó abortada
+          await tx.$executeRaw`SELECT 1`;
+        } catch (err) {
+          if (err instanceof Prisma.PrismaClientKnownRequestError) throw err;
+          throw new Error("DETALLES_CREATE_FAILED");
+        }
+
+        // recomputar después
+        const despues = await tx.detalleVenta.findMany({
+          where: { idVenta: id },
+          select: { idProducto: true, cantidad: true },
+        });
+
+        // delta de comprometido = después - antes
+        const delta = new Map<number, number>();
+        for (const r of antes)   delta.set(r.idProducto, (delta.get(r.idProducto) ?? 0) - Number(r.cantidad));
+        for (const r of despues) delta.set(r.idProducto, (delta.get(r.idProducto) ?? 0) + Number(r.cantidad));
+
+        const incs: { idProducto:number; cantidad:number }[] = [];
+        const decs: { idProducto:number; cantidad:number }[] = [];
+        for (const [idProducto, d] of delta) {
+          if (d > 0) incs.push({ idProducto, cantidad: d });
+          if (d < 0) decs.push({ idProducto, cantidad: Math.abs(d) });
+        }
+
+        // aplicar stock comprometido
+        if (incs.length) { await validarDisponible(tx, incs); await reservarComprometido(tx, incs); }
+        if (decs.length) { await liberarComprometido(tx, decs); }
+
+        await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: idPend, hastaId: idPend, motivo: "edición" });
+        await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.EDITOR });
+      }
+      // --- LOCK ---
+      else if (accion === "lock") {
+        if (estadoActualNombre.toLowerCase() !== ESTADOS.PENDIENTE.toLowerCase())
+          throw new Error("ESTADO_INVALIDO");
+
+        await tx.venta.update({
+          where: { idVenta: id },
+          data: { idEstadoVenta: idLC },
+        });
+
+        await registrarEventoIds(tx, {
+          idVenta: id, idUsuario,
+          desdeId: idPend, hastaId: idLC,
+          motivo: "cerrada por vendedor"
+        });
+        await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.EDITOR });
+      }
+
+      else if (accion === "cancelar") {
+        if (![ESTADOS.PENDIENTE.toLowerCase(), ESTADOS.LISTO_CAJA.toLowerCase()].includes(estadoActualNombre.toLowerCase()))
+          throw new Error("ESTADO_INVALIDO");
+        if (!motivoCancelacion || String(motivoCancelacion).trim().length === 0)
+          throw new Error("MOTIVO_REQUERIDO");
+
+        const itemsAct = await leerItemsVenta(tx, id);
+        await liberarComprometido(tx, itemsAct);
+
+        const desde = estadoActualNombre.toLowerCase() === ESTADOS.PENDIENTE.toLowerCase() ? idPend : idLC;
+        await tx.venta.update({
+          where: { idVenta: id },
+          data: { idEstadoVenta: idCan },
+        });
+        await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: desde, hastaId: idCan, motivo: String(motivoCancelacion) });
+        await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.ANULADOR });
+        await agregarComentario(tx, { idVenta: id, idUsuario, comentario: String(motivoCancelacion) });
+      }
+      else if (accion === "finalizar") {
+        if (estadoActualNombre.toLowerCase() !== ESTADOS.LISTO_CAJA.toLowerCase())
+          throw new Error("ESTADO_INVALIDO");
+        const itemsAct = await leerItemsVenta(tx, id);
+        if (itemsAct.length === 0) throw new Error("SIN_ITEMS");
+        await validarReal(tx, itemsAct);
+        await descontarRealYComprometido(tx, itemsAct);
+        await tx.venta.update({
+          where: { idVenta: id },
+          data: { idEstadoVenta: idFin },
+        });
+        await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: idLC, hastaId: idFin, motivo: "cobrada" });
+        await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.CAJERO });
+      }
+      else {
+        throw new Error("ACCION_DESCONOCIDA");
+      }
+    });
+    // Lectura final FUERA de la transacción
+    const out = await prisma.venta.findUnique({
+      where: { idVenta: id },
+      include: { EstadoVenta: true, detalles: true },
+    });
+    return res.json(out);
+  } catch (err: any) {
+    if (err.message === "NOT_FOUND") return res.status(404).json({ error: "NOT_FOUND" });
+    if (["STOCK_INEXISTENTE", "STOCK_INSUFICIENTE", "SIN_ITEMS", "ESTADO_INVALIDO", "ACCION_DESCONOCIDA", "MOTIVO_REQUERIDO"].includes(err.message))
+      return res.status(400).json({ error: err.message });
+
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === "P2002") return res.status(409).json({ error: "UNIQUE_CONSTRAINT", target: err.meta?.target });
+      if (err.code === "P2003") return res.status(400).json({ error: "FK_CONSTRAINT" });
+    }
+
+    console.error("PUT /api/preventas/:id error", err);
+    return res.status(500).json({
+      error: "UPDATE_FAILED",
+      ...(DEV ? { message: err.message, code: err.code, meta: err.meta, stack: err.stack } : {})
+    });
+  }
+});
+
+// Eliminar PREVENTA solo si Pendiente. Libera comprometido.
 app.delete("/api/preventas/:id", async (req, res) => {
   const id = Number(req.params.id);
-  await prisma.$transaction([
-    prisma.detalleVenta.deleteMany({ where: { idVenta: id } }),
-    prisma.venta.delete({ where: { idVenta: id } }),
-  ]);
-  res.status(204).end();
-});
-
-app.post("/api/ventas", async (req, res) => {
   try {
-    const {
-      idCliente,
-      idTipoPago,
-      idMoneda,
-      observacion,
-      items = [], // [{ idProducto, cantidad }]
-    } = req.body;
-
-    // validación básica
-    if (
-      !idTipoPago ||
-      !idMoneda ||
-      !Array.isArray(items) ||
-      items.length === 0
-    ) {
-      return res.status(400).json({ error: "FALTAN_DATOS" });
-    }
-
-    // estado = Finalizada
-    const estadoRow = await prisma.estadoVenta.findFirst({
-      where: { nombreEstadoVenta: { equals: "Finalizada", mode: "insensitive" } },
-      select: { idEstadoVenta: true },
-    });
-    const idEstadoVenta = estadoRow?.idEstadoVenta;
-    if (!idEstadoVenta) {
-      return res
-        .status(500)
-        .json({ error: "NO_ESTADO_FINALIZADA" });
-    }
-
-    // timestamps
-    const ahora = new Date();
-
-    // creamos Venta + DetalleVenta en una transacción
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. crear venta
-      const data: any = {
-        fechaVenta: ahora,
-        fechaCobroVenta: ahora,
-        observacion: observacion ?? null,
-        idEstadoVenta,
-        idTipoPago: Number(idTipoPago),
-        idMoneda: Number(idMoneda),
-      };
-
-      // agregar idCliente solo si existe
-      if (idCliente) data.idCliente = Number(idCliente);
-
-      const v = await tx.venta.create({
-        data,
-        select: { idVenta: true },
+    await prisma.$transaction(async (tx) => {
+      const v = await tx.venta.findUnique({
+        where: { idVenta: id },
+        include: { EstadoVenta: true },
       });
+      if (!v) throw new Error("NOT_FOUND");
+      if (v.EstadoVenta.nombreEstadoVenta.toLowerCase() !== ESTADOS.PENDIENTE.toLowerCase())
+        throw new Error("ESTADO_INVALIDO");
 
+      const items = await leerItemsVenta(tx, id);
+      await liberarComprometido(tx, items);
 
-
-      // 2. crear cada detalle y bajar stock
-      for (const it of items) {
-        const prodId = Number(it.idProducto);
-        const cant = Number(it.cantidad);
-
-        if (!prodId || !(cant > 0)) continue;
-
-        // 2a. insertar detalleVenta
-        await tx.detalleVenta.create({
-          data: {
-            idVenta: v.idVenta,
-            idProducto: prodId,
-            cantidad: cant,
-          },
-        });
-
-        // 2b. descontar stock real
-        // estrategia simple: traer el primer stock de ese producto
-        const st = await tx.stock.findFirst({
-          where: { idProducto: prodId },
-          orderBy: { ultimaModificacionStock: "desc" },
-        });
-
-        if (st) {
-          const nuevaCantidadReal =
-            Number(st.cantidadRealStock) - cant;
-
-          await tx.stock.update({
-            where: { idStock: st.idStock },
-            data: {
-              cantidadRealStock: new Prisma.Decimal(
-                nuevaCantidadReal < 0 ? 0 : nuevaCantidadReal
-              ),
-              ultimaModificacionStock: ahora,
-            },
-          });
-        }
-      }
-
-      return v;
+      await tx.detalleVenta.deleteMany({ where: { idVenta: id } });
+      await tx.venta.delete({ where: { idVenta: id } });
     });
-
-    res.status(201).json({ idVenta: result.idVenta });
-  } catch (err) {
-    console.error("POST /api/ventas error", err);
-    res.status(500).json({ error: "CREATE_FAILED" });
+    res.status(204).end();
+  } catch (err: any) {
+    if (err.message === "NOT_FOUND") return res.status(404).json({ error: "NOT_FOUND" });
+    if (err.message === "ESTADO_INVALIDO") return res.status(409).json({ error: "ESTADO_INVALIDO" });
+    console.error(err);
+    res.status(400).json({ error: "DELETE_FAILED" });
   }
 });
 
-app.post("/api/ventas", async (req, res) => {
-  try {
-    const {
-      idCliente,
-      idTipoPago,
-      idMoneda,
-      observacion,
-      items = [], // [{ idProducto, cantidad }]
-    } = req.body;
-
-    // validación básica
-    if (
-      !idTipoPago ||
-      !idMoneda ||
-      !Array.isArray(items) ||
-      items.length === 0
-    ) {
-      return res.status(400).json({ error: "FALTAN_DATOS" });
-    }
-
-    // buscar estado "Finalizada"
-    const estadoRow = await prisma.estadoVenta.findFirst({
-      where: {
-        nombreEstadoVenta: {
-          equals: "Finalizada",
-          mode: "insensitive",
-        },
-      },
-      select: { idEstadoVenta: true },
-    });
-
-    if (!estadoRow) {
-      return res.status(500).json({ error: "NO_ESTADO_FINALIZADA" });
-    }
-
-    const idEstadoVenta = estadoRow.idEstadoVenta;
-    const ahora = new Date();
-
-    // transacción
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. armar data dinámica para Venta
-      const data: any = {
-        fechaVenta: ahora,
-        fechaCobroVenta: ahora,
-        observacion: observacion ?? null,
-        idEstadoVenta,
-        idTipoPago: Number(idTipoPago),
-        idMoneda: Number(idMoneda),
-        // idUsuario: pendiente de auth
-      };
-
-      if (idCliente) {
-        data.idCliente = Number(idCliente);
-      }
-
-      // 2. crear venta
-      const v = await tx.venta.create({
-        data,
-        select: { idVenta: true },
-      });
-
-      // 3. crear cada detalle y bajar stock
-      for (const it of items) {
-        const prodID = Number(it.idProducto);
-        const cant = Number(it.cantidad);
-
-        if (!prodID || !(cant > 0)) continue;
-
-        // 3a. detalleVenta
-        await tx.detalleVenta.create({
-          data: {
-            idVenta: v.idVenta,
-            idProducto: prodID,
-            cantidad: cant,
-          },
-        });
-
-        // 3b. bajar stock real
-        const st = await tx.stock.findFirst({
-          where: { idProducto: prodID },
-          orderBy: { ultimaModificacionStock: "desc" },
-        });
-
-        if (st) {
-          const nuevaCantidadReal =
-            Number(st.cantidadRealStock) - cant;
-
-          await tx.stock.update({
-            where: { idStock: st.idStock },
-            data: {
-              cantidadRealStock: new Prisma.Decimal(
-                nuevaCantidadReal < 0 ? 0 : nuevaCantidadReal
-              ),
-              ultimaModificacionStock: ahora,
-            },
-          });
-        }
-      }
-
-      return v;
-    });
-
-    return res.status(201).json({ idVenta: result.idVenta });
-  } catch (err) {
-    console.error("POST /api/ventas error", err);
-    return res.status(500).json({ error: "CREATE_FAILED" });
-  }
-});
-
-
+// Ventas: listar solo Finalizadas o Canceladas
 app.get("/api/ventas", async (req, res) => {
-  // opcional: q por cliente
   const q = String(req.query.q ?? "").trim().toLowerCase();
 
-  // traemos ventas que NO estén Pendiente
-  // o sea Finalizada o Cancelada
-  // buscamos los ids de esos estados
   const estados = await prisma.estadoVenta.findMany({
     where: {
       nombreEstadoVenta: {
@@ -1348,13 +1472,10 @@ app.get("/api/ventas", async (req, res) => {
     take: 100,
   });
 
-  // calculamos total por venta
   const out = rows.map((v) => {
     const total = v.detalles.reduce((acc, d) => {
       const cant = Number(d.cantidad ?? 0);
-      const pu = Number(
-        d.Producto?.precioVentaPublicoProducto ?? 0
-      );
+      const pu = Number(d.Producto?.precioVentaPublicoProducto ?? 0);
       return acc + cant * pu;
     }, 0);
 
@@ -1373,43 +1494,14 @@ app.get("/api/ventas", async (req, res) => {
   res.json(out);
 });
 
-// lista tipos de pago (única versión)
-app.get("/api/tipos-pago", async (_req, res) => {
-  const rows = await prisma.tipoPago.findMany({
-    select: {
-      idTipoPago: true,
-      tipoPago: true,
-    },
-    orderBy: { tipoPago: "asc" },
-  });
-  // respuesta canonical
-  res.json(
-    rows.map(r => ({
-      idTipoPago: r.idTipoPago,
-      tipoPago: r.tipoPago,
-    }))
-  );
-});
-
-
-// Búsqueda de productos (por nombre/código/barras)
+// — buscador de productos simple
 app.get("/api/products/search", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
   const where = q
     ? {
       OR: [
-        {
-          nombreProducto: {
-            contains: q,
-            mode: "insensitive" as const,
-          },
-        },
-        {
-          codigoProducto: {
-            contains: q,
-            mode: "insensitive" as const,
-          },
-        },
+        { nombreProducto: { contains: q, mode: "insensitive" as const } },
+        { codigoProducto: { contains: q, mode: "insensitive" as const } },
       ],
     }
     : undefined;
@@ -1436,85 +1528,25 @@ app.get("/api/products/search", async (req, res) => {
   );
 });
 
-
-/* ==== PREVENTAS (Venta con estado 'Pendiente') ==== */
-
-async function getDefaultMonedaId() {
-  const m = await prisma.moneda.findFirst({
-    select: { idMoneda: true },
-    orderBy: { idMoneda: "asc" },
+// lista tipos de pago
+app.get("/api/tipos-pago", async (_req, res) => {
+  const rows = await prisma.tipoPago.findMany({
+    select: { idTipoPago: true, tipoPago: true },
+    orderBy: { tipoPago: "asc" },
   });
-  return m?.idMoneda ?? 1;
-}
-
-// resolver id del estado 'Pendiente' una sola vez
-async function getPendienteId() {
-  const e = await prisma.estadoVenta.findFirst({
-    where: { nombreEstadoVenta: { equals: "Pendiente", mode: "insensitive" } },
-    select: { idEstadoVenta: true },
-  });
-  return e?.idEstadoVenta ?? 1; // fallback si ya sabés que 1 = Pendiente
-}
-
-// helper: total = Σ(detalle.cantidad * producto.precioVentaPublicoProducto)
-async function calcularTotal(idVenta: number) {
-  const dets = await prisma.detalleVenta.findMany({
-    where: { idVenta },
-    select: {
-      cantidad: true,
-      Producto: { select: { precioVentaPublicoProducto: true } },
-    },
-  });
-  return dets.reduce(
-    (a, d) => a + Number(d.cantidad) * Number(d.Producto.precioVentaPublicoProducto ?? 0),
-    0
-  );
-}
-
-// lista clientes para selects
-app.get("/api/clientes", async (_req, res) => {
-  const rows = await prisma.cliente.findMany({
-    select: {
-      idCliente: true,
-      nombreCliente: true,
-      apellidoCliente: true,
-    },
-    orderBy: { apellidoCliente: "asc" },
-  });
-
-  res.json(
-    rows.map(r => ({
-      idCliente: r.idCliente,
-      nombreCliente: r.nombreCliente,
-      apellidoCliente: r.apellidoCliente,
-    }))
-  );
+  res.json(rows.map(r => ({ idTipoPago: r.idTipoPago, tipoPago: r.tipoPago })));
 });
-
 // lista monedas
 app.get("/api/monedas", async (_req, res) => {
   const rows = await prisma.moneda.findMany({
-    select: {
-      idMoneda: true,
-      moneda: true,
-      precio: true,
-    },
+    select: { idMoneda: true, moneda: true, precio: true },
     orderBy: { moneda: "asc" },
   });
-
-  res.json(
-    rows.map(r => ({
-      idMoneda: r.idMoneda,
-      moneda: r.moneda,
-      precio: Number(r.precio),
-    }))
-  );
+  res.json(rows.map(r => ({ idMoneda: r.idMoneda, moneda: r.moneda, precio: Number(r.precio) })));
 });
-
 
 /* ---- montar router ---- */
 app.use("/api", api);
-
 
 // ====== META ======
 app.get("/api/_meta/product-columns", async (_req, res) => {

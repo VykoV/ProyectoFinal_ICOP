@@ -379,7 +379,10 @@ function PreventaView({
                         );
                         const subtotal = cant * pu;
                         return (
-                          <tr key={idx} className="border-t">
+                          <tr
+                            key={`${d.idDetalleVenta ?? d.idProducto}-${idx}`}
+                            className="border-t"
+                          >
                             <td className="px-2 py-2">
                               {d.Producto?.codigoProducto ?? ""} —{" "}
                               {d.Producto?.nombreProducto ?? ""}
@@ -780,6 +783,23 @@ function PreventaForm({
     setItems((prev) => prev.filter((i) => i.idProducto !== idProducto));
   }
 
+  function setItemCantidad(idProducto: number, cantidad: number) {
+    setItems((prev) =>
+      prev.map((i) =>
+        i.idProducto === idProducto ? { ...i, cantidad: Math.max(0, cantidad) } : i
+      )
+    );
+  }
+
+  function setItemDescuento(idProducto: number, descuento: number) {
+    const pct = Math.min(100, Math.max(0, descuento));
+    setItems((prev) =>
+      prev.map((i) =>
+        i.idProducto === idProducto ? { ...i, descuento: pct } : i
+      )
+    );
+  }
+
   /* ===== Cálculos de totales ===== */
   const bruto = items.reduce((a, i) => a + i.cantidad * i.precio, 0);
 
@@ -824,6 +844,7 @@ function PreventaForm({
       fechaCobroVenta: today,
       descuentoGeneral: Number(descClientePct) || 0,
       porcentajeMetodo: tieneRecargoMP ? Number(porcentajeMP) || 0 : 0,
+      accion: isEdit ? "guardar" : undefined,
       detalles: items.map((i) => ({
         idProducto: Number(i.idProducto),
         cantidad: Number(i.cantidad),
@@ -1118,14 +1139,49 @@ function PreventaForm({
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((i) => (
-                    <tr key={i.idProducto} className="border-t">
+                  {items.map((i, idx) => (
+                    <tr key={`${i.idProducto}-${idx}`} className="border-t">
                       <td className="px-3 py-2">{i.nombre}</td>
-                      <td className="px-3 py-2 text-center">{i.cantidad}</td>
+                      <td className="px-3 py-2 text-center">
+                        {isEdit ? (
+                          <Input
+                            type="number"
+                            inputMode="numeric"
+                            value={i.cantidad}
+                            onChange={(e) =>
+                              setItemCantidad(
+                                i.idProducto,
+                                Number(e.target.value) || 0
+                              )
+                            }
+                            className="w-24 text-center"
+                          />
+                        ) : (
+                          i.cantidad
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-center">
                         ${i.precio.toFixed(2)}
                       </td>
-                      <td className="px-3 py-2 text-center">{i.descuento}%</td>
+                      <td className="px-3 py-2 text-center">
+                        {isEdit ? (
+                          <Input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.1"
+                            value={i.descuento}
+                            onChange={(e) =>
+                              setItemDescuento(
+                                i.idProducto,
+                                Number(e.target.value) || 0
+                              )
+                            }
+                            className="w-20 text-center"
+                          />
+                        ) : (
+                          `${i.descuento}%`
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-center">
                         $
                         {(

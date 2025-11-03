@@ -238,6 +238,10 @@ setPreRows(
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Gestión de Ventas</h1>
+        {/**
+         * Botón "+ Registrar Nueva Venta" comentado por solicitud
+         */}
+        {/*
         <button
           onClick={() => setOpenNuevaVenta(true)}
           className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
@@ -245,6 +249,7 @@ setPreRows(
           <Plus className="h-4 w-4" />
           <span>Registrar Nueva Venta</span>
         </button>
+        */}
       </div>
 
       {/* Tabs */}
@@ -796,6 +801,7 @@ function ValidarPreventaModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const [ventaId, setVentaId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -830,15 +836,23 @@ function ValidarPreventaModal({
   // estado actual de la preventa (Pendiente, Finalizada, Cancelada)
   const estadoActual = venta?.EstadoVenta?.nombreEstadoVenta ?? "Pendiente";
   const isEditable = estadoActual.toLowerCase() === "pendiente";
+  const estadoNorm = estadoActual.toLowerCase().replace(/\s+/g, "");
+  const isListoCaja = estadoNorm.includes("listocaja");
 
-  // cargar todo al abrir
+  // sincronizar ventaId local con prop
   useEffect(() => {
+    setVentaId(id);
+  }, [id]);
+
+  // cargar todo al abrir / cuando cambia ventaId
+  useEffect(() => {
+    if (!ventaId) return;
     (async () => {
       setLoading(true);
       try {
         const [resVenta, resClientes, resTiposPago, resMonedas] =
           await Promise.all([
-            api.get(`/preventas/${id}`),
+            api.get(`/preventas/${ventaId}`),
             api.get("/clientes"),
             api.get("/tipos-pago"),
             api.get("/monedas"),
@@ -876,7 +890,7 @@ function ValidarPreventaModal({
         setLoading(false);
       }
     })();
-  }, [id]);
+  }, [ventaId]);
 
   async function submit(accion: "guardar" | "finalizar" | "cancelar") {
     setSaving(true);
@@ -899,15 +913,21 @@ function ValidarPreventaModal({
         payload.motivoCancelacion = motivo ?? null;
       }
 
-      await api.put(`/preventas/${id}`, payload);
+      await api.put(`/preventas/${ventaId}`, payload);
 
       if (accion === "guardar") {
-        // sigue Pendiente. Solo cerrar el modal
-        onClose();
+        // Refrescar la preventa para actualizar estado (por si pasó a ListoCaja)
+        try {
+          const resVenta = await api.get(`/preventas/${ventaId}`);
+          setVenta(resVenta.data);
+        } finally {
+          setSaving(false);
+        }
+        return; // mantener modal abierto y estado actualizado
       } else {
-        // "finalizar" o "cancelar"
-        // sacarla de la lista de Pre-Ventas Pendientes
+        // "finalizar" o "cancelar" -> cerrar y recargar listas en el padre
         onDone();
+        setSaving(false);
       }
     } catch (err) {
       console.error(err);
@@ -916,6 +936,24 @@ function ValidarPreventaModal({
         (err as any)?.message ||
         "Error al actualizar";
       alert(msg);
+      setSaving(false);
+    }
+  }
+
+  async function lock() {
+    if (!ventaId) return;
+    setSaving(true);
+    try {
+      const res = await api.put(`/preventas/${ventaId}`, { accion: "lock" });
+      setVenta(res.data);
+    } catch (err) {
+      console.error(err);
+      const msg =
+        (err as any)?.response?.data?.error ||
+        (err as any)?.message ||
+        "Error al cerrar y pasar a caja";
+      alert(msg);
+    } finally {
       setSaving(false);
     }
   }
@@ -1161,8 +1199,11 @@ function ValidarPreventaModal({
                               d.Producto?.precioVentaPublicoProducto ?? 0
                             );
                             const tot = cant * pUnit;
-                            return (
-                              <tr key={idx} className="border-t">
+                          return (
+                              <tr
+                                key={`${d.idDetalleVenta ?? d.idProducto}-${idx}`}
+                                className="border-t"
+                              >
                                 <td className="px-3 py-2">
                                   {d.Producto?.codigoProducto
                                     ? `${d.Producto.codigoProducto} - ${
@@ -1239,12 +1280,23 @@ function ValidarPreventaModal({
                 disabled={saving}
                 onClick={() => submit("guardar")}
               >
-                Guardar
+                Guardar cambios
               </button>
             )}
 
-            {/* Marcar Finalizada. Solo si sigue Pendiente */}
+            {/* Cerrar y pasar a caja (lock) desde Pendiente */}
             {isEditable && (
+              <button
+                className="rounded-lg border border-blue-700 text-blue-700 px-3 py-2 text-sm disabled:opacity-50"
+                disabled={saving}
+                onClick={lock}
+              >
+                Cerrar y pasar a caja
+              </button>
+            )}
+
+            {/* Marcar Finalizada. Solo si está en ListoCaja */}
+            {isListoCaja && (
               <button
                 className="rounded-lg border border-green-700 text-green-700 px-3 py-2 text-sm disabled:opacity-50"
                 disabled={saving}
@@ -1254,8 +1306,8 @@ function ValidarPreventaModal({
               </button>
             )}
 
-            {/* Marcar Cancelada. Solo si sigue Pendiente */}
-            {isEditable && (
+            {/* Marcar Cancelada. En Pendiente o ListoCaja */}
+            {(isEditable || isListoCaja) && (
               <button
                 className="rounded-lg border border-red-700 text-red-700 px-3 py-2 text-sm disabled:opacity-50"
                 disabled={saving}
