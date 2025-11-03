@@ -37,26 +37,33 @@ export default function PreVentas() {
     setLoading(true);
     try {
       const { data } = await api.get("/preventas", {
-        params: { ...(query ? { q: query } : {}), estado: "pendiente" },
+        params: { ...(query ? { q: query } : {}) },
       });
       setRows(
-  (data ?? []).map((v: any) => ({
-    id: v.id ?? v.idVenta,
-    cliente: v.cliente
-      ? v.cliente
-      : v.Cliente
-      ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
-      : "",
-    fecha: String(v.fecha ?? v.fechaVenta ?? "").slice(0, 10),
-    metodoPago: v.metodoPago ?? v.TipoPago?.tipoPago ?? null,
-    total: Number(v.total ?? 0),
-    estado:
-      v.estado ??
-      v.estadoVenta ??
-      v.EstadoVenta?.nombreEstadoVenta ??
-      "Pendiente",
-  }))
-);
+        (data ?? [])
+          .map((v: any) => ({
+            id: v.id ?? v.idVenta,
+            cliente: v.cliente
+              ? v.cliente
+              : v.Cliente
+              ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
+              : "",
+            fecha: String(v.fecha ?? v.fechaVenta ?? "").slice(0, 10),
+            metodoPago: v.metodoPago ?? v.TipoPago?.tipoPago ?? null,
+            total: Number(v.total ?? 0),
+            estado:
+              v.estado ??
+              v.estadoVenta ??
+              v.EstadoVenta?.nombreEstadoVenta ??
+              "Pendiente",
+          }))
+          // Mostrar preventas no cerradas (Pendiente, ListoCaja, etc), excluir finalizadas/canceladas
+          .filter((r: PreRow) => {
+            const n = String(r.estado || "").toLowerCase().replace(/[\s_]+/g, "");
+            const esCerrada = n.includes("finaliz") || n.includes("cancel");
+            return !esCerrada;
+          })
+      );
 
     } finally {
       setLoading(false);
@@ -77,6 +84,23 @@ export default function PreVentas() {
     { header: "Fecha", accessorKey: "fecha" },
     { header: "Método de pago", accessorKey: "metodoPago" },
     {
+      header: "Estado",
+      cell: ({ row }) => {
+        const raw = row.original.estado || "Pendiente";
+        const norm = raw.toLowerCase().replace(/[\s_]+/g, "");
+        let cls = "bg-gray-100 text-gray-800";
+        if (norm.includes("pend")) cls = "bg-yellow-100 text-yellow-800";
+        else if (norm.includes("listocaja")) cls = "bg-blue-100 text-blue-800";
+        else if (norm.includes("finaliz") || norm.includes("cerrad")) cls = "bg-green-100 text-green-800";
+        else if (norm.includes("cancel")) cls = "bg-red-100 text-red-800";
+        return (
+          <span className={`rounded-full px-2 py-1 text-xs font-medium ${cls}`}>
+            {raw}
+          </span>
+        );
+      },
+    },
+    {
       header: "Total",
       cell: ({ row }) => `$${row.original.total.toFixed(2)}`,
     },
@@ -85,8 +109,10 @@ export default function PreVentas() {
   id: "acciones",
   size: 220,
   cell: ({ row }) => {
-    const estado = (row.original.estado || "").toLowerCase();
-    const isEditable = estado === "pendiente";
+    const estadoNorm = (row.original.estado || "")
+      .toLowerCase()
+      .replace(/[\s_]+/g, "");
+    const isEditable = estadoNorm === "pendiente";
 
     return (
       <div className="flex gap-2">
@@ -112,13 +138,17 @@ export default function PreVentas() {
           <button
             className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
             onClick={async () => {
-              if (!confirm("¿Eliminar presupuesto?")) return;
-              await api.delete(`/preventas/${row.original.id}`);
+              const motivo = window.prompt("Motivo de cancelación?");
+              if (motivo === null) return; // cancelado por usuario
+              await api.put(`/preventas/${row.original.id}` , {
+                accion: "cancelar",
+                motivoCancelacion: motivo || null,
+              });
               await load(q);
             }}
-            title="Eliminar"
+            title="Cancelar presupuesto"
           >
-            <Trash2 className="h-3.5 w-3.5" /> Eliminar
+            <Trash2 className="h-3.5 w-3.5" /> Cancelar
           </button>
         )}
       </div>
@@ -171,7 +201,13 @@ export default function PreVentas() {
       )}
 
       {openView !== null && (
-        <PreventaView id={openView} onClose={() => setOpenView(null)} />
+        <PreventaView
+          id={openView}
+          onClose={async (reload?: boolean) => {
+            setOpenView(null);
+            if (reload) await load(q);
+          }}
+        />
       )}
     </section>
   );
@@ -246,7 +282,7 @@ function PreventaView({
   const isEditable =
     (venta?.EstadoVenta?.nombreEstadoVenta ?? "")
       .toLowerCase()
-      .trim() === "pendiente";
+      .replace(/[\s_]+/g, "") === "pendiente";
 
   // 3. Handler para cerrar edición (lock -> ListoCaja)
   async function terminarEdicion() {
@@ -827,8 +863,9 @@ function PreventaForm({
   const totalFinal = totalAntesRecargo + recargoMonto;
 
   /* ===== Submit ===== */
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function onSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
+    console.log("CLICK GUARDAR", { isEdit, id, items });
     if (!idCliente) return alert("Seleccioná un cliente válido.");
     if (!idTipoPago) return alert("Seleccioná método de pago.");
     if (items.length === 0) return alert("Agregá al menos un producto.");
@@ -836,20 +873,34 @@ function PreventaForm({
     const today = new Date();
     const ventaDate = fechaFactura ? new Date(fechaFactura) : today;
 
-    const payload: any = {
-      idCliente: Number(idCliente),
-      idTipoPago: Number(idTipoPago),
-      observacion: obs || null,
-      fechaVenta: ventaDate,
-      fechaCobroVenta: today,
-      descuentoGeneral: Number(descClientePct) || 0,
-      porcentajeMetodo: tieneRecargoMP ? Number(porcentajeMP) || 0 : 0,
-      accion: isEdit ? "guardar" : undefined,
-      detalles: items.map((i) => ({
-        idProducto: Number(i.idProducto),
-        cantidad: Number(i.cantidad),
-      })),
-    };
+    // Construir payload diferenciando crear (POST) vs guardar (PUT)
+    const payload: any = isEdit
+      ? {
+          accion: "guardar",
+          items: items.map((i) => ({
+            idProducto: Number(i.idProducto),
+            cantidad: Number(i.cantidad),
+          })),
+          idCliente: Number(idCliente),
+          idTipoPago: Number(idTipoPago),
+          observacion: obs || null,
+          fechaFacturacion: ventaDate.toISOString(),
+          fechaCobro: today.toISOString(),
+          descuentoGeneral: Number(descClientePct) || 0,
+          porcentajeMetodo: tieneRecargoMP ? Number(porcentajeMP) || 0 : 0,
+        }
+      : {
+          idCliente: Number(idCliente),
+          idTipoPago: Number(idTipoPago),
+          observacion: obs || null,
+          // en creación el backend espera "detalles"
+          detalles: items.map((i) => ({
+            idProducto: Number(i.idProducto),
+            cantidad: Number(i.cantidad),
+          })),
+          descuentoGeneral: Number(descClientePct) || 0,
+          porcentajeMetodo: tieneRecargoMP ? Number(porcentajeMP) || 0 : 0,
+        };
 
     try {
       if (isEdit) await api.put(`/preventas/${id}`, payload);
@@ -1292,7 +1343,8 @@ function PreventaForm({
                   Cancelar
                 </button>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={onSubmit}
                   className="rounded-lg bg-black text-white px-3 py-2 text-sm"
                 >
                   {isEdit ? "Guardar cambios" : "Guardar Presupuesto"}

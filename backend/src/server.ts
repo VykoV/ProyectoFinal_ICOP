@@ -772,8 +772,9 @@ const toNum = (v: any) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-// Normaliza cantidades a 3 decimales
-const toDec3 = (v: any) => new Prisma.Decimal(toNum(v).toFixed(3));
+// Normaliza cantidades a 3 decimales (Decimal con 3dp exactos)
+const toDec3 = (n: number | string) =>
+  new Prisma.Decimal(Number(n ?? 0)).toDecimalPlaces(3);
 
 // Asegura que existan los estados base 
 async function ensureEstadosBase() {
@@ -1194,7 +1195,19 @@ app.put("/api/preventas/:id", async (req, res) => {
 
   // normalización de payload
   const raw = req.body ?? {};
-  let { idCliente, idTipoPago, observacion, fechaFacturacion, fechaCobro, idMoneda, accion, motivoCancelacion } = raw;
+  let {
+    idCliente,
+    idTipoPago,
+    observacion,
+    fechaFacturacion,
+    fechaCobro,
+    idMoneda,
+    accion,
+    motivoCancelacion,
+    descuentoGeneral,
+    ajuste,
+    recargoPago,
+  } = raw;
 
   let items = Array.isArray(raw.items)
     ? raw.items
@@ -1249,7 +1262,8 @@ app.put("/api/preventas/:id", async (req, res) => {
       const idCan = await getEstadoId(tx, ESTADOS.CANCELADA);
 
       if (accion === "guardar") {
-        if (estadoActualNombre.toLowerCase() !== ESTADOS.PENDIENTE.toLowerCase())
+        const editable = [ESTADOS.PENDIENTE, ESTADOS.LISTO_CAJA].map(norm);
+        if (!editable.includes(norm(estadoActualNombre)))
           throw new Error("ESTADO_INVALIDO");
 
         const antes = await tx.detalleVenta.findMany({
@@ -1264,6 +1278,9 @@ app.put("/api/preventas/:id", async (req, res) => {
           ...(fechaFacturacion && { fechaVenta: new Date(fechaFacturacion) }),
           ...(fechaCobro && { fechaCobroVenta: new Date(fechaCobro) }),
           ...(idMoneda !== undefined && idMoneda !== null && idMoneda !== "" && { idMoneda: Number(idMoneda) }),
+          ...(descuentoGeneral !== undefined && { descuentoGeneralVenta: new Prisma.Decimal(descuentoGeneral) }),
+          ...(ajuste !== undefined && { ajusteVenta: new Prisma.Decimal(ajuste) }),
+          ...(recargoPago !== undefined && { recargoPagoVenta: new Prisma.Decimal(recargoPago) }),
         };
         if (Object.keys(dataToUpdate).length) {
           await tx.venta.update({ where: { idVenta: id }, data: dataToUpdate });
@@ -1320,12 +1337,13 @@ app.put("/api/preventas/:id", async (req, res) => {
         if (incs.length) { await validarDisponible(tx, incs); await reservarComprometido(tx, incs); }
         if (decs.length) { await liberarComprometido(tx, decs); }
 
-        await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: idPend, hastaId: idPend, motivo: "edición" });
+        const desdeId = norm(estadoActualNombre) === norm(ESTADOS.PENDIENTE) ? idPend : idLC;
+        await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId, hastaId: desdeId, motivo: "edición" });
         await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.EDITOR });
       }
       // --- LOCK ---
       else if (accion === "lock") {
-        if (estadoActualNombre.toLowerCase() !== ESTADOS.PENDIENTE.toLowerCase())
+        if (norm(estadoActualNombre) !== norm(ESTADOS.PENDIENTE))
           throw new Error("ESTADO_INVALIDO");
 
         await tx.venta.update({
@@ -1342,7 +1360,7 @@ app.put("/api/preventas/:id", async (req, res) => {
       }
 
       else if (accion === "cancelar") {
-        if (![ESTADOS.PENDIENTE.toLowerCase(), ESTADOS.LISTO_CAJA.toLowerCase()].includes(estadoActualNombre.toLowerCase()))
+        if (![norm(ESTADOS.PENDIENTE), norm(ESTADOS.LISTO_CAJA)].includes(norm(estadoActualNombre)))
           throw new Error("ESTADO_INVALIDO");
         if (!motivoCancelacion || String(motivoCancelacion).trim().length === 0)
           throw new Error("MOTIVO_REQUERIDO");
@@ -1350,7 +1368,7 @@ app.put("/api/preventas/:id", async (req, res) => {
         const itemsAct = await leerItemsVenta(tx, id);
         await liberarComprometido(tx, itemsAct);
 
-        const desde = estadoActualNombre.toLowerCase() === ESTADOS.PENDIENTE.toLowerCase() ? idPend : idLC;
+        const desde = norm(estadoActualNombre) === norm(ESTADOS.PENDIENTE) ? idPend : idLC;
         await tx.venta.update({
           where: { idVenta: id },
           data: { idEstadoVenta: idCan },
@@ -1360,7 +1378,7 @@ app.put("/api/preventas/:id", async (req, res) => {
         await agregarComentario(tx, { idVenta: id, idUsuario, comentario: String(motivoCancelacion) });
       }
       else if (accion === "finalizar") {
-        if (estadoActualNombre.toLowerCase() !== ESTADOS.LISTO_CAJA.toLowerCase())
+        if (norm(estadoActualNombre) !== norm(ESTADOS.LISTO_CAJA))
           throw new Error("ESTADO_INVALIDO");
         const itemsAct = await leerItemsVenta(tx, id);
         if (itemsAct.length === 0) throw new Error("SIN_ITEMS");
@@ -1378,10 +1396,10 @@ app.put("/api/preventas/:id", async (req, res) => {
       }
     });
     // Lectura final FUERA de la transacción
-    const out = await prisma.venta.findUnique({
-      where: { idVenta: id },
-      include: { EstadoVenta: true, detalles: true },
-    });
+  const out = await prisma.venta.findUnique({
+    where: { idVenta: id },
+    include: { EstadoVenta: true, detalles: { include: { Producto: true } } },
+  });
     return res.json(out);
   } catch (err: any) {
     if (err.message === "NOT_FOUND") return res.status(404).json({ error: "NOT_FOUND" });

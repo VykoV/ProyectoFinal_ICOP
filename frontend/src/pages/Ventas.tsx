@@ -80,7 +80,9 @@ setPreRows(
         v.EstadoVenta?.nombreEstadoVenta ??
         "Pendiente";
 
-      const norm = String(estadoNombre).toLowerCase().trim();
+      const norm = String(estadoNombre)
+        .toLowerCase()
+        .replace(/[\s_]+/g, "");
 
       // Estados que NO queremos ver en la pestaña de "Pre-Ventas Pendientes" de caja:
       // finalizada, finalizado, cerrado, cancelada, cancelado
@@ -182,7 +184,7 @@ setPreRows(
   header: "Estado",
   cell: ({ row }) => {
     const raw = row.original.estado || "Pendiente";
-    const norm = raw.toLowerCase().trim();
+    const norm = raw.toLowerCase().replace(/[\s_]+/g, "");
 
     let cls = "bg-blue-100 text-blue-800"; // default intermedio / caja
     if (norm.includes("pend")) {
@@ -833,11 +835,12 @@ function ValidarPreventaModal({
   const [ajuste, setAjuste] = useState<number>(0);
   const [recargoPago, setRecargoPago] = useState<number>(0);
 
-  // estado actual de la preventa (Pendiente, Finalizada, Cancelada)
+  // estado actual de la preventa (Pendiente, ListoCaja, Finalizada, Cancelada)
   const estadoActual = venta?.EstadoVenta?.nombreEstadoVenta ?? "Pendiente";
-  const isEditable = estadoActual.toLowerCase() === "pendiente";
-  const estadoNorm = estadoActual.toLowerCase().replace(/\s+/g, "");
+  const estadoNorm = estadoActual.toLowerCase().replace(/[\s_]+/g, "");
+  const isEditable = estadoNorm === "pendiente";
   const isListoCaja = estadoNorm.includes("listocaja");
+  const canSave = isEditable || isListoCaja;
 
   // sincronizar ventaId local con prop
   useEffect(() => {
@@ -878,9 +881,10 @@ function ValidarPreventaModal({
 
         setObservacion(v.observacion ?? "");
 
-        setDescuentoGeneral(v.descuentoGeneralVenta ?? 0);
-        setAjuste(v.ajusteVenta ?? 0);
-        setRecargoPago(v.recargoPagoVenta ?? 0);
+        // normalizar números provenientes del backend
+        setDescuentoGeneral(Number(v.descuentoGeneralVenta ?? 0));
+        setAjuste(Number(v.ajusteVenta ?? 0));
+        setRecargoPago(Number(v.recargoPagoVenta ?? 0));
 
         // catálogos ya estandarizados del backend
         setClientes(resClientes.data ?? []);
@@ -895,17 +899,26 @@ function ValidarPreventaModal({
   async function submit(accion: "guardar" | "finalizar" | "cancelar") {
     setSaving(true);
     try {
+      if (accion === "guardar") {
+        console.log("CLICK GUARDAR", { estado: estadoActual, ventaId: id });
+      }
+      const items = (venta?.detalles ?? []).
+        map((d: any) => ({
+          idProducto: Number(d.idProducto ?? d.Producto?.idProducto),
+          cantidad: Number(d.cantidad ?? 0),
+        }))
+        .filter((i: any) => i.idProducto && i.cantidad > 0);
+
+      // Payload básico. En "guardar" NO enviar descuentoGeneral/ajuste/recargoPago.
       const payload: any = {
         accion,
+        ...(accion === "guardar" && { items }),
         idCliente: idCliente === "" ? null : idCliente,
         idTipoPago: idTipoPago === "" ? null : idTipoPago,
         idMoneda: idMoneda === "" ? null : idMoneda,
         fechaFacturacion,
         fechaCobro,
         observacion,
-        descuentoGeneral,
-        ajuste,
-        recargoPago,
       };
 
       if (accion === "cancelar") {
@@ -915,20 +928,19 @@ function ValidarPreventaModal({
 
       await api.put(`/preventas/${ventaId}`, payload);
 
+      // Refresco duro tras cualquier PUT para recalcular flags con estado normalizado
+      const resVenta = await api.get(`/preventas/${ventaId}`);
+      setVenta(resVenta.data);
+
       if (accion === "guardar") {
-        // Refrescar la preventa para actualizar estado (por si pasó a ListoCaja)
-        try {
-          const resVenta = await api.get(`/preventas/${ventaId}`);
-          setVenta(resVenta.data);
-        } finally {
-          setSaving(false);
-        }
-        return; // mantener modal abierto y estado actualizado
-      } else {
-        // "finalizar" o "cancelar" -> cerrar y recargar listas en el padre
-        onDone();
+        // Mantener modal abierto; botones se recalculan con el estado actualizado
         setSaving(false);
+        return;
       }
+
+      // "finalizar" o "cancelar" -> cerrar y recargar listas en el padre
+      onDone();
+      setSaving(false);
     } catch (err) {
       console.error(err);
       const msg =
@@ -944,7 +956,8 @@ function ValidarPreventaModal({
     if (!ventaId) return;
     setSaving(true);
     try {
-      const res = await api.put(`/preventas/${ventaId}`, { accion: "lock" });
+      await api.put(`/preventas/${ventaId}`, { accion: "lock" });
+      const res = await api.get(`/preventas/${ventaId}`); // estado ahora actualizado (ListoCaja)
       setVenta(res.data);
     } catch (err) {
       console.error(err);
@@ -975,9 +988,9 @@ function ValidarPreventaModal({
   // aplicar descuentoGeneral (%), ajuste (+/-), recargoPago (+)
   const totalConAjustes =
     subtotalBruto -
-    subtotalBruto * (descuentoGeneral / 100) +
-    ajuste +
-    recargoPago;
+    subtotalBruto * (Number(descuentoGeneral) / 100) +
+    Number(ajuste) +
+    Number(recargoPago);
 
   const IVA = 0.21;
   const subtotalSinIVA = totalConAjustes / (1 + IVA);
@@ -1127,7 +1140,7 @@ function ValidarPreventaModal({
                       type="number"
                       value={descuentoGeneral}
                       onChange={(e) =>
-                        setDescuentoGeneral(Number(e.target.value))
+                        setDescuentoGeneral(Number(e.target.value || 0))
                       }
                     />
                   </div>
@@ -1140,7 +1153,7 @@ function ValidarPreventaModal({
                       className="w-full rounded border px-2 py-2 text-sm"
                       type="number"
                       value={ajuste}
-                      onChange={(e) => setAjuste(Number(e.target.value))}
+                      onChange={(e) => setAjuste(Number(e.target.value || 0))}
                     />
                     <p className="text-[10px] text-gray-500">
                       Positivo suma. Negativo resta.
@@ -1155,7 +1168,7 @@ function ValidarPreventaModal({
                       className="w-full rounded border px-2 py-2 text-sm"
                       type="number"
                       value={recargoPago}
-                      onChange={(e) => setRecargoPago(Number(e.target.value))}
+                      onChange={(e) => setRecargoPago(Number(e.target.value || 0))}
                     />
                   </div>
                 </div>
@@ -1232,32 +1245,32 @@ function ValidarPreventaModal({
                 <div className="rounded border bg-gray-50 p-3 text-xs text-gray-700 space-y-2">
                   <div className="flex justify-between">
                     <span>Subtotal (sin impuestos)</span>
-                    <span>${subtotalSinIVA.toFixed(2)}</span>
+                    <span>${Number(subtotalSinIVA).toFixed(2)}</span>
                   </div>
 
                   <div className="flex justify-between">
                     <span>Impuestos (IVA)</span>
-                    <span>${impuestos.toFixed(2)}</span>
+                    <span>${Number(impuestos).toFixed(2)}</span>
                   </div>
 
                   <div className="flex justify-between">
                     <span>Descuento general (%)</span>
-                    <span>{descuentoGeneral}%</span>
+                    <span>{Number(descuentoGeneral)}%</span>
                   </div>
 
                   <div className="flex justify-between">
                     <span>Ajuste (+ / -)</span>
-                    <span>${ajuste.toFixed(2)}</span>
+                    <span>${Number(ajuste).toFixed(2)}</span>
                   </div>
 
                   <div className="flex justify-between">
                     <span>Recargo crédito / QR</span>
-                    <span>${recargoPago.toFixed(2)}</span>
+                    <span>${Number(recargoPago).toFixed(2)}</span>
                   </div>
 
                   <div className="flex justify-between font-semibold">
                     <span>Total final</span>
-                    <span>${totalConAjustes.toFixed(2)}</span>
+                    <span>${Number(totalConAjustes).toFixed(2)}</span>
                   </div>
 
                   <div className="flex justify-between">
@@ -1273,11 +1286,12 @@ function ValidarPreventaModal({
 
           {/* footer */}
           <div className="px-4 py-3 border-t bg-gray-50 flex flex-wrap justify-end gap-2">
-            {/* Guardar cambios sin cerrar la preventa. Solo permitido si sigue Pendiente */}
-            {isEditable && (
+            {/* Guardar cambios sin cerrar la preventa. Permitido si Pendiente o ListoCaja */}
+            {canSave && (
               <button
+                type="button"
                 className="rounded-lg border border-gray-400 px-3 py-2 text-sm disabled:opacity-50"
-                disabled={saving}
+                disabled={saving || !canSave || (venta?.detalles?.length ?? 0) === 0}
                 onClick={() => submit("guardar")}
               >
                 Guardar cambios

@@ -266,6 +266,9 @@ model Venta {
   idTipoPago      Int
   idMoneda        Int
   idUsuario       Int?
+  descuentoGeneralVenta Decimal @default(0) @db.Decimal(7, 2)
+  ajusteVenta           Decimal @default(0) @db.Decimal(12, 2)
+  recargoPagoVenta      Decimal @default(0) @db.Decimal(12, 2)
   Cliente     Cliente     @relation(fields: [idCliente], references: [idCliente])
   EstadoVenta EstadoVenta @relation(fields: [idEstadoVenta], references: [idEstadoVenta])
   TipoPago    TipoPago    @relation(fields: [idTipoPago], references: [idTipoPago])
@@ -282,7 +285,7 @@ model DetalleVenta {
   idDetalleVenta Int     @id @default(autoincrement()) @db.Integer
   idVenta        Int
   idProducto     Int
-  cantidad       Decimal @db.Decimal(14, 3)
+  cantidad       Decimal @db.Decimal(10, 3)
   Venta    Venta    @relation(fields: [idVenta], references: [idVenta])
   Producto Producto @relation(fields: [idProducto], references: [idProducto])
   @@map("DetalleVenta")
