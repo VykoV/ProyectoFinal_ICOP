@@ -30,8 +30,42 @@ export default function PreVentas() {
   const [rows, setRows] = useState<PreRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
+  const [selectedEstados, setSelectedEstados] = useState<string[]>([]);
+  const [page, setPage] = useState<number>(1);
+  const pageSize = 10;
   const [openForm, setOpenForm] = useState<null | number>(null);
   const [openView, setOpenView] = useState<null | number>(null);
+
+  function normEstado(raw: string): "pendiente" | "listocaja" | "finalizada" | "cancelada" | "otro" {
+    const n = String(raw || "").toLowerCase().replace(/[\s_]+/g, "");
+    if (n.includes("pend")) return "pendiente";
+    if (n.includes("listocaja")) return "listocaja";
+    if (n.includes("finaliz") || n.includes("cerrad")) return "finalizada";
+    if (n.includes("cancel")) return "cancelada";
+    return "otro";
+  }
+
+  function readParams() {
+    const sp = new URLSearchParams(window.location.search);
+    const q0 = sp.get("q") || "";
+    const est = sp.get("preEstados");
+    const pageStr = sp.get("prePage");
+    setQ(q0);
+    if (est) setSelectedEstados(est.split(",").filter(Boolean));
+    else setSelectedEstados(["pendiente", "listocaja"]);
+    setPage(Math.max(1, Number(pageStr) || 1));
+  }
+
+  function writeParams(next?: Partial<{ q: string; preEstados: string[]; prePage: number }>) {
+    const sp = new URLSearchParams(window.location.search);
+    const qv = next?.q ?? q;
+    const estv = next?.preEstados ?? selectedEstados;
+    const pv = next?.prePage ?? page;
+    if (qv) sp.set("q", qv); else sp.delete("q");
+    if (estv && estv.length > 0) sp.set("preEstados", estv.join(",")); else sp.delete("preEstados");
+    sp.set("prePage", String(pv));
+    window.history.replaceState(null, "", `?${sp.toString()}`);
+  }
 
   async function load(query?: string) {
     setLoading(true);
@@ -57,12 +91,6 @@ export default function PreVentas() {
               v.EstadoVenta?.nombreEstadoVenta ??
               "Pendiente",
           }))
-          // Mostrar preventas no cerradas (Pendiente, ListoCaja, etc), excluir finalizadas/canceladas
-          .filter((r: PreRow) => {
-            const n = String(r.estado || "").toLowerCase().replace(/[\s_]+/g, "");
-            const esCerrada = n.includes("finaliz") || n.includes("cancel");
-            return !esCerrada;
-          })
       );
 
     } finally {
@@ -71,12 +99,21 @@ export default function PreVentas() {
   }
 
   useEffect(() => {
+    readParams();
     load();
   }, []);
   useEffect(() => {
     const t = setTimeout(() => load(q), 350);
     return () => clearTimeout(t);
   }, [q]);
+  useEffect(() => {
+    writeParams();
+  }, [q]);
+
+  // whenever filters/page change, sync URL
+  useEffect(() => {
+    writeParams();
+  }, [selectedEstados, page]);
 
   const columns: ColumnDef<PreRow>[] = [
     { header: "N°", accessorKey: "id", size: 60 },
@@ -158,6 +195,19 @@ export default function PreVentas() {
 
   ];
 
+  // filtering + pagination
+  const rowsFiltered = rows.filter((r) => {
+    const key = normEstado(r.estado);
+    if (selectedEstados.length === 0) return true;
+    return selectedEstados.includes(key);
+  });
+  const total = rowsFiltered.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const startIdx = (safePage - 1) * pageSize;
+  const endIdx = Math.min(startIdx + pageSize, total);
+  const pageRows = rowsFiltered.slice(startIdx, endIdx);
+
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -184,10 +234,75 @@ export default function PreVentas() {
         </div>
       </div>
 
+      {/* Filtros de estado */}
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <span className="text-gray-600">Filtrar estado:</span>
+        {[
+          { k: "pendiente", label: "Pendiente" },
+          { k: "listocaja", label: "ListoCaja" },
+          { k: "finalizada", label: "Finalizada/Cerrada" },
+          { k: "cancelada", label: "Cancelada" },
+        ].map((opt) => (
+          <label key={opt.k} className="inline-flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={selectedEstados.includes(opt.k)}
+              onChange={(e) => {
+                const next = e.target.checked
+                  ? [...new Set([...selectedEstados, opt.k])]
+                  : selectedEstados.filter((s) => s !== opt.k);
+                setSelectedEstados(next);
+                setPage(1); // reset page on filter change
+              }}
+            />
+            {opt.label}
+          </label>
+        ))}
+        <span className="ml-auto text-xs text-gray-600">
+          Mostrando {total === 0 ? 0 : startIdx + 1}–{endIdx} de {total}
+        </span>
+      </div>
+
       {loading ? (
         <div className="rounded-xl border bg-white p-6 text-sm">Cargando…</div>
       ) : (
-        <DataTable columns={columns} data={rows} />
+        <>
+          <DataTable columns={columns} data={pageRows} />
+          {/* Paginación */}
+          <div className="flex items-center justify-between mt-2 text-sm">
+            <div className="flex items-center gap-2">
+              <button
+                className="border px-2 py-1 rounded disabled:opacity-50"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+              >
+                Anterior
+              </button>
+              <button
+                className="border px-2 py-1 rounded disabled:opacity-50"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+              >
+                Siguiente
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span>Página</span>
+              <input
+                className="w-16 rounded border px-2 py-1"
+                type="number"
+                min={1}
+                max={totalPages}
+                value={safePage}
+                onChange={(e) => {
+                  const v = Math.max(1, Math.min(totalPages, Number(e.target.value) || 1));
+                  setPage(v);
+                }}
+              />
+              <span>de {totalPages}</span>
+            </div>
+          </div>
+        </>
       )}
 
       {openForm !== null && (

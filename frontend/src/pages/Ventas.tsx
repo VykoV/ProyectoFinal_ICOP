@@ -35,6 +35,55 @@ export default function Ventas() {
   const [preRows, setPreRows] = useState<VentaRow[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // filtros/paginación
+  const [preEstados, setPreEstados] = useState<string[]>([]);
+  const [prePage, setPrePage] = useState<number>(1);
+  const [venEstados, setVenEstados] = useState<string[]>([]);
+  const [venPage, setVenPage] = useState<number>(1);
+  const pageSize = 10;
+
+  function normEstado(raw: string): "pendiente" | "listocaja" | "finalizada" | "cancelada" | "otro" {
+    const n = String(raw || "").toLowerCase().replace(/[\s_]+/g, "");
+    if (n.includes("pend")) return "pendiente";
+    if (n.includes("listocaja")) return "listocaja";
+    if (n.includes("finaliz") || n.includes("cerrad")) return "finalizada";
+    if (n.includes("cancel")) return "cancelada";
+    return "otro";
+  }
+
+  function readParams() {
+    const sp = new URLSearchParams(window.location.search);
+    const tabQ = sp.get("tab") as any;
+    const q0 = sp.get("q") || "";
+    const preE = sp.get("preEstados");
+    const preP = Number(sp.get("prePage") || "1");
+    const venE = sp.get("venEstados");
+    const venP = Number(sp.get("venPage") || "1");
+    if (tabQ === "ventas" || tabQ === "preventas") setTab(tabQ);
+    setQ(q0);
+    setPreEstados(preE ? preE.split(",").filter(Boolean) : ["pendiente", "listocaja"]);
+    setPrePage(Math.max(1, preP || 1));
+    setVenEstados(venE ? venE.split(",").filter(Boolean) : []);
+    setVenPage(Math.max(1, venP || 1));
+  }
+
+  function writeParams(next?: Partial<{ tab: "ventas" | "preventas"; q: string; preEstados: string[]; prePage: number; venEstados: string[]; venPage: number }>) {
+    const sp = new URLSearchParams(window.location.search);
+    const t = next?.tab ?? tab;
+    const qv = next?.q ?? q;
+    const pe = next?.preEstados ?? preEstados;
+    const pp = next?.prePage ?? prePage;
+    const ve = next?.venEstados ?? venEstados;
+    const vp = next?.venPage ?? venPage;
+    sp.set("tab", t);
+    if (qv) sp.set("q", qv); else sp.delete("q");
+    if (pe.length) sp.set("preEstados", pe.join(",")); else sp.delete("preEstados");
+    sp.set("prePage", String(pp));
+    if (ve.length) sp.set("venEstados", ve.join(",")); else sp.delete("venEstados");
+    sp.set("venPage", String(vp));
+    window.history.replaceState(null, "", `?${sp.toString()}`);
+  }
+
   // cargar datos
   async function loadData(query?: string) {
     setLoading(true);
@@ -121,6 +170,7 @@ setPreRows(
 
   // carga inicial
   useEffect(() => {
+    readParams();
     loadData();
   }, []);
 
@@ -131,6 +181,39 @@ setPreRows(
     }, 350);
     return () => clearTimeout(t);
   }, [q]);
+  useEffect(() => {
+    writeParams();
+  }, [q]);
+
+  // sync URL when filters/page/tab change
+  useEffect(() => {
+    writeParams();
+  }, [tab, preEstados, prePage, venEstados, venPage]);
+
+  // derived filtered + paginated datasets
+  const preFiltered = preRows.filter((r) => {
+    const k = normEstado(r.estado);
+    if (preEstados.length === 0) return true;
+    return preEstados.includes(k);
+  });
+  const preTotal = preFiltered.length;
+  const preTotalPages = Math.max(1, Math.ceil(preTotal / pageSize));
+  const preSafePage = Math.min(Math.max(1, prePage), preTotalPages);
+  const preStart = (preSafePage - 1) * pageSize;
+  const preEnd = Math.min(preStart + pageSize, preTotal);
+  const prePageRows = preFiltered.slice(preStart, preEnd);
+
+  const venFiltered = ventasRows.filter((r) => {
+    const k = normEstado(r.estado);
+    if (venEstados.length === 0) return true;
+    return venEstados.includes(k);
+  });
+  const venTotal = venFiltered.length;
+  const venTotalPages = Math.max(1, Math.ceil(venTotal / pageSize));
+  const venSafePage = Math.min(Math.max(1, venPage), venTotalPages);
+  const venStart = (venSafePage - 1) * pageSize;
+  const venEnd = Math.min(venStart + pageSize, venTotal);
+  const venPageRows = venFiltered.slice(venStart, venEnd);
 
   /* Columnas Ventas (finalizadas) */
   /* Columnas Ventas (finalizadas / canceladas) */
@@ -296,14 +379,146 @@ setPreRows(
         />
       </div>
 
+      {/* Filtros + resumen según pestaña */}
+      {tab === "preventas" ? (
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="text-gray-600">Filtrar estado:</span>
+          {[
+            { k: "pendiente", label: "Pendiente" },
+            { k: "listocaja", label: "ListoCaja" },
+            { k: "finalizada", label: "Finalizada/Cerrada" },
+            { k: "cancelada", label: "Cancelada" },
+          ].map((o) => (
+            <label key={o.k} className="inline-flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={preEstados.includes(o.k)}
+                onChange={(e) => {
+                  const next = e.target.checked
+                    ? [...new Set([...preEstados, o.k])]
+                    : preEstados.filter((x) => x !== o.k);
+                  setPreEstados(next);
+                  setPrePage(1);
+                }}
+              />
+              {o.label}
+            </label>
+          ))}
+          <span className="ml-auto text-xs text-gray-600">
+            Mostrando {preTotal === 0 ? 0 : preStart + 1}–{preEnd} de {preTotal}
+          </span>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="text-gray-600">Filtrar estado:</span>
+          {[
+            { k: "finalizada", label: "Finalizada/Cerrada" },
+            { k: "cancelada", label: "Cancelada" },
+          ].map((o) => (
+            <label key={o.k} className="inline-flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={venEstados.includes(o.k)}
+                onChange={(e) => {
+                  const next = e.target.checked
+                    ? [...new Set([...venEstados, o.k])]
+                    : venEstados.filter((x) => x !== o.k);
+                  setVenEstados(next);
+                  setVenPage(1);
+                }}
+              />
+              {o.label}
+            </label>
+          ))}
+          <span className="ml-auto text-xs text-gray-600">
+            Mostrando {venTotal === 0 ? 0 : venStart + 1}–{venEnd} de {venTotal}
+          </span>
+        </div>
+      )}
+
       {/* Tabla */}
       {loading ? (
         <div className="rounded-xl border bg-white p-6 text-sm">Cargando…</div>
       ) : (
         <DataTable
           columns={tab === "ventas" ? columnsVentas : columnsPreVentas}
-          data={tab === "ventas" ? ventasRows : preRows}
+          data={tab === "ventas" ? venPageRows : prePageRows}
         />
+      )}
+
+      {/* Paginación */}
+      {!loading && (
+        <div className="flex items-center justify-between mt-2 text-sm">
+          {tab === "preventas" ? (
+            <>
+              <div className="flex items-center gap-2">
+                <button
+                  className="border px-2 py-1 rounded disabled:opacity-50"
+                  onClick={() => setPrePage((p) => Math.max(1, p - 1))}
+                  disabled={preSafePage <= 1}
+                >
+                  Anterior
+                </button>
+                <button
+                  className="border px-2 py-1 rounded disabled:opacity-50"
+                  onClick={() => setPrePage((p) => Math.min(preTotalPages, p + 1))}
+                  disabled={preSafePage >= preTotalPages}
+                >
+                  Siguiente
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span>Página</span>
+                <input
+                  className="w-16 rounded border px-2 py-1"
+                  type="number"
+                  min={1}
+                  max={preTotalPages}
+                  value={preSafePage}
+                  onChange={(e) => {
+                    const v = Math.max(1, Math.min(preTotalPages, Number(e.target.value) || 1));
+                    setPrePage(v);
+                  }}
+                />
+                <span>de {preTotalPages}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <button
+                  className="border px-2 py-1 rounded disabled:opacity-50"
+                  onClick={() => setVenPage((p) => Math.max(1, p - 1))}
+                  disabled={venSafePage <= 1}
+                >
+                  Anterior
+                </button>
+                <button
+                  className="border px-2 py-1 rounded disabled:opacity-50"
+                  onClick={() => setVenPage((p) => Math.min(venTotalPages, p + 1))}
+                  disabled={venSafePage >= venTotalPages}
+                >
+                  Siguiente
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span>Página</span>
+                <input
+                  className="w-16 rounded border px-2 py-1"
+                  type="number"
+                  min={1}
+                  max={venTotalPages}
+                  value={venSafePage}
+                  onChange={(e) => {
+                    const v = Math.max(1, Math.min(venTotalPages, Number(e.target.value) || 1));
+                    setVenPage(v);
+                  }}
+                />
+                <span>de {venTotalPages}</span>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* Modal Nueva Venta */}
