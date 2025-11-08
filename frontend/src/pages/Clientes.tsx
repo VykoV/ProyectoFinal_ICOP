@@ -7,6 +7,7 @@ import { useForm, type SubmitHandler } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { api } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 
 /* ===== Tipos ===== */
 type ClienteRow = {
@@ -50,6 +51,9 @@ type FormData = z.infer<typeof schema>;
 
 /* ===== Página ===== */
 export default function Clientes() {
+  const { hasRole } = useAuth();
+  const isVendedor = hasRole("Vendedor");
+  const isCajero = hasRole("Cajero");
   const [rows, setRows] = useState<ClienteRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [openEdit, setOpenEdit] = useState<null | number>(null); // id o null
@@ -109,24 +113,28 @@ export default function Clientes() {
           >
             <Eye className="h-3.5 w-3.5" /> Ver
           </button>
-          <button
-            className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-            onClick={() => setOpenEdit(row.original.id)}
-            title="Editar"
-          >
-            <Pencil className="h-3.5 w-3.5" /> Editar
-          </button>
-          <button
-            className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-            onClick={async () => {
-              if (!confirm("¿Eliminar cliente?")) return;
-              await api.delete(`/clientes/${row.original.id}`);
-              await load();
-            }}
-            title="Eliminar"
-          >
-            <Trash className="h-3.5 w-3.5" /> Eliminar
-          </button>
+          {!isVendedor && (
+            <button
+              className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+              onClick={() => setOpenEdit(row.original.id)}
+              title="Editar"
+            >
+              <Pencil className="h-3.5 w-3.5" /> Editar
+            </button>
+          )}
+          {!(isVendedor || isCajero) && (
+            <button
+              className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+              onClick={async () => {
+                if (!confirm("¿Eliminar cliente?")) return;
+                await api.delete(`/clientes/${row.original.id}`);
+                await load();
+              }}
+              title="Eliminar"
+            >
+              <Trash className="h-3.5 w-3.5" /> Eliminar
+            </button>
+          )}
         </div>
       ),
     },
@@ -147,13 +155,15 @@ export default function Clientes() {
   onKeyDown={(e) => { if (e.key === "Escape") setQ(""); }}
 />
           </div>
-          <button
-            onClick={() => setOpenEdit(0)} // 0 = alta
-            className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Nuevo</span>
-          </button>
+          {!isVendedor && (
+            <button
+              onClick={() => setOpenEdit(0)} // 0 = alta
+              className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Nuevo</span>
+            </button>
+          )}
         </div>
       </div>
 

@@ -9,6 +9,7 @@ import { Label, Input, FieldError, Select } from "../components/ui/Form";
 import type { Producto } from "../types";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 
 // tipos locales
 type Familia = { id: number; nombre: string };
@@ -47,6 +48,9 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export default function Productos() {
+  const { hasRole } = useAuth();
+  const isVendedor = hasRole("Vendedor");
+  const isCajero = hasRole("Cajero");
   const [rows, setRows] = useState<Producto[]>([]);
   const [familias, setFamilias] = useState<Familia[]>([]);
   const [subfamilias, setSubfamilias] = useState<Subfamilia[]>([]);
@@ -174,37 +178,41 @@ export default function Productos() {
           >
             <Eye className="h-3.5 w-3.5" /> Ver
           </button>
-          <button
-            className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-            onClick={() => onEdit(row.original as Producto)}
-            title="Editar"
-          >
-            <Pencil className="h-3.5 w-3.5" /> Editar
-          </button>
-          <button
-            className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-            onClick={async () => {
-              try {
-                const id = (row.original as any).id;
-                await api.delete(`/products/${id}`);
-                await loadProducts();
-              } catch (err: any) {
-                const s = err?.response?.status;
-                const e = err?.response?.data;
-                if (s === 409 && e?.error === "FK_CONSTRAINT_IN_USE") {
-                  alert(
-                    "No se puede eliminar: tiene movimientos relacionados."
-                  );
-                  return;
+          {!(isVendedor || isCajero) && (
+            <button
+              className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+              onClick={() => onEdit(row.original as Producto)}
+              title="Editar"
+            >
+              <Pencil className="h-3.5 w-3.5" /> Editar
+            </button>
+          )}
+          {!(isVendedor || isCajero) && (
+            <button
+              className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+              onClick={async () => {
+                try {
+                  const id = (row.original as any).id;
+                  await api.delete(`/products/${id}`);
+                  await loadProducts();
+                } catch (err: any) {
+                  const s = err?.response?.status;
+                  const e = err?.response?.data;
+                  if (s === 409 && e?.error === "FK_CONSTRAINT_IN_USE") {
+                    alert(
+                      "No se puede eliminar: tiene movimientos relacionados."
+                    );
+                    return;
+                  }
+                  alert("No se pudo eliminar");
+                  console.error(err);
                 }
-                alert("No se pudo eliminar");
-                console.error(err);
-              }
-            }}
-            title="Eliminar"
-          >
-            <Trash className="h-3.5 w-3.5" /> Eliminar
-          </button>
+              }}
+              title="Eliminar"
+            >
+              <Trash className="h-3.5 w-3.5" /> Eliminar
+            </button>
+          )}
         </div>
       ),
       size: 220,
@@ -224,13 +232,15 @@ export default function Productos() {
               onChange={() => {}}
             />
           </div>
-          <button
-            onClick={onNew}
-            className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Nuevo</span>
-          </button>
+          {!(isVendedor || isCajero) && (
+            <button
+              onClick={onNew}
+              className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Nuevo</span>
+            </button>
+          )}
         </div>
       </div>
 

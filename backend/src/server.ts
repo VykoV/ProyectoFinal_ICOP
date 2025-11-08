@@ -5,6 +5,8 @@ import pgSession from "connect-pg-simple";
 import bcrypt from "bcrypt";
 import { PrismaClient, Prisma, PapelEnVenta } from "@prisma/client";
 import authRoutes from "./auth";
+import { requireAuth } from "./middleware/requireAuth";
+import { authorize } from "./middleware/authorize";
 
 const DEV = process.env.NODE_ENV !== "production";
 const app = express();
@@ -120,7 +122,11 @@ app.get("/api/proveedores", async (_req, res) => {
 // ====== CRUD PRODUCTOS ======
 
 // LISTAR
-app.get("/api/products", async (_req, res) => {
+app.get(
+  "/api/products",
+  requireAuth,
+  authorize(["Administrador", "Vendedor", "Cajero"]),
+  async (_req, res) => {
   const rows = await prisma.producto.findMany({
     select: {
       idProducto: true,
@@ -235,7 +241,11 @@ app.get("/api/products/:id", async (req, res) => {
 });
 
 // CREAR con código FF-SS-000X
-app.post("/api/products", async (req, res) => {
+app.post(
+  "/api/products",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
   try {
     const {
       nombre,
@@ -490,7 +500,11 @@ app.get("/api/roles", async (_req, res) => {
 });
 
 // ====== USUARIOS (listado) ======
-app.get("/api/usuarios", async (_req, res) => {
+app.get(
+  "/api/usuarios",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (_req, res) => {
   const rows = await prisma.usuario.findMany({
     select: {
       idUsuario: true,
@@ -516,7 +530,11 @@ app.get("/api/usuarios", async (_req, res) => {
 });
 
 // ====== CREAR USUARIO ======
-app.post("/api/usuarios", async (req, res) => {
+app.post(
+  "/api/usuarios",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
   try {
     const { nombreUsuario, emailUsuario, contrasenaUsuario, idRol } = req.body;
 
@@ -552,7 +570,11 @@ app.post("/api/usuarios", async (req, res) => {
 });
 
 // ACTUALIZAR USUARIO
-app.put("/api/usuarios/:id", async (req, res) => {
+app.put(
+  "/api/usuarios/:id",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
   const id = Number(req.params.id);
   const { nombreUsuario, emailUsuario, contrasenaUsuario, idRol } = req.body;
 
@@ -581,7 +603,11 @@ app.put("/api/usuarios/:id", async (req, res) => {
 });
 
 // ELIMINAR USUARIO
-app.delete("/api/usuarios/:id", async (req, res) => {
+app.delete(
+  "/api/usuarios/:id",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
   const id = Number(req.params.id);
   await prisma.usuarioRol.deleteMany({ where: { idUsuario: id } });
   await prisma.usuario.delete({ where: { idUsuario: id } });
@@ -1001,7 +1027,11 @@ async function calcularTotal(idVenta: number) {
 }
 
 // Crear PREVENTA = estado Pendiente + reservar comprometido
-app.post("/api/preventas", async (req, res) => {
+app.post(
+  "/api/preventas",
+  requireAuth,
+  authorize(["Administrador", "Vendedor"]),
+  async (req, res) => {
   try {
     const { idCliente, idTipoPago, observacion, detalles = [] } = req.body;
 
@@ -1074,7 +1104,11 @@ app.post("/api/preventas", async (req, res) => {
 });
 
 // Listar PREVENTAS por estado (default: no cerradas)
-app.get("/api/preventas", async (req, res) => {
+app.get(
+  "/api/preventas",
+  requireAuth,
+  authorize(["Administrador", "Vendedor", "Cajero"]),
+  async (req, res) => {
   const q = String(req.query.q ?? "").trim();
   const estadoQ = (req.query.estado as string | undefined)?.toLowerCase();
 
@@ -1127,7 +1161,11 @@ app.get("/api/preventas", async (req, res) => {
 });
 
 // Detalle PREVENTA
-app.get("/api/preventas/:id", async (req, res) => {
+app.get(
+  "/api/preventas/:id",
+  requireAuth,
+  authorize(["Administrador", "Vendedor", "Cajero"]),
+  async (req, res) => {
   const id = Number(req.params.id);
   const v = await prisma.venta.findUnique({
     where: { idVenta: id },
@@ -1189,7 +1227,20 @@ app.get("/api/preventas/:id/historial", async (req, res) => {
 });
 
 // Editar / Lock / Finalizar / Cancelar PREVENTA
-app.put("/api/preventas/:id", async (req, res) => {
+app.put(
+  "/api/preventas/:id",
+  requireAuth,
+  async (req, res, next) => {
+    const accion = String(req.body?.accion || "guardar").toLowerCase();
+    const allow: Record<string, string[]> = {
+      guardar: ["Administrador", "Vendedor", "Cajero"],
+      lock: ["Administrador", "Vendedor"],
+      finalizar: ["Administrador", "Cajero"],
+      cancelar: ["Administrador", "Cajero"],
+    };
+    return authorize(allow[accion] || ["Administrador"])(req, res, next);
+  },
+  async (req, res) => {
   const id = Number(req.params.id);
   const idUsuario = getUserId(req);
 

@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { api } from "../lib/api";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 const schema = z.object({
     email: z.string().email(),
@@ -15,6 +16,7 @@ export default function Login() {
 
 
     const nav = useNavigate();
+    const { refresh } = useAuth();
     const [err, setErr] = useState<string | null>(null);
     const { register, handleSubmit, formState: { isSubmitting, errors } } =
         useForm<Form>({ resolver: zodResolver(schema) });
@@ -22,8 +24,8 @@ export default function Login() {
     const onSubmit = async (data: Form) => {
         setErr(null);
         try {
-            await api.post("/auth/login", data);
-
+            const res = await api.post("/auth/login", data);
+            await refresh(res.data);
             nav("/dashboard", { replace: true });
         } catch {
             setErr("Credenciales inválidas");

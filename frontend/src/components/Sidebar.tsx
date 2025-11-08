@@ -9,6 +9,7 @@ import {
   ShoppingBag,
 } from "lucide-react";
 import { useUI } from "../store/ui";
+import { useAuth } from "../context/AuthContext";
 
 const items = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
@@ -23,6 +24,26 @@ const items = [
 
 export default function Sidebar() {
   const { sidebarOpen } = useUI();
+  const { hasRole } = useAuth();
+
+  const blocked = new Set<string>();
+  if (hasRole("Vendedor")) {
+    [
+      "/usuarios",
+      "/proveedores",
+      "/compras",
+      "/ventas",
+      "/dashboard",
+    ].forEach((r) => blocked.add(r));
+  }
+  if (hasRole("Cajero")) {
+    [
+      "/usuarios",
+      "/proveedores",
+      "/compras",
+      "/pre-ventas",
+    ].forEach((r) => blocked.add(r));
+  }
 
   return (
     <aside
@@ -31,7 +52,9 @@ export default function Sidebar() {
       }`}
     >
       <nav className="p-2 space-y-1">
-        {items.map(({ to, icon: Icon, label }) => (
+        {items
+          .filter(({ to }) => !blocked.has(to))
+          .map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
