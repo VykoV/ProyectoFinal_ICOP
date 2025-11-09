@@ -822,15 +822,15 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
 
           {/* Body */}
           <div className="flex-1 overflow-auto px-4 py-3 text-sm space-y-6">
-            {/* Datos venta */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
+            {/* Datos venta en cuadricula */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="rounded border bg-gray-50 p-3">
                 <p className="text-gray-500">N°</p>
                 <p className="font-medium">
                   {loadingVenta ? "..." : venta?.idVenta ?? id}
                 </p>
               </div>
-              <div>
+              <div className="rounded border bg-gray-50 p-3">
                 <p className="text-gray-500">Fecha</p>
                 <p className="font-medium">
                   {loadingVenta
@@ -839,7 +839,7 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                 </p>
               </div>
 
-              <div className="col-span-2">
+              <div className="rounded border bg-gray-50 p-3 md:col-span-2">
                 <p className="text-gray-500">Cliente</p>
                 <p className="font-medium">
                   {loadingVenta
@@ -850,21 +850,21 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                 </p>
               </div>
 
-              <div>
+              <div className="rounded border bg-gray-50 p-3">
                 <p className="text-gray-500">Método de pago</p>
                 <p className="font-medium">
                   {loadingVenta ? "..." : venta?.TipoPago?.tipoPago ?? "-"}
                 </p>
               </div>
 
-              <div>
+              <div className="rounded border bg-gray-50 p-3">
                 <p className="text-gray-500">Estado actual</p>
                 <p className="font-medium">
                   {loadingVenta ? "..." : estadoStr}
                 </p>
               </div>
 
-              <div className="col-span-2">
+              <div className="rounded border bg-gray-50 p-3 md:col-span-2">
                 <p className="text-gray-500">Observación</p>
                 <p className="font-normal">
                   {loadingVenta ? "..." : venta?.observacion ?? "-"}
@@ -1241,7 +1241,13 @@ function ValidarPreventaModal({
                       type="date"
                       value={fechaFacturacion}
                       onChange={(e) => setFechaFacturacion(e.target.value)}
+                      disabled={estadoNorm === "pendiente"}
                     />
+                    {estadoNorm === "pendiente" && (
+                      <p className="text-[10px] text-gray-500">
+                        No editable al validar preventas pendientes.
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex flex-col gap-1">
@@ -1408,6 +1414,11 @@ function ValidarPreventaModal({
                           <th className="px-3 py-2 font-semibold text-right">
                             Total
                           </th>
+                          {canSave && (
+                            <th className="px-3 py-2 font-semibold text-right">
+                              Acciones
+                            </th>
+                          )}
                         </tr>
                       </thead>
                       <tbody>
@@ -1415,7 +1426,7 @@ function ValidarPreventaModal({
                           <tr>
                             <td
                               className="px-3 py-6 text-center text-gray-500"
-                              colSpan={4}
+                              colSpan={canSave ? 5 : 4}
                             >
                               Sin productos agregados
                             </td>
@@ -1427,7 +1438,33 @@ function ValidarPreventaModal({
                               d.Producto?.precioVentaPublicoProducto ?? 0
                             );
                             const tot = cant * pUnit;
-                          return (
+
+                            function setCantidad(c: number) {
+                              const next = Math.max(0, Number(c || 0));
+                              setVenta((prev: any) => {
+                                const detalles = Array.isArray(prev?.detalles)
+                                  ? [...prev.detalles]
+                                  : [];
+                                if (detalles[idx]) {
+                                  detalles[idx] = {
+                                    ...detalles[idx],
+                                    cantidad: next,
+                                  };
+                                }
+                                return { ...prev, detalles };
+                              });
+                            }
+
+                            function eliminarDetalle() {
+                              setVenta((prev: any) => {
+                                const detalles = Array.isArray(prev?.detalles)
+                                  ? prev.detalles.filter((_: any, i: number) => i !== idx)
+                                  : [];
+                                return { ...prev, detalles };
+                              });
+                            }
+
+                            return (
                               <tr
                                 key={`${d.idDetalleVenta ?? d.idProducto}-${idx}`}
                                 className="border-t"
@@ -1440,13 +1477,37 @@ function ValidarPreventaModal({
                                     : d.Producto?.nombreProducto ??
                                       `Producto ${d.idProducto ?? ""}`}
                                 </td>
-                                <td className="px-3 py-2 text-right">{cant}</td>
+                                <td className="px-3 py-2 text-right">
+                                  {canSave ? (
+                                    <input
+                                      className="w-20 text-right rounded border px-2 py-1"
+                                      type="number"
+                                      value={cant}
+                                      min={0}
+                                      onChange={(e) => setCantidad(Number(e.target.value))}
+                                    />
+                                  ) : (
+                                    cant
+                                  )}
+                                </td>
                                 <td className="px-3 py-2 text-right">
                                   ${pUnit.toFixed(2)}
                                 </td>
                                 <td className="px-3 py-2 text-right">
                                   ${tot.toFixed(2)}
                                 </td>
+                                {canSave && (
+                                  <td className="px-3 py-2 text-right">
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-1 rounded border px-2 py-1 hover:bg-red-50 hover:text-red-700"
+                                      onClick={eliminarDetalle}
+                                    >
+                                      <X className="h-4 w-4" />
+                                      Eliminar
+                                    </button>
+                                  </td>
+                                )}
                               </tr>
                             );
                           })
