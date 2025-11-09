@@ -369,13 +369,48 @@ function ProductoPopup({
   const familiaSelected = watch("familia");
   const subfamiliaSelected = watch("subfamilia");
 
+  // constantes/ayudas
+  const FAMILIA_VARIOS_SENTINEL = "-999"; // opción UI sintética para "Varios"
+  const allowedFamilias = ["HILADOS", "MERCERIA", "MADERA", "VARIOS"];
+
+  // lista de familias para mostrar en el UI, filtradas y con opción sintética "Varios" si falta
+  const familiasDisplay = useMemo(() => {
+    const base = familias.filter((f) =>
+      allowedFamilias.includes(String(f.nombre).toUpperCase())
+    );
+    const hasVarios = base.some(
+      (f) => String(f.nombre).toUpperCase() === "VARIOS"
+    );
+    // Si encontramos alguna de las familias esperadas, usamos ese subconjunto y añadimos "Varios" si falta.
+    if (base.length > 0) {
+      return hasVarios
+        ? base
+        : [...base, { id: Number(FAMILIA_VARIOS_SENTINEL), nombre: "Varios" }];
+    }
+    // Si no hay coincidencias (por ejemplo, datos con nombres distintos), mostramos la lista original completa.
+    return familias;
+  }, [familias]);
+
+  // nombre (normalizado) de la familia seleccionada
+  const familiaNameSelected = useMemo(() => {
+    if (!familiaSelected) return "";
+    if (String(familiaSelected) === FAMILIA_VARIOS_SENTINEL) return "VARIOS";
+    const f = familias.find(
+      (x) => String(x.id) === String(familiaSelected || "")
+    );
+    return String(f?.nombre || "").toUpperCase();
+  }, [familiaSelected, familias]);
+
   useEffect(() => {
     if (!familiaSelected) return;
-    const ok = subfamilias.some(
-      (sf) =>
-        String(sf.id) === String(subfamiliaSelected) &&
-        String(sf.familiaId) === String(familiaSelected)
+    const sel = subfamilias.find(
+      (sf) => String(sf.id) === String(subfamiliaSelected || "")
     );
+    const ok = sel
+      ? String(familiaSelected) === FAMILIA_VARIOS_SENTINEL
+        ? String(sel.nombre).toUpperCase() === "VARIOS"
+        : String(sel.familiaId) === String(familiaSelected)
+      : false;
     if (!ok) setValue("subfamilia", "");
   }, [familiaSelected, subfamiliaSelected, subfamilias, setValue]);
 
@@ -385,20 +420,51 @@ function ProductoPopup({
       setValue("codigoInterno", "");
       return;
     }
-    const preview = `${pad2(familiaSelected)}-${pad2(subfamiliaSelected)}-????`;
+    const famFromSub = subfamilias.find(
+      (sf) => String(sf.id) === String(subfamiliaSelected)
+    )?.familiaId;
+    if (!famFromSub) {
+      setValue("codigoInterno", "");
+      return;
+    }
+    const preview = `${pad2(famFromSub)}-${pad2(subfamiliaSelected)}-????`;
     setValue("codigoInterno", preview, {
       shouldValidate: true,
       shouldDirty: true,
     });
-  }, [familiaSelected, subfamiliaSelected, isEdit, setValue]);
+  }, [familiaSelected, subfamiliaSelected, isEdit, setValue, subfamilias]);
 
-  const subfamiliasFiltradas = useMemo(
-    () =>
-      subfamilias.filter(
-        (sf) => String(sf.familiaId) === String(familiaSelected || "")
-      ),
-    [subfamilias, familiaSelected]
-  );
+  const subfamiliasFiltradas = useMemo(() => {
+    if (!familiaSelected) return [] as Subfamilia[];
+    let items: Subfamilia[];
+    if (String(familiaSelected) === FAMILIA_VARIOS_SENTINEL) {
+      // opción sintética: mostrar solo subfamilias "VARIOS" de cualquier familia
+      items = subfamilias.filter(
+        (sf) => String(sf.nombre).toUpperCase() === "VARIOS"
+      );
+    } else {
+      items = subfamilias.filter(
+        (sf) => String(sf.familiaId) === String(familiaSelected)
+      );
+    }
+
+    // reglas específicas por familia
+    if (familiaNameSelected === "HILADOS") {
+      // sacar Aguja y Varios
+      items = items.filter(
+        (sf) =>
+          !["AGUJA", "VARIOS"].includes(String(sf.nombre).toUpperCase())
+      );
+    } else if (familiaNameSelected === "MERCERIA") {
+      // solo Aguja, Hilos y Varios (si existen)
+      items = items.filter((sf) =>
+        ["AGUJA", "HILOS", "VARIOS"].includes(
+          String(sf.nombre).toUpperCase()
+        )
+      );
+    }
+    return items;
+  }, [subfamilias, familiaSelected, familiaNameSelected]);
 
   const onSubmit: SubmitHandler<FormData> = async (v) => {
     if (isEdit) {
@@ -483,12 +549,13 @@ function ProductoPopup({
                   <Label htmlFor="familia">Familia</Label>
                   <Select id="familia" {...register("familia")}>
                     <option value="">Seleccionar familia</option>
-                    {familias.map((f, i) => (
+                    {familiasDisplay.map((f, i) => (
                       <option
                         key={`fam-${f.id ?? `i${i}`}`}
                         value={String(f.id)}
                       >
-                        {f.nombre}
+                        {String(f.nombre).charAt(0).toUpperCase() +
+                          String(f.nombre).slice(1).toLowerCase()}
                       </option>
                     ))}
                   </Select>

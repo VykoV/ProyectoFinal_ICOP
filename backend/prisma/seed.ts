@@ -184,9 +184,13 @@ async function seed() {
 
   // ---------- Familias y Subfamilias (catálogo inicial) ----------
   const catalogo = [
+    // Familia 1: Hilados
     { fam: 'Hilados',   subs: ['Algodon', 'Lanas', 'Fantasia', 'Mezcla', 'Acrilico'] },
-    { fam: 'Merceria',  subs: ['Aguja', 'Hilos'] },
+    // Familia 2: Merceria
+    { fam: 'Merceria',  subs: ['Aguja', 'Hilos', 'Varios'] },
+    // Familia 3: Maderas
     { fam: 'Maderas',   subs: ['Telar Madera', 'Telar Plástico'] },
+    // Familia 4: Varios
     { fam: 'Varios',    subs: ['Varios'] },
   ]
   for (const { fam, subs } of catalogo) {
@@ -286,21 +290,31 @@ async function seed() {
   // Familias en MAYÚSCULAS
   await prisma.familia.createMany({
     data: [
-      { tipoFamilia: 'MERCERIA' },
-      { tipoFamilia: 'HILADOS' },
-      { tipoFamilia: 'MADERA' },
+      { tipoFamilia: 'Hilados' },
+      { tipoFamilia: 'Merceria' },
+      { tipoFamilia: 'Maderas' },
+      { tipoFamilia: 'Varios' },
     ],
     skipDuplicates: true,
   })
   // Subfamilias adicionales
   await prisma.subFamilia.createMany({
     data: [
-      { tipoSubFamilia: 'AGUJA', idFamilia: 1 },
-      { tipoSubFamilia: 'VARIOS', idFamilia: 1 },
-      { tipoSubFamilia: 'ACRILICO', idFamilia: 2 },
-      { tipoSubFamilia: 'ALGODON', idFamilia: 2 },
-      { tipoSubFamilia: 'FANTASIA', idFamilia: 2 },
-      { tipoSubFamilia: 'TELAR', idFamilia: 3 },
+      // Hilados
+      { tipoSubFamilia: 'Algodon',        idFamilia: 1 },
+      { tipoSubFamilia: 'Lanas',          idFamilia: 1 },
+      { tipoSubFamilia: 'Fantasia',       idFamilia: 1 },
+      { tipoSubFamilia: 'Mezcla',         idFamilia: 1 },
+      { tipoSubFamilia: 'Acrilico',       idFamilia: 1 },
+      // Merceria
+      { tipoSubFamilia: 'Aguja',          idFamilia: 2 },
+      { tipoSubFamilia: 'Hilos',          idFamilia: 2 },
+      { tipoSubFamilia: 'Varios',         idFamilia: 2 },
+      // Maderas
+      { tipoSubFamilia: 'Telar Madera',   idFamilia: 3 },
+      { tipoSubFamilia: 'Telar Plástico', idFamilia: 3 },
+      // Varios
+      { tipoSubFamilia: 'Varios',         idFamilia: 4 },
     ],
     skipDuplicates: true,
   })
@@ -710,7 +724,7 @@ async function seed() {
   // 12. familias y subfamilias (catálogo inicial)
   const catalogo = [
     { fam: 'Hilados',   subs: ['Algodon', 'Lanas', 'Fantasia', 'Mezcla', 'Acrilico'] },
-    { fam: 'Merceria',  subs: ['Aguja', 'Hilos'] },
+    { fam: 'Merceria',  subs: ['Aguja', 'Hilos', 'Varios'] },
     { fam: 'Maderas',   subs: ['Telar Madera', 'Telar Plástico'] },
     { fam: 'Varios',    subs: ['Varios'] },
   ]
@@ -832,21 +846,31 @@ async function seed() {
   // 16. familias extra en mayúsculas
   await prisma.familia.createMany({
     data: [
-      { tipoFamilia: 'MERCERIA' },
-      { tipoFamilia: 'HILADOS' },
-      { tipoFamilia: 'MADERA' },
+      { tipoFamilia: 'Hilados' },
+      { tipoFamilia: 'Merceria' },
+      { tipoFamilia: 'Maderas' },
+      { tipoFamilia: 'Varios' },
     ],
     skipDuplicates: true,
   })
 
   await prisma.subFamilia.createMany({
     data: [
-      { tipoSubFamilia: 'AGUJA',    idFamilia: 1 },
-      { tipoSubFamilia: 'VARIOS',   idFamilia: 1 },
-      { tipoSubFamilia: 'ACRILICO', idFamilia: 2 },
-      { tipoSubFamilia: 'ALGODON',  idFamilia: 2 },
-      { tipoSubFamilia: 'FANTASIA', idFamilia: 2 },
-      { tipoSubFamilia: 'TELAR',    idFamilia: 3 },
+      // Hilados
+      { tipoSubFamilia: 'Algodon',        idFamilia: 1 },
+      { tipoSubFamilia: 'Lanas',          idFamilia: 1 },
+      { tipoSubFamilia: 'Fantasia',       idFamilia: 1 },
+      { tipoSubFamilia: 'Mezcla',         idFamilia: 1 },
+      { tipoSubFamilia: 'Acrilico',       idFamilia: 1 },
+      // Merceria
+      { tipoSubFamilia: 'Aguja',          idFamilia: 2 },
+      { tipoSubFamilia: 'Hilos',          idFamilia: 2 },
+      { tipoSubFamilia: 'Varios',         idFamilia: 2 },
+      // Maderas
+      { tipoSubFamilia: 'Telar Madera',   idFamilia: 3 },
+      { tipoSubFamilia: 'Telar Plástico', idFamilia: 3 },
+      // Varios
+      { tipoSubFamilia: 'Varios',         idFamilia: 4 },
     ],
     skipDuplicates: true,
   })
