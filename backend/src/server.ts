@@ -5,6 +5,7 @@ import pgSession from "connect-pg-simple";
 import bcrypt from "bcrypt";
 import { PrismaClient, Prisma, PapelEnVenta } from "@prisma/client";
 import authRoutes from "./auth";
+import proveedores from "./routes/proveedores";
 import { requireAuth } from "./middleware/requireAuth";
 import { authorize } from "./middleware/authorize";
 
@@ -67,6 +68,11 @@ app.use(
 app.use("/api/auth", authRoutes);
 
 // ==========================
+// 4b) RUTAS DE PROVEEDORES (CRUD + productos por proveedor)
+// ==========================
+app.use("/api/proveedores", proveedores);
+
+// ==========================
 // 5) LOG SIMPLE
 // ==========================
 app.use((req, _res, next) => {
@@ -111,13 +117,6 @@ app.get("/api/subfamilias", async (_req, res) => {
   })));
 });
 
-app.get("/api/proveedores", async (_req, res) => {
-  const rows = await prisma.proveedor.findMany({
-    select: { idProveedor: true, nombreProveedor: true },
-    orderBy: { idProveedor: "asc" },
-  });
-  res.json(rows.map(r => ({ id: r.idProveedor, nombre: r.nombreProveedor })));
-});
 
 // ====== CRUD PRODUCTOS ======
 

@@ -5,6 +5,7 @@ import Dashboard from "./pages/Dashboard";
 import Productos from "./pages/Productos";
 import Clientes from "./pages/Clientes";
 import Proveedores from "./pages/Proveedores";
+import ProveedorProductos from "./pages/ProveedorProductos";
 import NotFound from "./pages/NotFound";
 import Ventas from "./pages/Ventas";
 import PreVentas from "./pages/PreVentas";
@@ -39,6 +40,7 @@ export default function App() {
                     <Route path="/productos" element={<Productos />} />
                     <Route path="/clientes" element={<Clientes />} />
                     <Route path="/proveedores" element={<Proveedores />} />
+                    <Route path="/proveedores/:id/productos" element={<ProveedorProductos />} />
                     <Route path="/ventas" element={<Ventas />} />
                     <Route path="/pre-ventas" element={<PreVentas />} />
                     <Route path="/compras" element={<Compras />} />

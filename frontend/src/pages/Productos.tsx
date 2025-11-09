@@ -76,7 +76,7 @@ export default function Productos() {
     const [f, s, p] = await Promise.all([
       api.get("/familias"),
       api.get("/subfamilias"),
-      api.get("/proveedores"),
+      api.get("/proveedores/select"),
     ]);
 
     const fams = (f.data as any[])

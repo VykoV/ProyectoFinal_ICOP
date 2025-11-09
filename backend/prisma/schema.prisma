@@ -173,7 +173,7 @@ model VwStock {
 /* ===== Proveedores y compras ===== */
 model Proveedor {
   idProveedor          Int     @id @default(autoincrement()) @db.Integer
-  CIF_NIFProveedor     BigInt?
+  CIF_NIFProveedor     BigInt? @unique
   nombreProveedor      String  @db.VarChar(100)
   mailProveedor        String? @db.VarChar(100)
   telefonoProveedor    BigInt?
@@ -192,8 +192,10 @@ model ProveedorProducto {
   codigoArticuloProveedor String   @db.VarChar(50)
   fechaIngreso            DateTime @db.Date
   precioHistorico         Decimal  @db.Decimal(12, 2)
-  Proveedor Proveedor @relation(fields: [idProveedor], references: [idProveedor])
-  Producto  Producto  @relation(fields: [idProducto], references: [idProducto])
+  Proveedor Proveedor @relation(fields: [idProveedor], references: [idProveedor], onDelete: Restrict)
+  Producto  Producto  @relation(fields: [idProducto], references: [idProducto], onDelete: Restrict)
+  @@unique([idProveedor, idProducto])
+  @@index([idProducto])
   @@map("ProveedorProducto")
 }
 
