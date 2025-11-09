@@ -19,8 +19,8 @@ export function DataTable<T extends object>({
     getCoreRowModel: getCoreRowModel(),
   });
   return (
-    <div className="rounded-xl border bg-white">
-      <table className="w-full text-sm">
+    <div className="rounded-xl border bg-white w-full overflow-x-auto">
+      <table className="w-full min-w-[700px] text-sm">
         <thead className="bg-gray-50">
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id}>

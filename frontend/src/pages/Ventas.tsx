@@ -29,6 +29,7 @@ export default function Ventas() {
 
   // filtro de búsqueda simple
   const [q, setQ] = useState("");
+  const [openFiltros, setOpenFiltros] = useState(false);
 
   // datos
   const [ventasRows, setVentasRows] = useState<VentaRow[]>([]);
@@ -37,9 +38,15 @@ export default function Ventas() {
 
   // filtros/paginación
   const [preEstados, setPreEstados] = useState<string[]>([]);
+  const [preDesde, setPreDesde] = useState<string>("");
+  const [preHasta, setPreHasta] = useState<string>("");
   const [prePage, setPrePage] = useState<number>(1);
-  const [venEstados, setVenEstados] = useState<string[]>([]);
+  const [venEstados, setVenEstados] = useState<string[]>(["finalizada", "cancelada"]);
+  const [venDesde, setVenDesde] = useState<string>("");
+  const [venHasta, setVenHasta] = useState<string>("");
   const [venPage, setVenPage] = useState<number>(1);
+  const [preSort, setPreSort] = useState<"asc" | "desc">("desc");
+  const [venSort, setVenSort] = useState<"asc" | "desc">("desc");
   const pageSize = 10;
 
   function normEstado(raw: string): "pendiente" | "listocaja" | "finalizada" | "cancelada" | "otro" {
@@ -51,36 +58,67 @@ export default function Ventas() {
     return "otro";
   }
 
+  // Coincidencia simple contra múltiples campos; si q está vacío, siempre true
+  function matchesQuery(qv: string, ...fields: Array<string | null | undefined>): boolean {
+    const qn = (qv || "").trim().toLowerCase();
+    if (!qn) return true;
+    return fields.some((f) => String(f || "").toLowerCase().includes(qn));
+  }
+
   function readParams() {
     const sp = new URLSearchParams(window.location.search);
     const tabQ = sp.get("tab") as any;
     const q0 = sp.get("q") || "";
     const preE = sp.get("preEstados");
+    const preD = sp.get("preDesde") || "";
+    const preH = sp.get("preHasta") || "";
     const preP = Number(sp.get("prePage") || "1");
+    const preS = sp.get("preSort") || "";
     const venE = sp.get("venEstados");
+    const venD = sp.get("venDesde") || "";
+    const venH = sp.get("venHasta") || "";
     const venP = Number(sp.get("venPage") || "1");
+    const venS = sp.get("venSort") || "";
     if (tabQ === "ventas" || tabQ === "preventas") setTab(tabQ);
     setQ(q0);
     setPreEstados(preE ? preE.split(",").filter(Boolean) : ["pendiente", "listocaja"]);
+    setPreDesde(preD);
+    setPreHasta(preH);
     setPrePage(Math.max(1, preP || 1));
-    setVenEstados(venE ? venE.split(",").filter(Boolean) : []);
+    setPreSort(preS === "asc" || preS === "desc" ? (preS as any) : "desc");
+    setVenEstados(venE ? venE.split(",").filter(Boolean) : ["finalizada", "cancelada"]);
+    setVenDesde(venD);
+    setVenHasta(venH);
     setVenPage(Math.max(1, venP || 1));
+    setVenSort(venS === "asc" || venS === "desc" ? (venS as any) : "desc");
   }
 
-  function writeParams(next?: Partial<{ tab: "ventas" | "preventas"; q: string; preEstados: string[]; prePage: number; venEstados: string[]; venPage: number }>) {
+  function writeParams(next?: Partial<{ tab: "ventas" | "preventas"; q: string; preEstados: string[]; preDesde: string; preHasta: string; prePage: number; preSort: "asc" | "desc"; venEstados: string[]; venDesde: string; venHasta: string; venPage: number; venSort: "asc" | "desc" }>) {
     const sp = new URLSearchParams(window.location.search);
     const t = next?.tab ?? tab;
     const qv = next?.q ?? q;
     const pe = next?.preEstados ?? preEstados;
+    const pd = next?.preDesde ?? preDesde;
+    const ph = next?.preHasta ?? preHasta;
     const pp = next?.prePage ?? prePage;
+    const ps = next?.preSort ?? preSort;
     const ve = next?.venEstados ?? venEstados;
+    const vd = next?.venDesde ?? venDesde;
+    const vh = next?.venHasta ?? venHasta;
     const vp = next?.venPage ?? venPage;
+    const vs = next?.venSort ?? venSort;
     sp.set("tab", t);
     if (qv) sp.set("q", qv); else sp.delete("q");
     if (pe.length) sp.set("preEstados", pe.join(",")); else sp.delete("preEstados");
+    if (pd) sp.set("preDesde", pd); else sp.delete("preDesde");
+    if (ph) sp.set("preHasta", ph); else sp.delete("preHasta");
     sp.set("prePage", String(pp));
+    sp.set("preSort", ps);
     if (ve.length) sp.set("venEstados", ve.join(",")); else sp.delete("venEstados");
+    if (vd) sp.set("venDesde", vd); else sp.delete("venDesde");
+    if (vh) sp.set("venHasta", vh); else sp.delete("venHasta");
     sp.set("venPage", String(vp));
+    sp.set("venSort", vs);
     window.history.replaceState(null, "", `?${sp.toString()}`);
   }
 
@@ -188,32 +226,66 @@ setPreRows(
   // sync URL when filters/page/tab change
   useEffect(() => {
     writeParams();
-  }, [tab, preEstados, prePage, venEstados, venPage]);
+  }, [tab, preEstados, preDesde, preHasta, prePage, preSort, venEstados, venDesde, venHasta, venPage, venSort]);
 
   // derived filtered + paginated datasets
-  const preFiltered = preRows.filter((r) => {
-    const k = normEstado(r.estado);
-    if (preEstados.length === 0) return true;
-    return preEstados.includes(k);
+  const preFiltered = preRows
+    .filter((r) => matchesQuery(q, r.cliente, r.metodoPago))
+    .filter((r) => {
+      const k = normEstado(r.estado);
+      if (preEstados.length === 0) return true;
+      return preEstados.includes(k);
+    })
+    .filter((r) => {
+      const f = r.fecha; // YYYY-MM-DD
+      if (preDesde && f < preDesde) return false;
+      if (preHasta && f > preHasta) return false;
+      return true;
+    });
+  const preSorted = [...preFiltered].sort((a, b) => {
+    const va = a.fecha;
+    const vb = b.fecha;
+    if (va === vb) return 0;
+    const cmp = va < vb ? -1 : 1;
+    return preSort === "asc" ? cmp : -cmp;
   });
-  const preTotal = preFiltered.length;
+  const preTotal = preSorted.length;
   const preTotalPages = Math.max(1, Math.ceil(preTotal / pageSize));
   const preSafePage = Math.min(Math.max(1, prePage), preTotalPages);
   const preStart = (preSafePage - 1) * pageSize;
   const preEnd = Math.min(preStart + pageSize, preTotal);
-  const prePageRows = preFiltered.slice(preStart, preEnd);
+  const prePageRows = preSorted.slice(preStart, preEnd);
 
-  const venFiltered = ventasRows.filter((r) => {
-    const k = normEstado(r.estado);
-    if (venEstados.length === 0) return true;
-    return venEstados.includes(k);
+  const venFiltered = ventasRows
+    .filter((r) => matchesQuery(q, r.cliente, r.metodoPago))
+    .filter((r) => {
+      const k = normEstado(r.estado);
+      if (venEstados.length === 0) return true;
+      return venEstados.includes(k);
+    })
+    .filter((r) => {
+      const f = r.fecha; // formato YYYY-MM-DD
+      if (venDesde && f < venDesde) return false;
+      if (venHasta && f > venHasta) return false;
+      return true;
+    });
+  const venSorted = [...venFiltered].sort((a, b) => {
+    const va = a.fecha;
+    const vb = b.fecha;
+    if (va === vb) return 0;
+    const cmp = va < vb ? -1 : 1;
+    return venSort === "asc" ? cmp : -cmp;
   });
-  const venTotal = venFiltered.length;
+  const venTotal = venSorted.length;
   const venTotalPages = Math.max(1, Math.ceil(venTotal / pageSize));
   const venSafePage = Math.min(Math.max(1, venPage), venTotalPages);
   const venStart = (venSafePage - 1) * pageSize;
   const venEnd = Math.min(venStart + pageSize, venTotal);
-  const venPageRows = venFiltered.slice(venStart, venEnd);
+  const venPageRows = venSorted.slice(venStart, venEnd);
+  const venEstadoSel: "todas" | "finalizada" | "cancelada" =
+    venEstados.length === 1
+      ? (venEstados[0] as "finalizada" | "cancelada")
+      : "todas";
 
   /* Columnas Ventas (finalizadas) */
   /* Columnas Ventas (finalizadas / canceladas) */
@@ -361,78 +433,193 @@ setPreRows(
         </button>
       </div>
 
-      {/* Buscador */}
-      <div className="relative w-64">
-        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-        <input
-          className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
-          placeholder={
-            tab === "ventas"
-              ? "Buscar ventas..."
-              : "Buscar presupuestos pendientes..."
-          }
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setQ("");
-          }}
-        />
+      {/* Buscador + botón de filtros */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative w-64 sm:w-72 md:w-80 lg:w-96 xl:w-[32rem] flex-1 min-w-[14rem]">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+          <input
+            className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
+            placeholder={
+              tab === "ventas"
+                ? "Buscar por cliente o método de pago..."
+                : "Buscar por cliente o método de pago..."
+            }
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setQ("");
+            }}
+          />
+        </div>
+        <button
+          className="rounded border px-3 py-2 text-sm"
+          onClick={() => setOpenFiltros(true)}
+        >
+          Filtros
+        </button>
+        <span className="ml-auto text-xs text-gray-600">
+          {tab === "ventas"
+            ? `Mostrando ${venTotal === 0 ? 0 : venStart + 1}–${venEnd} de ${venTotal}`
+            : `Mostrando ${preTotal === 0 ? 0 : preStart + 1}–${preEnd} de ${preTotal}`}
+        </span>
       </div>
 
-      {/* Filtros + resumen según pestaña */}
-      {tab === "preventas" ? (
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="text-gray-600">Filtrar estado:</span>
-          {[
-            { k: "pendiente", label: "Pendiente" },
-            { k: "listocaja", label: "ListoCaja" },
-            { k: "finalizada", label: "Finalizada/Cerrada" },
-            { k: "cancelada", label: "Cancelada" },
-          ].map((o) => (
-            <label key={o.k} className="inline-flex items-center gap-1">
-              <input
-                type="checkbox"
-                checked={preEstados.includes(o.k)}
-                onChange={(e) => {
-                  const next = e.target.checked
-                    ? [...new Set([...preEstados, o.k])]
-                    : preEstados.filter((x) => x !== o.k);
-                  setPreEstados(next);
-                  setPrePage(1);
+      {/* Popup de filtros */}
+      {openFiltros && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg md:max-w-xl lg:max-w-2xl">
+            <div className="flex items-center justify-between border-b px-4 py-2">
+              <h2 className="text-sm font-medium">
+                {tab === "ventas" ? "Filtros de Ventas" : "Filtros de Presupuestos"}
+              </h2>
+              <button
+                className="rounded border px-2 py-1 text-xs"
+                onClick={() => setOpenFiltros(false)}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4 text-sm">
+              {tab === "preventas" ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-600">Estado</span>
+                    {(() => {
+                      const preEstadoSel: "todas" | "pendiente" | "listocaja" =
+                        preEstados.length === 1 ? (preEstados[0] as "pendiente" | "listocaja") : "todas";
+                      return (
+                        <>
+                          <select
+                            className="rounded border px-2 py-1"
+                            value={preEstadoSel}
+                            onChange={(e) => {
+                              const val = e.target.value as "todas" | "pendiente" | "listocaja";
+                              const next = val === "todas" ? ["pendiente", "listocaja"] : [val];
+                              setPreEstados(next);
+                              setPrePage(1);
+                            }}
+                          >
+                            <option value="todas">Pendiente o ListoCaja</option>
+                            <option value="pendiente">Solo Pendiente</option>
+                            <option value="listocaja">Solo ListoCaja</option>
+                          </select>
+                          <span className="text-gray-600 ml-auto">Orden</span>
+                          <select
+                            className="rounded border px-2 py-1"
+                            value={preSort}
+                            onChange={(e) => setPreSort(e.target.value as "asc" | "desc")}
+                          >
+                            <option value="desc">Descendente</option>
+                            <option value="asc">Ascendente</option>
+                          </select>
+                        </>
+                      );
+                    })()}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-600">Fecha desde</span>
+                    <input
+                      type="date"
+                      className="rounded border px-2 py-1"
+                      value={preDesde}
+                      onChange={(e) => {
+                        setPreDesde(e.target.value);
+                        setPrePage(1);
+                      }}
+                    />
+                    <span className="text-gray-600">hasta</span>
+                    <input
+                      type="date"
+                      className="rounded border px-2 py-1"
+                      value={preHasta}
+                      onChange={(e) => {
+                        setPreHasta(e.target.value);
+                        setPrePage(1);
+                      }}
+                    />
+                  </div>
+                  
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-600">Estado</span>
+                    <select
+                      className="rounded border px-2 py-1"
+                      value={venEstadoSel}
+                      onChange={(e) => {
+                        const val = e.target.value as "todas" | "finalizada" | "cancelada";
+                        const next = val === "todas" ? ["finalizada", "cancelada"] : [val];
+                        setVenEstados(next);
+                        setVenPage(1);
+                      }}
+                    >
+                      <option value="todas">Finalizada o Cancelada</option>
+                      <option value="finalizada">Solo Finalizada</option>
+                      <option value="cancelada">Solo Cancelada</option>
+                    </select>
+                    <span className="text-gray-600 ml-auto">Orden</span>
+                    <select
+                      className="rounded border px-2 py-1"
+                      value={venSort}
+                      onChange={(e) => setVenSort(e.target.value as "asc" | "desc")}
+                    >
+                      <option value="desc">Descendente</option>
+                      <option value="asc">Ascendente</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-600">Fecha desde</span>
+                    <input
+                      type="date"
+                      className="rounded border px-2 py-1"
+                      value={venDesde}
+                      onChange={(e) => {
+                        setVenDesde(e.target.value);
+                        setVenPage(1);
+                      }}
+                    />
+                    <span className="text-gray-600">hasta</span>
+                    <input
+                      type="date"
+                      className="rounded border px-2 py-1"
+                      value={venHasta}
+                      onChange={(e) => {
+                        setVenHasta(e.target.value);
+                        setVenPage(1);
+                      }}
+                    />
+                  </div>
+                  
+                </>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+              <button
+                className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm"
+                onClick={() => {
+                  if (tab === "preventas") {
+                    setPreEstados(["pendiente", "listocaja"]);
+                    setPreDesde("");
+                    setPreHasta("");
+                    setPrePage(1);
+                    setPreSort("desc");
+                  } else {
+                    setVenEstados(["finalizada", "cancelada"]);
+                    setVenDesde("");
+                    setVenHasta("");
+                    setVenPage(1);
+                    setVenSort("desc");
+                  }
                 }}
-              />
-              {o.label}
-            </label>
-          ))}
-          <span className="ml-auto text-xs text-gray-600">
-            Mostrando {preTotal === 0 ? 0 : preStart + 1}–{preEnd} de {preTotal}
-          </span>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="text-gray-600">Filtrar estado:</span>
-          {[
-            { k: "finalizada", label: "Finalizada/Cerrada" },
-            { k: "cancelada", label: "Cancelada" },
-          ].map((o) => (
-            <label key={o.k} className="inline-flex items-center gap-1">
-              <input
-                type="checkbox"
-                checked={venEstados.includes(o.k)}
-                onChange={(e) => {
-                  const next = e.target.checked
-                    ? [...new Set([...venEstados, o.k])]
-                    : venEstados.filter((x) => x !== o.k);
-                  setVenEstados(next);
-                  setVenPage(1);
-                }}
-              />
-              {o.label}
-            </label>
-          ))}
-          <span className="ml-auto text-xs text-gray-600">
-            Mostrando {venTotal === 0 ? 0 : venStart + 1}–{venEnd} de {venTotal}
-          </span>
+              >
+                <X className="h-3.5 w-3.5" /> Borrar filtros
+              </button>
+              <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenFiltros(false)}>
+                Cerrar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
