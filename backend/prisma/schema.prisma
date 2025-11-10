@@ -230,6 +230,7 @@ model Compra {
   idMoneda               Int
   total                  Decimal      @default(0) @db.Decimal(12, 2)
   estado                 EstadoCompra @default(PendientePago)
+  edicionBloqueada       Boolean      @default(false)
 
   Proveedor  Proveedor  @relation(fields: [idProveedor], references: [idProveedor], onDelete: Restrict, onUpdate: Cascade)
   MetodoPago MetodoPago @relation(fields: [idMetodoPago], references: [idMetodoPago])

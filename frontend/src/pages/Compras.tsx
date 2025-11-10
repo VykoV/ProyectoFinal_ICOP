@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Eye, Search, Plus, Trash2, X, Pencil, Check } from "lucide-react";
+import { Eye, Search, Plus, Trash2, X, Pencil, Check, Lock } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "../components/DataTable";
 import { Label, Input, Select } from "../components/ui/Form";
@@ -15,6 +15,7 @@ type CompraRow = {
   moneda?: string | null;
   total: number;
   estado: "PendientePago" | "Finalizado" | string;
+  bloqueada?: boolean;
 };
 
 type Opt = { id: number; label: string };
@@ -95,6 +96,7 @@ export default function Compras() {
         moneda: v.Moneda?.moneda ?? v.Moneda?.codigo ?? null,
         total: Number(v.total ?? 0),
         estado: v.estado ?? "PendientePago",
+        bloqueada: !!v.edicionBloqueada,
       })) as CompraRow[];
       setRows(list);
     } finally {
@@ -129,34 +131,54 @@ export default function Compras() {
       id: "acciones",
       size: 280,
       cell: ({ row }) => {
-        const isEditable = (row.original.estado || "").toLowerCase().includes("pend");
+        const isPendiente = (row.original.estado || "").toLowerCase().includes("pend");
+        const canEdit = isPendiente && !row.original.bloqueada;
         return (
-          <div className="flex gap-2">
-            <button className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+          <div className="flex items-center gap-2">
+            <button className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
               onClick={() => setOpenView(row.original.id)} title="Ver">
               <Eye className="h-3.5 w-3.5" /> Ver
             </button>
 
-            {isEditable && (
+            {canEdit && (
               <button className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
                 onClick={() => setOpenForm(row.original.id)} title="Editar">
                 <Pencil className="h-3.5 w-3.5" /> Editar
               </button>
             )}
 
-            {isEditable && (
+            {canEdit && (
               <button className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
                 onClick={async () => {
-                  if (!confirm("Confirmar compra y actualizar stock?")) return;
-                  await api.post(`/compras/${row.original.id}/confirmar`, {});
-                  await load();
+                  const ok = window.confirm(
+                    "¿Finalizar edición y aplicar stock?\nSe bloqueará la edición y NO se modificará el estado."
+                  );
+                  if (!ok) return;
+                  try {
+                    await api.post(`/compras/${row.original.id}/aplicar-stock`, {});
+                    await load();
+                  } catch (e: any) {
+                    alert(e?.response?.data?.error || e?.message || "No se pudo finalizar la edición y aplicar stock");
+                  }
                 }}
-                title="Confirmar compra">
-                <Check className="h-3.5 w-3.5" /> Confirmar
+                title="Finalizar edición">
+                <Lock className="h-3.5 w-3.5" /> Finalizar edición
               </button>
             )}
 
-            {isEditable && (
+            {isPendiente && (
+              <button className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+                onClick={async () => {
+                  if (!confirm("Marcar pago finalizado (solo cambia estado).")) return;
+                  await api.post(`/compras/${row.original.id}/confirmar`, {});
+                  await load();
+                }}
+                title="Pago finalizado">
+                <Check className="h-3.5 w-3.5" /> Pago finalizado
+              </button>
+            )}
+
+            {canEdit && (
               <button className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
                 onClick={async () => {
                   if (!confirm("Eliminar compra en Pendiente de pago?")) return;
@@ -348,6 +370,26 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
 
   const items: any[] = compra?.detalles ?? [];
 
+  // Desglose de IVA (visual): todas las compras incluyen IVA
+  const IVA_PCT_DEFAULT = 21;
+  function splitIVA(pu: number, ivaPct: number) {
+    const base = pu / (1 + ivaPct / 100);
+    const iva = pu - base;
+    return { base, iva };
+  }
+  const resumen = useMemo(() => {
+    let base = 0, iva = 0, bruto = 0;
+    items.forEach((d:any) => {
+      const cant = Number(d.cantidad ?? 0);
+      const pu = Number(d.precioUnit ?? 0);
+      const s = splitIVA(pu, IVA_PCT_DEFAULT);
+      base += cant * s.base;
+      iva  += cant * s.iva;
+      bruto += cant * pu;
+    });
+    return { base, iva, bruto };
+  }, [items]);
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/20" onClick={() => onClose()} />
@@ -361,32 +403,54 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
           </div>
 
           <div className="flex-1 overflow-auto px-4 py-3 text-sm space-y-6">
-            <div className="grid grid-cols-2 gap-3">
-              <div><p className="text-gray-500">Fecha</p>
-                <p className="font-medium">{loading ? "..." : String(compra?.fechaComprobanteCompra ?? "").slice(0,10)}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Comprobante: Fecha, Factura, Método de pago, Moneda */}
+              <div className="md:col-span-2 rounded-xl border bg-white p-3">
+                <p className="text-gray-500">Comprobante</p>
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  <div>
+                    <p className="text-gray-500 text-xs">Fecha</p>
+                    <p className="font-medium">{loading ? "..." : String(compra?.fechaComprobanteCompra ?? "").slice(0,10)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs">Factura</p>
+                    <p className="font-medium">{loading ? "..." : compra?.nroFactura ?? "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs">Método de pago</p>
+                    <p className="font-medium">{loading ? "..." : compra?.MetodoPago?.metodoPago ?? "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500 text-xs">Moneda</p>
+                    <p className="font-medium">{loading ? "..." : compra?.Moneda?.moneda ?? compra?.Moneda?.codigo ?? "-"}</p>
+                  </div>
+                </div>
               </div>
-              <div><p className="text-gray-500">Factura</p>
-                <p className="font-medium">{loading ? "..." : compra?.nroFactura ?? "-"}</p>
-              </div>
-              <div className="col-span-2"><p className="text-gray-500">Proveedor</p>
-                <p className="font-medium">{loading ? "..." : compra?.Proveedor?.nombreProveedor ?? "-"}</p>
-              </div>
-              <div><p className="text-gray-500">Método de pago</p>
-                <p className="font-medium">{loading ? "..." : compra?.MetodoPago?.tipoPago ?? "-"}</p>
-              </div>
-              <div><p className="text-gray-500">Moneda</p>
-                <p className="font-medium">{loading ? "..." : compra?.Moneda?.moneda ?? compra?.Moneda?.codigo ?? "-"}</p>
-              </div>
-              <div className="col-span-2"><p className="text-gray-500">Observación</p>
-                <p className="font-normal">{loading ? "..." : compra?.observacion ?? "-"}</p>
-              </div>
-              <div><p className="text-gray-500">Estado</p>
-                <span className="rounded-full px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800">
+
+              {/* Estado */}
+              <div className="rounded-xl border bg-white p-3">
+                <p className="text-gray-500">Estado</p>
+                <span className="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
                   {loading ? "..." : compra?.estado ?? "-"}
                 </span>
               </div>
-              <div><p className="text-gray-500">Total</p>
+
+              {/* Total */}
+              <div className="rounded-xl border bg-white p-3">
+                <p className="text-gray-500">Total</p>
                 <p className="font-medium">{loading ? "..." : `$${Number(compra?.total ?? 0).toFixed(2)}`}</p>
+              </div>
+
+              {/* Proveedor */}
+              <div className="md:col-span-2 rounded-xl border bg-white p-3">
+                <p className="text-gray-500">Proveedor</p>
+                <p className="font-medium">{loading ? "..." : compra?.Proveedor?.nombreProveedor ?? "-"}</p>
+              </div>
+
+              {/* Observación */}
+              <div className="md:col-span-2 rounded-xl border bg-white p-3">
+                <p className="text-gray-500">Observación</p>
+                <p className="font-normal">{loading ? "..." : compra?.observacion ?? "-"}</p>
               </div>
             </div>
 
@@ -399,17 +463,19 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
                       <th className="px-2 py-2 text-left">Producto</th>
                       <th className="px-2 py-2 text-center">Cant.</th>
                       <th className="px-2 py-2 text-center">P.Unit.</th>
+                      <th className="px-2 py-2 text-center">Sin IVA</th>
                       <th className="px-2 py-2 text-center">Subtotal</th>
                     </tr>
                   </thead>
                   <tbody>
                     {loading ? (
-                      <tr><td className="px-2 py-4 text-center text-gray-500" colSpan={4}>Cargando…</td></tr>
+                      <tr><td className="px-2 py-4 text-center text-gray-500" colSpan={5}>Cargando…</td></tr>
                     ) : items.length > 0 ? (
                       items.map((d:any, idx:number) => {
                         const cant = Number(d.cantidad ?? 0);
                         const pu   = Number(d.precioUnit ?? 0);
                         const sub  = cant * pu;
+                        const { base } = splitIVA(pu, IVA_PCT_DEFAULT);
                         return (
                           <tr key={`${d.idDetalleCompra ?? d.idProducto}-${idx}`} className="border-t">
                             <td className="px-2 py-2">
@@ -417,15 +483,31 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
                             </td>
                             <td className="px-2 py-2 text-center">{cant}</td>
                             <td className="px-2 py-2 text-center">${pu.toFixed(2)}</td>
+                            <td className="px-2 py-2 text-center">${base.toFixed(2)}</td>
                             <td className="px-2 py-2 text-center">${sub.toFixed(2)}</td>
                           </tr>
                         );
                       })
                     ) : (
-                      <tr><td className="px-2 py-4 text-center text-gray-500" colSpan={4}>Sin items</td></tr>
+                      <tr><td className="px-2 py-4 text-center text-gray-500" colSpan={5}>Sin items</td></tr>
                     )}
                   </tbody>
                 </table>
+              </div>
+              {/* Resumen: Subtotal neto, IVA y Total */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+                <div className="rounded-xl border bg-white p-3">
+                  <p className="text-sm text-gray-500">Subtotal neto (sin IVA)</p>
+                  <p className="text-xl font-semibold">${resumen.base.toFixed(2)}</p>
+                </div>
+                <div className="rounded-xl border bg-white p-3">
+                  <p className="text-sm text-gray-500">IVA</p>
+                  <p className="text-xl font-semibold">${resumen.iva.toFixed(2)}</p>
+                </div>
+                <div className="rounded-xl border bg-white p-3">
+                  <p className="text-sm text-gray-500">Total</p>
+                  <p className="text-xl font-semibold">${resumen.bruto.toFixed(2)}</p>
+                </div>
               </div>
             </div>
           </div>
@@ -474,7 +556,6 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
 
   // IVA informativo (solo visual)
   const [ivaPctView, setIvaPctView] = useState<number>(IVA_PCT_DEFAULT);
-  const [verIVAInfo, setVerIVAInfo] = useState<boolean>(true);
 
   function splitIVA(pu: number, ivaPct: number) {
     const base = pu / (1 + ivaPct / 100);
@@ -595,6 +676,13 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
     if (!idMoneda) return setErr("Seleccioná moneda.");
     if (!nroFactura.trim()) return setErr("Ingresá número de factura.");
     if (items.length === 0) return setErr("Agregá al menos un producto.");
+    // Validación: fecha no puede ser posterior a hoy
+    try {
+      const f = new Date(fecha);
+      const hoy = new Date(todayStr);
+      f.setHours(0,0,0,0); hoy.setHours(0,0,0,0);
+      if (f > hoy) return setErr("La fecha comprobante no puede ser posterior a hoy.");
+    } catch {}
 
     const payload = {
       idProveedor: Number(idProveedor),
@@ -677,17 +765,9 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
                 </div>
 
                 <div className="lg:col-span-3 flex items-center gap-3">
-                  <label className="inline-flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={verIVAInfo} onChange={e=>setVerIVAInfo(e.target.checked)} />
-                    Ver desglose informativo de IVA
-                  </label>
-                  {verIVAInfo && (
-                    <>
-                      <span className="text-gray-500">IVA %</span>
-                      <Input type="number" className="w-24" value={ivaPctView}
-                        onChange={e=> setIvaPctView(Math.max(0, Number(e.target.value) || 0))}/>
-                    </>
-                  )}
+                  <span className="text-sm text-gray-600">IVA %</span>
+                  <Input type="number" className="w-24" value={ivaPctView}
+                    onChange={e=> setIvaPctView(Math.max(0, Number(e.target.value) || 0))}/>
                 </div>
               </div>
             </div>
@@ -749,19 +829,19 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
               <h4 className="text-sm font-medium text-gray-700 mb-2">Productos cargados</h4>
               <table className="w-full table-fixed text-sm">
                 <colgroup>
-                  <col style={{ width: verIVAInfo ? "40%" : "45%" }} />
-                  <col style={{ width: verIVAInfo ? "12%" : "15%" }} />
-                  <col style={{ width: verIVAInfo ? "16%" : "20%" }} />
-                  {verIVAInfo && <col style={{ width: "16%" }} />}
-                  <col style={{ width: verIVAInfo ? "8%" : "10%" }} />
-                  <col style={{ width: verIVAInfo ? "8%" : "10%" }} />
+                  <col style={{ width: "40%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "8%" }} />
+                  <col style={{ width: "8%" }} />
                 </colgroup>
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-3 py-2 text-left">Producto</th>
                     <th className="px-3 py-2 text-center">Cant.</th>
                     <th className="px-3 py-2 text-center">P.Unit.</th>
-                    {verIVAInfo && <th className="px-3 py-2 text-center">Sin IVA</th>}
+                    <th className="px-3 py-2 text-center">Sin IVA</th>
                     <th className="px-3 py-2 text-center">Subtotal</th>
                     <th className="px-3 py-2 text-center">Acciones</th>
                   </tr>
@@ -778,14 +858,12 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
                             className="w-24 text-center" />
                         </td>
                         <td className="px-3 py-2 text-center">${i.precioUnit.toFixed(2)}</td>
-                        {verIVAInfo && (
-                          <td className="px-3 py-2 text-center">
-                            ${ (i.cantidad * base).toFixed(2) }
-                            <div className="text-[11px] text-gray-500">
-                              IVA: ${ (i.cantidad * iva).toFixed(2) }
-                            </div>
-                          </td>
-                        )}
+                        <td className="px-3 py-2 text-center">
+                          ${ (i.cantidad * base).toFixed(2) }
+                          <div className="text-[11px] text-gray-500">
+                            IVA: ${ (i.cantidad * iva).toFixed(2) }
+                          </div>
+                        </td>
                         <td className="px-3 py-2 text-center">
                           ${(i.cantidad * i.precioUnit).toFixed(2)}
                         </td>
@@ -799,7 +877,7 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
                     );
                   })}
                   {items.length === 0 && (
-                    <tr><td className="px-3 py-6 text-center text-gray-500" colSpan={verIVAInfo ? 6 : 5}>Sin productos agregados</td></tr>
+                    <tr><td className="px-3 py-6 text-center text-gray-500" colSpan={6}>Sin productos agregados</td></tr>
                   )}
                 </tbody>
               </table>
@@ -823,18 +901,14 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
                   <p className="text-sm text-gray-500">Total bruto (con IVA)</p>
                   <p className="text-2xl font-semibold">${info.bruto.toFixed(2)}</p>
                 </div>
-                {verIVAInfo && (
-                  <>
-                    <div className="rounded-xl border p-4">
-                      <p className="text-sm text-gray-500">Base neta (sin IVA)</p>
-                      <p className="text-2xl font-semibold">${info.base.toFixed(2)}</p>
-                    </div>
-                    <div className="rounded-xl border p-4">
-                      <p className="text-sm text-gray-500">IVA informativo</p>
-                      <p className="text-2xl font-semibold">${info.iva.toFixed(2)}</p>
-                    </div>
-                  </>
-                )}
+                <div className="rounded-xl border p-4">
+                  <p className="text-sm text-gray-500">Base neta (sin IVA)</p>
+                  <p className="text-2xl font-semibold">${info.base.toFixed(2)}</p>
+                </div>
+                <div className="rounded-xl border p-4">
+                  <p className="text-sm text-gray-500">IVA informativo</p>
+                  <p className="text-2xl font-semibold">${info.iva.toFixed(2)}</p>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t">

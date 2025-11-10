@@ -20,6 +20,7 @@ export const compraUpdate = compraCreate.partial().extend({
   // no cambio proveedor ni nroFactura por defecto
   idProveedor: z.never().optional(),
   nroFactura: z.never().optional(),
+  accion: z.enum(["lock", "unlock"]).optional(),
 });
 
 export const comprasQuery = z.object({

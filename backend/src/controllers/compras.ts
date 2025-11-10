@@ -71,7 +71,20 @@ export async function update(req: Request, res: Response) {
   if (c.estado !== EstadoCompra.PendientePago)
     return res.status(409).json({ error: "Solo se edita en Pendiente de pago" });
 
+  // si está bloqueada la edición, no permitir cambios
+  if ((c as any).edicionBloqueada)
+    return res.status(409).json({ error: "Edición bloqueada" });
+
   const body = compraUpdate.parse(req.body);
+
+  // acción administrativa: lock/unlock sin modificar estado
+  if ((body as any).accion === "lock" || (body as any).accion === "unlock") {
+    const updated = await prisma.compra.update({
+      where: { id },
+      data: { edicionBloqueada: (body as any).accion === "lock" },
+    });
+    return res.json(updated);
+  }
   const items =
     body.items ?? c.detalles.map((d) => ({ idProducto: d.idProducto, cantidad: Number(d.cantidad), precioUnit: Number(d.precioUnit) }));
   const total = calcTotal(items);
@@ -103,23 +116,45 @@ export async function remove(req: Request, res: Response) {
   if (c.estado !== EstadoCompra.PendientePago)
     return res.status(409).json({ error: "Solo se elimina en Pendiente de pago" });
 
+  if ((c as any).edicionBloqueada)
+    return res.status(409).json({ error: "Edición bloqueada" });
+
   await prisma.compra.delete({ where: { id } });
   res.sendStatus(204);
 }
 
+// aplica stock en base a los detalles, sin cambiar el estado
+//
+
 export async function confirmar(req: Request, res: Response) {
+  const id = Number(req.params.id);
+  const c = await prisma.compra.findUnique({ where: { id } });
+  if (!c) return res.sendStatus(404);
+  if (c.estado !== EstadoCompra.PendientePago)
+    return res.status(409).json({ error: "Ya confirmada" });
+  await prisma.compra.update({ where: { id }, data: { estado: EstadoCompra.Finalizado } });
+  res.sendStatus(204);
+}
+
+// aplicar stock y bloquear edición, sin cambiar estado
+export async function aplicarStock(req: Request, res: Response) {
   const id = Number(req.params.id);
   const c = await prisma.compra.findUnique({ where: { id }, include: { detalles: true } });
   if (!c) return res.sendStatus(404);
   if (c.estado !== EstadoCompra.PendientePago)
-    return res.status(409).json({ error: "Ya confirmada" });
-
+    return res.status(409).json({ error: "Solo se aplica stock en Pendiente de pago" });
   await prisma.$transaction(async (tx) => {
-    // 1) Actualizar stock (tabla Stock según esquema actual)
+    // 1) Actualizar stock
     for (const d of c.detalles) {
-      await tx.stock.update({
+      await tx.stock.upsert({
         where: { idProducto: d.idProducto },
-        data: {
+        create: {
+          idProducto: d.idProducto,
+          bajoMinimoStock: new Prisma.Decimal(0),
+          cantidadRealStock: new Prisma.Decimal(Number(d.cantidad)),
+          ultimaModificacionStock: new Date(),
+        },
+        update: {
           cantidadRealStock: { increment: Number(d.cantidad) },
           ultimaModificacionStock: new Date(),
         },
@@ -139,8 +174,8 @@ export async function confirmar(req: Request, res: Response) {
       });
     }
 
-    // 3) Cerrar compra
-    await tx.compra.update({ where: { id }, data: { estado: EstadoCompra.Finalizado } });
+    // 3) Bloquear edición
+    await tx.compra.update({ where: { id }, data: { edicionBloqueada: true } });
   });
 
   res.sendStatus(204);

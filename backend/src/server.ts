@@ -255,6 +255,64 @@ app.get("/api/products/:id", async (req, res) => {
   });
 });
 
+// STOCK DETALLADO DE UN PRODUCTO
+app.get("/api/products/:id/stock", async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const s = await prisma.stock.findFirst({ where: { idProducto: id } });
+    if (!s) return res.status(404).json({ error: "STOCK_NOT_FOUND" });
+    res.json({
+      real: Number(s.cantidadRealStock),
+      comprometido: Number(s.stockComprometido),
+      minimo: Number(s.bajoMinimoStock),
+      actualizadoEn: s.ultimaModificacionStock,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: "STOCK_READ_FAILED" });
+  }
+});
+
+// HISTÓRICO DE PRECIO POR PRODUCTO (opcional filtro de proveedor y rango de fechas)
+app.get("/api/products/:id/historico-precio", async (req, res) => {
+  const id = Number(req.params.id);
+  const { proveedorId, desde, hasta, page = "1", limit = "20" } = req.query as any;
+  const skip = Math.max(0, (Number(page) - 1) * Number(limit));
+  const take = Math.max(1, Number(limit));
+
+  const where: Prisma.ProveedorProductoWhereInput = { idProducto: id };
+  if (proveedorId) where.idProveedor = Number(proveedorId);
+  if (desde || hasta) {
+    where.fechaIngreso = {
+      ...(desde && { gte: new Date(String(desde)) }),
+      ...(hasta && { lte: new Date(String(hasta)) }),
+    } as any;
+  }
+
+  try {
+    const rows = await prisma.proveedorProducto.findMany({
+      where,
+      include: { Proveedor: { select: { idProveedor: true, nombreProveedor: true } } },
+      orderBy: { fechaIngreso: "desc" },
+      skip,
+      take,
+    });
+
+    res.json(
+      rows.map(r => ({
+        proveedorId: r.idProveedor,
+        nombreProveedor: r.Proveedor?.nombreProveedor ?? null,
+        precio: Number(r.precioHistorico),
+        fechaIngreso: r.fechaIngreso,
+        codigoArticuloProveedor: r.codigoArticuloProveedor ?? null,
+      }))
+    );
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: "HISTORICO_READ_FAILED" });
+  }
+});
+
 // CREAR con código FF-SS-000X
 app.post(
   "/api/products",
@@ -388,6 +446,23 @@ app.put("/api/products/:id", async (req, res) => {
   } = req.body;
 
   try {
+    // Leer actual para comparar precio
+    const actual = await prisma.producto.findUnique({
+      where: { idProducto: id },
+      select: {
+        idProducto: true,
+        nombreProducto: true,
+        codigoProducto: true,
+        precioVentaPublicoProducto: true,
+        ofertaProducto: true,
+      },
+    });
+    if (!actual) return res.status(404).json({ error: "NOT_FOUND" });
+
+    const precioCambio =
+      precio !== undefined &&
+      !new Prisma.Decimal(precio).equals(actual.precioVentaPublicoProducto);
+
     const row = await prisma.producto.update({
       where: { idProducto: id },
       data: {
@@ -448,14 +523,31 @@ app.put("/api/products/:id", async (req, res) => {
       }
     }
 
-    if (proveedorId) {
+    // Registrar histórico sólo si hubo cambio de precio
+    if (precioCambio) {
+      let provId: number | undefined = proveedorId ? Number(proveedorId) : undefined;
+      if (!provId) {
+        const last = await prisma.detalleCompra.findFirst({
+          where: { idProducto: id },
+          include: { Compra: { select: { idProveedor: true, fechaComprobanteCompra: true } } },
+          orderBy: { Compra: { fechaComprobanteCompra: "desc" } },
+        });
+        provId = last?.Compra?.idProveedor;
+      }
+
+      if (!provId) {
+        return res
+          .status(422)
+          .json({ error: "PROVEEDOR_REQUIRED", message: "Se requiere proveedorId o inferencia fallida" });
+      }
+
       await prisma.proveedorProducto.create({
         data: {
           idProducto: id,
-          idProveedor: Number(proveedorId),
+          idProveedor: provId,
           codigoArticuloProveedor: codigoArticuloProveedor ?? "",
           fechaIngreso: fechaIngreso ? new Date(fechaIngreso) : new Date(),
-          precioHistorico: precioHistorico ?? 0,
+          precioHistorico: new Prisma.Decimal(precio ?? actual.precioVentaPublicoProducto),
         },
       });
     }
@@ -483,14 +575,20 @@ app.delete("/api/products/:id", async (req, res) => {
   const id = Number(req.params.id);
 
   try {
-    await prisma.$transaction([
-      prisma.stock.deleteMany({ where: { idProducto: id } }),
-      prisma.proveedorProducto.deleteMany({ where: { idProducto: id } }),
-      prisma.detalleCompra.deleteMany({ where: { idProducto: id } }),
-      prisma.detalleVenta.deleteMany({ where: { idProducto: id } }),
-      prisma.producto.delete({ where: { idProducto: id } }),
-    ]);
+    const [compCount, ventaCount, histCount, stockRow] = await prisma.$transaction([
+      prisma.detalleCompra.count({ where: { idProducto: id } }),
+      prisma.detalleVenta.count({ where: { idProducto: id } }),
+      prisma.proveedorProducto.count({ where: { idProducto: id } }),
+      prisma.stock.findFirst({ where: { idProducto: id } }),
+    ] as any);
 
+    if (compCount > 0 || ventaCount > 0 || histCount > 0 || !!stockRow) {
+      return res
+        .status(409)
+        .json({ error: "PRODUCT_IN_USE", message: "Producto con movimientos, histórico o stock. No se puede borrar." });
+    }
+
+    await prisma.producto.delete({ where: { idProducto: id } });
     res.status(204).end();
   } catch (e: any) {
     if (e.code === "P2003") {

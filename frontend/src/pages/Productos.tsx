@@ -825,6 +825,12 @@ function ProductoPopup({
 function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [stockDet, setStockDet] = useState<any | null>(null);
+  const [loadingStock, setLoadingStock] = useState(true);
+  const [histRows, setHistRows] = useState<any[]>([]);
+  const [loadingHist, setLoadingHist] = useState(true);
+  const [histPage, setHistPage] = useState(1);
+  const [histLimit, setHistLimit] = useState(10);
 
   useEffect(() => {
     (async () => {
@@ -837,6 +843,32 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
     })();
   }, [id]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get(`/products/${id}/stock`);
+        setStockDet(data);
+      } catch (e) {
+        setStockDet(null);
+      } finally {
+        setLoadingStock(false);
+      }
+    })();
+  }, [id]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get(`/products/${id}/historico-precio?limit=${histLimit}&page=${histPage}`);
+        setHistRows(Array.isArray(data) ? data : []);
+      } catch (e) {
+        setHistRows([]);
+      } finally {
+        setLoadingHist(false);
+      }
+    })();
+  }, [id, histPage, histLimit]);
+
   const precioFmt = (n: any) =>
     typeof n === "number"
       ? new Intl.NumberFormat("es-AR", {
@@ -846,11 +878,13 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
         }).format(n)
       : "-";
 
+  // Reversión a versión anterior: sin cálculo dinámico de columna de código proveedor
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
       <div className="fixed inset-0 z-50 p-0 md:p-4">
-        <div className="mx-auto w-full max-w-2xl md:rounded-2xl border bg-white shadow-xl">
+        <div className="mx-auto h-dvh md:h-[90vh] w-full max-w-2xl md:rounded-2xl border bg-white shadow-xl flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b">
             <h3 className="text-base font-semibold">Detalle de Producto</h3>
             <button
@@ -862,7 +896,7 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
             </button>
           </div>
 
-          <div className="p-4 text-sm">
+          <div className="p-4 text-sm overflow-auto flex-1">
             {loading ? (
               <div className="text-gray-600">Cargando…</div>
             ) : (
@@ -956,6 +990,92 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
                         </p>
                       </div>
                     </div>
+                    <div className="grid grid-cols-2 gap-3 mt-3">
+                      <div>
+                        <p className="text-gray-500 text-xs">Real</p>
+                        <p className="font-medium">{loadingStock ? "..." : Number(stockDet?.real ?? 0)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs">Comprometido</p>
+                        <p className="font-medium">{loadingStock ? "..." : Number(stockDet?.comprometido ?? 0)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs">Bajo mínimo</p>
+                        <p className="font-medium">{loadingStock ? "..." : Number(stockDet?.minimo ?? 0)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs">Actualizado</p>
+                        <p className="font-medium">
+                          {loadingStock
+                            ? "..."
+                            : stockDet?.actualizadoEn
+                            ? String(stockDet.actualizadoEn).slice(0, 10)
+                            : "-"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Histórico de precio */}
+                <div className="rounded-xl border bg-white p-3 mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-gray-500">Histórico de precio</p>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-600">Pág.</label>
+                      <input
+                        className="w-12 border rounded px-2 py-1 text-xs"
+                        type="number"
+                        min={1}
+                        value={histPage}
+                        onChange={(e) => setHistPage(Number(e.target.value) || 1)}
+                      />
+                      <label className="text-xs text-gray-600">Limite</label>
+                      <input
+                        className="w-14 border rounded px-2 py-1 text-xs"
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={histLimit}
+                        onChange={(e) => setHistLimit(Number(e.target.value) || 10)}
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-xl border overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 text-gray-500">
+                        <tr>
+                          <th className="px-2 py-2 text-left">Fecha</th>
+                          <th className="px-2 py-2 text-left">Proveedor</th>
+                          <th className="px-2 py-2 text-right">Precio</th>
+                          <th className="px-2 py-2 text-left">Código prov.</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loadingHist ? (
+                          <tr>
+                            <td className="px-2 py-3 text-gray-600" colSpan={4}>Cargando…</td>
+                          </tr>
+                        ) : histRows.length === 0 ? (
+                          <tr>
+                            <td className="px-2 py-3 text-gray-600" colSpan={4}>Sin registros</td>
+                          </tr>
+                        ) : (
+                          histRows.map((h, idx) => (
+                            <tr key={idx} className={idx % 2 ? "bg-gray-50" : undefined}>
+                              <td className="px-2 py-2">{String(h.fechaIngreso ?? "-").slice(0, 10)}</td>
+                              <td className="px-2 py-2">{h.nombreProveedor ?? "-"}</td>
+                              <td className="px-2 py-2 text-right">
+                                {typeof h.precio === "number"
+                                  ? new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(h.precio)
+                                  : "-"}
+                              </td>
+                              <td className="px-2 py-2">{h.codigoArticuloProveedor ?? ""}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </>

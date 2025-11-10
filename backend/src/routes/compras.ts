@@ -11,5 +11,6 @@ r.post("/", requireAuth, authorize(["Administrador"]), ctl.create);
 r.put("/:id", requireAuth, authorize(["Administrador"]), ctl.update);
 r.delete("/:id", requireAuth, authorize(["Administrador"]), ctl.remove);
 r.post("/:id/confirmar", requireAuth, authorize(["Administrador"]), ctl.confirmar);
+r.post("/:id/aplicar-stock", requireAuth, authorize(["Administrador"]), ctl.aplicarStock);
 
 export default r;
