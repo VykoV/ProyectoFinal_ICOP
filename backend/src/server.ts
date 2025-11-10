@@ -135,6 +135,15 @@ app.get(
       codigoProducto: true,
       precioVentaPublicoProducto: true,
       ofertaProducto: true,
+      descripcionProducto: true,
+      idSubFamilia: true,
+      SubFamilia: {
+        select: {
+          idSubFamilia: true,
+          tipoSubFamilia: true,
+          Familia: { select: { idFamilia: true, tipoFamilia: true } },
+        },
+      },
       stocks: {
         select: {
           cantidadRealStock: true,
@@ -153,6 +162,11 @@ app.get(
       precio: Number(r.precioVentaPublicoProducto),
       stock: sumStock(r.stocks),
       oferta: r.ofertaProducto,
+      descripcion: r.descripcionProducto ?? null,
+      subFamiliaId: r.SubFamilia?.idSubFamilia ?? r.idSubFamilia ?? null,
+      nombreSubfamilia: r.SubFamilia?.tipoSubFamilia ?? null,
+      familiaId: r.SubFamilia?.Familia?.idFamilia ?? null,
+      nombreFamilia: r.SubFamilia?.Familia?.tipoFamilia ?? null,
     }))
   );
 });

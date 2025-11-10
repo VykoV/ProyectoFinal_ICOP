@@ -14,7 +14,7 @@ import { useAuth } from "../context/AuthContext";
 // tipos locales
 type Familia = { id: number; nombre: string };
 type Subfamilia = { id: number; nombre: string; familiaId: number };
-type Proveedor = { id: number; nombre: string };
+// Proveedor eliminado del formulario de alta/edición
 
 // helpers
 const pad2 = (n?: string | number) => String(n ?? "").padStart(2, "0");
@@ -22,19 +22,16 @@ const todayISO = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
   .toISOString()
   .slice(0, 10);
 
-// esquema del form
+// esquema del form (sin código interno, proveedor ni campo de stock)
 const schema = z.object({
-  codigoInterno: z.string().min(1, "Requerido"),
   codigoBarras: z.string().optional(),
   nombre: z.string().min(1, "Requerido"),
   descripcion: z.string().optional(),
   familia: z.string().min(1, "Requerido"),
   subfamilia: z.string().min(1, "Requerido"),
-  proveedor: z.string().min(1, "Requerido"),
   precioCosto: z.coerce.number().nonnegative(">= 0"),
   utilidad: z.coerce.number().nonnegative(">= 0"),
   precioVenta: z.coerce.number().nonnegative(">= 0"),
-  stock: z.coerce.number().int().nonnegative(">= 0"),
   bajoMinimoStock: z.coerce.number().int().nonnegative(">= 0"),
   ultimaModificacionStock: z
     .string()
@@ -54,13 +51,22 @@ export default function Productos() {
   const [rows, setRows] = useState<Producto[]>([]);
   const [familias, setFamilias] = useState<Familia[]>([]);
   const [subfamilias, setSubfamilias] = useState<Subfamilia[]>([]);
-  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+  // proveedores ya no se usan en el popup de producto
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [editItem, setEditItem] = useState<Producto | null>(null);
 
   const [openView, setOpenView] = useState(false);
   const [viewId, setViewId] = useState<number | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Filtros
+  const [q, setQ] = useState("");
+  const [fFamiliaId, setFFamiliaId] = useState<number | "">("");
+  const [fSubfamiliaId, setFSubfamiliaId] = useState<number | "">("");
+  const [fOferta, setFOferta] = useState<"todos" | "oferta" | "normal">("todos");
+  const [sortKey, setSortKey] = useState<"nombre" | "precio" | "estado">("nombre");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   async function loadProducts() {
     setLoading(true);
@@ -73,10 +79,9 @@ export default function Productos() {
   }
 
   async function loadTaxonomies() {
-    const [f, s, p] = await Promise.all([
+    const [f, s] = await Promise.all([
       api.get("/familias"),
       api.get("/subfamilias"),
-      api.get("/proveedores/select"),
     ]);
 
     const fams = (f.data as any[])
@@ -98,16 +103,8 @@ export default function Productos() {
         (x) => Number.isFinite(x.id) && Number.isFinite(x.familiaId) && x.nombre
       );
 
-    const provs = (p.data as any[])
-      .map((x) => ({
-        id: Number(x.id ?? x.idProveedor),
-        nombre: String(x.nombre ?? x.razonSocial ?? x.nombreProveedor ?? ""),
-      }))
-      .filter((x) => Number.isFinite(x.id) && x.nombre);
-
     setFamilias(fams);
     setSubfamilias(subs);
-    setProveedores(provs);
   }
 
   useEffect(() => {
@@ -219,19 +216,71 @@ export default function Productos() {
     },
   ];
 
+  const filteredRows = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    const famId = typeof fFamiliaId === "number" ? fFamiliaId : null;
+    const subId = typeof fSubfamiliaId === "number" ? fSubfamiliaId : null;
+
+    let out = rows.filter((r: any) => {
+      const matchQuery = query
+        ? (
+            String(r.nombre ?? "").toLowerCase().includes(query) ||
+            String(r.sku ?? "").toLowerCase().includes(query) ||
+            String(r.descripcion ?? "").toLowerCase().includes(query)
+          )
+        : true;
+      const matchOferta = fOferta === "todos"
+        ? true
+        : fOferta === "oferta" ? !!r.oferta : !r.oferta;
+      const matchFam = famId != null ? Number(r.familiaId ?? -1) === famId : true;
+      const matchSub = subId != null ? Number(r.subFamiliaId ?? -1) === subId : true;
+      return matchQuery && matchOferta && matchFam && matchSub;
+    });
+
+    out = out.sort((a: any, b: any) => {
+      const dir = sortDir === "asc" ? 1 : -1;
+      if (sortKey === "precio") {
+        const pa = Number(a.precio ?? 0);
+        const pb = Number(b.precio ?? 0);
+        return pa === pb ? 0 : (pa < pb ? -1 : 1) * dir;
+      }
+      if (sortKey === "estado") {
+        const ea = a.oferta ? "En oferta" : "Normal";
+        const eb = b.oferta ? "En oferta" : "Normal";
+        return ea.localeCompare(eb) * dir;
+      }
+      const na = String(a.nombre ?? "");
+      const nb = String(b.nombre ?? "");
+      return na.localeCompare(nb) * dir;
+    });
+    return out;
+  }, [rows, q, fFamiliaId, fSubfamiliaId, fOferta, sortKey, sortDir]);
+
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Productos</h1>
-        <div className="flex items-center gap-2">
-          <div className="relative w-64">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Buscador global (nombre, código, descripción) */}
+          <div className="relative w-64 sm:w-72 md:w-80 lg:w-96 xl:w-[32rem] flex-1 min-w-[14rem]">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
             <input
               className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
-              placeholder="Buscar"
-              onChange={() => {}}
+              placeholder="Buscar por nombre, código o descripción…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e as React.KeyboardEvent<HTMLInputElement>).key === "Escape") setQ("");
+              }}
             />
           </div>
+          <button
+            className="inline-flex items-center gap-2 rounded-lg border px-3 py-2"
+            onClick={() => setShowFilters(true)}
+          >
+            <Search className="h-4 w-4" />
+            <span>Filtros</span>
+          </button>
           {!(isVendedor || isCajero) && (
             <button
               onClick={onNew}
@@ -247,7 +296,102 @@ export default function Productos() {
       {loading ? (
         <div className="rounded-xl border bg-white p-6 text-sm">Cargando…</div>
       ) : (
-        <DataTable columns={columns} data={rows} />
+        <DataTable columns={columns} data={filteredRows} />
+      )}
+
+      {showFilters && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Filtros de productos</h3>
+              <button className="inline-flex items-center gap-1 px-2 py-1 text-sm" onClick={() => setShowFilters(false)}>
+                <X className="h-4 w-4" /> Cerrar
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Familia</Label>
+                <Select
+                  value={typeof fFamiliaId === "number" ? String(fFamiliaId) : ""}
+                  onChange={(e) => {
+                    const v = e.target.value ? Number(e.target.value) : "";
+                    setFFamiliaId(v);
+                    setFSubfamiliaId("");
+                  }}
+                >
+                  <option value="">Todas</option>
+                  {familias.map((f) => (
+                    <option key={f.id} value={String(f.id)}>
+                      {f.nombre}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label>Subfamilia</Label>
+                <Select
+                  value={typeof fSubfamiliaId === "number" ? String(fSubfamiliaId) : ""}
+                  onChange={(e) => setFSubfamiliaId(e.target.value ? Number(e.target.value) : "")}
+                >
+                  <option value="">Todas</option>
+                  {subfamilias
+                    .filter((s) => (typeof fFamiliaId === "number" ? s.familiaId === fFamiliaId : true))
+                    .map((s) => (
+                      <option key={s.id} value={String(s.id)}>
+                        {s.nombre}
+                      </option>
+                    ))}
+                </Select>
+              </div>
+              <div>
+                <Label>Oferta</Label>
+                <Select value={fOferta} onChange={(e) => setFOferta(e.target.value as any)}>
+                  <option value="todos">Todos</option>
+                  <option value="oferta">En oferta</option>
+                  <option value="normal">Normal</option>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label>Ordenar por</Label>
+                  <Select value={sortKey} onChange={(e) => setSortKey(e.target.value as any)}>
+                    <option value="nombre">Nombre</option>
+                    <option value="precio">Precio</option>
+                    <option value="estado">Estado</option>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Dirección</Label>
+                  <Select value={sortDir} onChange={(e) => setSortDir(e.target.value as any)}>
+                    <option value="asc">Ascendente</option>
+                    <option value="desc">Descendente</option>
+                  </Select>
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-between">
+              <button
+                className="inline-flex items-center gap-2 rounded-lg border px-3 py-2"
+                onClick={() => {
+                  setQ("");
+                  setFFamiliaId("");
+                  setFSubfamiliaId("");
+                  setFOferta("todos");
+                  setSortKey("nombre");
+                  setSortDir("asc");
+                }}
+              >
+                Limpiar
+              </button>
+              <button
+                className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
+                onClick={() => setShowFilters(false)}
+              >
+                Aplicar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {open && (
@@ -255,7 +399,6 @@ export default function Productos() {
           initial={editItem}
           familias={familias}
           subfamilias={subfamilias}
-          proveedores={proveedores}
           onClose={async (reload?: boolean) => {
             setOpen(false);
             if (reload) await loadProducts();
@@ -281,13 +424,11 @@ function ProductoPopup({
   onClose,
   familias,
   subfamilias,
-  proveedores,
   initial,
 }: {
   onClose: (reload?: boolean) => void;
   familias: Familia[];
   subfamilias: Subfamilia[];
-  proveedores: Proveedor[];
   initial?: Producto | null;
 }) {
   const {
@@ -300,17 +441,14 @@ function ProductoPopup({
   } = useForm<FormData>({
     resolver: zodResolver(schema) as Resolver<FormData>,
     defaultValues: {
-      codigoInterno: "",
       codigoBarras: "",
       nombre: "",
       descripcion: "",
       familia: "",
       subfamilia: "",
-      proveedor: "",
       precioCosto: 0,
       utilidad: 0,
       precioVenta: 0,
-      stock: 0,
       bajoMinimoStock: 0,
       ultimaModificacionStock: todayISO,
       oferta: false,
@@ -333,19 +471,16 @@ function ProductoPopup({
       const fechaClamp = rawDate > todayISO ? todayISO : rawDate;
 
       reset({
-        codigoInterno: data?.sku ?? data?.codigoProducto ?? "",
         codigoBarras: data?.codigoBarras ?? data?.codigoBarrasProducto ?? "",
         nombre: data?.nombre ?? data?.nombreProducto ?? "",
         descripcion: data?.descripcion ?? data?.descripcionProducto ?? "",
         familia: famId ? String(famId) : "",
         subfamilia: sfId ? String(sfId) : "",
-        proveedor: data?.proveedorId ? String(data.proveedorId) : "",
         precioCosto: Number(data?.precioCosto ?? 0),
         utilidad: Number(data?.utilidad ?? data?.utilidadProducto ?? 0),
         precioVenta: Number(
           data?.precio ?? data?.precioVentaPublicoProducto ?? 0
         ),
-        stock: Number(data?.stock ?? 0),
         bajoMinimoStock: Number(data?.bajoMinimoStock ?? 0),
         ultimaModificacionStock: fechaClamp,
         oferta: !!data?.oferta,
@@ -414,25 +549,7 @@ function ProductoPopup({
     if (!ok) setValue("subfamilia", "");
   }, [familiaSelected, subfamiliaSelected, subfamilias, setValue]);
 
-  useEffect(() => {
-    if (isEdit) return;
-    if (!familiaSelected || !subfamiliaSelected) {
-      setValue("codigoInterno", "");
-      return;
-    }
-    const famFromSub = subfamilias.find(
-      (sf) => String(sf.id) === String(subfamiliaSelected)
-    )?.familiaId;
-    if (!famFromSub) {
-      setValue("codigoInterno", "");
-      return;
-    }
-    const preview = `${pad2(famFromSub)}-${pad2(subfamiliaSelected)}-????`;
-    setValue("codigoInterno", preview, {
-      shouldValidate: true,
-      shouldDirty: true,
-    });
-  }, [familiaSelected, subfamiliaSelected, isEdit, setValue, subfamilias]);
+  // código interno eliminado: se autogenera en backend, no se muestra ni valida
 
   const subfamiliasFiltradas = useMemo(() => {
     if (!familiaSelected) return [] as Subfamilia[];
@@ -467,28 +584,19 @@ function ProductoPopup({
   }, [subfamilias, familiaSelected, familiaNameSelected]);
 
   const onSubmit: SubmitHandler<FormData> = async (v) => {
-    if (isEdit) {
-    const rx = /^\d{2}-\d{2}-\d{4}$/;
-    if (!rx.test(v.codigoInterno)) {
-      alert("Formato de código inválido. Debe ser FF-SS-0001.");
-      return;
-    }
-  }
-    const payload = {
+    const base = {
       nombre: v.nombre,
-      sku: v.codigoInterno,
       precio: v.precioVenta,
       precioCosto: v.precioCosto,
       utilidad: v.utilidad,
       descripcion: v.descripcion || null,
       codigoBarras: v.codigoBarras?.trim() || null,
       oferta: !!v.oferta,
-      stock: v.stock,
       bajoMinimoStock: v.bajoMinimoStock,
       ultimaModificacionStock: v.ultimaModificacionStock,
       subFamiliaId: Number(v.subfamilia),
-      proveedorId: Number(v.proveedor),
-    };
+    } as any;
+    const payload = isEdit ? base : { ...base, stock: 0 };
 
     try {
       if (initial?.id) {
@@ -578,64 +686,26 @@ function ProductoPopup({
                 </div>
               </div>
 
-              {/* 2) Código Interno / Barras */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="codigoInterno">Código Interno</Label>
-                  <Input
-                    id="codigoInterno"
-                    placeholder="FF-SS-????"
-                    readOnly
-                    // muestra el valor controlado por RHF
-                    value={watch("codigoInterno") || ""}
-                    // evita cualquier intento de edición manual
-                    onKeyDown={(e) => e.preventDefault()}
-                    onPaste={(e) => e.preventDefault()}
-                    onDrop={(e) => e.preventDefault()}
-                    className="bg-gray-50 cursor-not-allowed select-none"
-                    // sigue registrándose para validación pero no acepta cambios del usuario
-                    {...register("codigoInterno")}
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Autogenerado por familia y subfamilia. En alta se
-                    previsualiza como FF-SS-????.
-                  </p>
-                  <FieldError message={errors.codigoInterno?.message} />
-                </div>
-                <div>
-                  <Label htmlFor="codigoBarras">Código de Barras</Label>
-                  <Input
-                    id="codigoBarras"
-                    placeholder="7791234567890"
-                    {...register("codigoBarras")}
-                  />
-                  <FieldError message={errors.codigoBarras?.message} />
-                </div>
+              {/* 2) Código de Barras */}
+              <div>
+                <Label htmlFor="codigoBarras">Código de Barras</Label>
+                <Input
+                  id="codigoBarras"
+                  placeholder="7791234567890"
+                  {...register("codigoBarras")}
+                />
+                <FieldError message={errors.codigoBarras?.message} />
               </div>
 
-              {/* 3) Nombre / Proveedor */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="nombre">Nombre</Label>
-                  <Input
-                    id="nombre"
-                    placeholder="Ovillo Merino 100 g"
-                    {...register("nombre")}
-                  />
-                  <FieldError message={errors.nombre?.message} />
-                </div>
-                <div>
-                  <Label htmlFor="proveedor">Proveedor</Label>
-                  <Select id="proveedor" {...register("proveedor")}>
-                    <option value="">Seleccionar proveedor</option>
-                    {proveedores.map((p) => (
-                      <option key={p.id} value={String(p.id)}>
-                        {p.nombre}
-                      </option>
-                    ))}
-                  </Select>
-                  <FieldError message={errors.proveedor?.message} />
-                </div>
+              {/* 3) Nombre */}
+              <div>
+                <Label htmlFor="nombre">Nombre</Label>
+                <Input
+                  id="nombre"
+                  placeholder="Ovillo Merino 100 g"
+                  {...register("nombre")}
+                />
+                <FieldError message={errors.nombre?.message} />
               </div>
 
               {/* 4) Descripción */}
@@ -696,18 +766,8 @@ function ProductoPopup({
                 </div>
               </div>
 
-              {/* 6) Stock */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <Label htmlFor="stock">Stock</Label>
-                  <Input
-                    id="stock"
-                    type="number"
-                    inputMode="numeric"
-                    {...register("stock", { valueAsNumber: true })}
-                  />
-                  <FieldError message={errors.stock?.message} />
-                </div>
+              {/* 6) Umbral y última modificación (sin campo de stock) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="bajoMinimoStock">Bajo mínimo</Label>
                   <Input
@@ -719,18 +779,14 @@ function ProductoPopup({
                   <FieldError message={errors.bajoMinimoStock?.message} />
                 </div>
                 <div>
-                  <Label htmlFor="ultimaModificacionStock">
-                    Última modificación
-                  </Label>
+                  <Label htmlFor="ultimaModificacionStock">Última modificación</Label>
                   <Input
                     id="ultimaModificacionStock"
                     type="date"
                     max={todayISO}
                     {...register("ultimaModificacionStock")}
                   />
-                  <FieldError
-                    message={errors.ultimaModificacionStock?.message}
-                  />
+                  <FieldError message={errors.ultimaModificacionStock?.message} />
                 </div>
               </div>
             </form>
@@ -811,55 +867,18 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
               <div className="text-gray-600">Cargando…</div>
             ) : (
               <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-gray-500">ID Producto</p>
-                    <p className="font-medium">
-                      {data?.id ?? data?.idProducto ?? "-"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Código (SKU)</p>
-                    <p className="font-medium">
-                      {data?.sku ?? data?.codigoProducto ?? "-"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Código de barras</p>
-                    <p className="font-medium">
-                      {data?.codigoBarras ?? data?.codigoBarrasProducto ?? "-"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Nombre</p>
-                    <p className="font-medium">
-                      {data?.nombre ?? data?.nombreProducto ?? "-"}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-gray-500">Familia</p>
-                    <p className="font-medium">
-                      {data?.familia?.nombre ?? data?.nombreFamilia ?? "-"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Subfamilia</p>
-                    <p className="font-medium">
-                      {data?.subfamilia?.nombre ??
-                        data?.nombreSubfamilia ??
-                        "-"}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-gray-500">Proveedor</p>
-                    <p className="font-medium">
-                      {data?.proveedor?.nombre ?? data?.nombreProveedor ?? "-"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Estado</p>
+                {/* Resumen */}
+                <div className="space-y-2 mb-4">
+                  <p className="text-lg font-semibold text-gray-900">
+                    {data?.nombre ?? data?.nombreProducto ?? "-"}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
+                      SKU: {data?.sku ?? data?.codigoProducto ?? "-"}
+                    </span>
+                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
+                      Código barras: {data?.codigoBarras ?? data?.codigoBarrasProducto ?? "-"}
+                    </span>
                     <span
                       className={
                         "inline-flex items-center rounded-full px-2 py-0.5 text-xs " +
@@ -871,50 +890,72 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
                       {data?.oferta ? "En oferta" : "Normal"}
                     </span>
                   </div>
+                </div>
 
-                  <div className="col-span-2">
+                {/* Precio principal */}
+                <div className="rounded-xl border bg-white p-3 mb-4">
+                  <p className="text-gray-500">Precio venta público</p>
+                  <p className="text-2xl font-semibold">
+                    {precioFmt(data?.precio ?? data?.precioVentaPublicoProducto)}
+                  </p>
+                </div>
+
+                {/* Información agrupada y con mismo estilo de tarjetas */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Descripción */}
+                  <div className="rounded-xl border bg-white p-3">
                     <p className="text-gray-500">Descripción</p>
                     <p className="font-normal">
                       {data?.descripcion ?? data?.descripcionProducto ?? "-"}
                     </p>
                   </div>
 
-                  <div>
-                    <p className="text-gray-500">Precio costo</p>
+                  {/* Proveedor */}
+                  <div className="rounded-xl border bg-white p-3">
+                    <p className="text-gray-500">Proveedor</p>
                     <p className="font-medium">
-                      {precioFmt(data?.precioCosto)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Precio venta público</p>
-                    <p className="font-medium">
-                      {precioFmt(
-                        data?.precio ?? data?.precioVentaPublicoProducto
-                      )}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Utilidad (%)</p>
-                    <p className="font-medium">
-                      {data?.utilidad ?? data?.utilidadProducto ?? 0}
+                      {data?.proveedor?.nombre ?? data?.nombreProveedor ?? "-"}
                     </p>
                   </div>
 
-                  <div>
+                  {/* Familia + Subfamilia */}
+                  <div className="rounded-xl border bg-white p-3">
+                    <p className="text-gray-500">Categoría</p>
+                    <div className="grid grid-cols-2 gap-3 mt-2">
+                      <div>
+                        <p className="text-gray-500 text-xs">Familia</p>
+                        <p className="font-medium">
+                          {data?.familia?.nombre ?? data?.nombreFamilia ?? "-"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs">Subfamilia</p>
+                        <p className="font-medium">
+                          {data?.subfamilia?.nombre ?? data?.nombreSubfamilia ?? "-"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Stock + Última modificación */}
+                  <div className="rounded-xl border bg-white p-3">
                     <p className="text-gray-500">Stock</p>
-                    <p className="font-medium">{data?.stock ?? 0}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Bajo mínimo</p>
-                    <p className="font-medium">{data?.bajoMinimoStock ?? 0}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <p className="text-gray-500">Última mod. stock</p>
-                    <p className="font-medium">
-                      {data?.ultimaModificacionStock
-                        ? String(data.ultimaModificacionStock).slice(0, 10)
-                        : "-"}
-                    </p>
+                    <div className="grid grid-cols-2 gap-3 mt-2">
+                      <div>
+                        <p className="text-gray-500 text-xs">Actual</p>
+                        <p className={"font-medium " + ((data?.stock ?? 0) <= (data?.bajoMinimoStock ?? -1) && (data?.bajoMinimoStock ?? -1) >= 0 ? "text-red-600" : "") }>
+                          {data?.stock ?? 0}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs">Última mod.</p>
+                        <p className="font-medium">
+                          {data?.ultimaModificacionStock
+                            ? String(data.ultimaModificacionStock).slice(0, 10)
+                            : "-"}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </>
