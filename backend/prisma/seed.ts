@@ -887,111 +887,61 @@ async function seed() {
   })
 
   // 17. productos
-  await prisma.producto.createMany({
-    data: [
-      {
-        codigoProducto: 'ART-001',
-        nombreProducto: 'AGUJA CROCHET LOTUS',
-        descripcionProducto: 'Aguja crochet marca Lotus de alta calidad',
-        ofertaProducto: false,
-        precioProducto: D(108309.00),
-        precioVentaPublicoProducto: D(216618.00),
-        utilidadProducto: D(100.00),
-        idSubFamilia: 1, // AGUJA
-      },
-      {
-        codigoProducto: 'ART-002',
-        nombreProducto: 'LHO – AMALFI OVILLO',
-        descripcionProducto: 'Hilado acrílico Amalfi en ovillo',
-        ofertaProducto: false,
-        precioProducto: D(1000.00),
-        precioVentaPublicoProducto: D(32000.00),
-        utilidadProducto: D(3100.00),
-        idSubFamilia: 3, // ACRILICO
-      },
-      {
-        codigoProducto: 'ART-003',
-        nombreProducto: 'CONO HILO ALGODON CRUDO X 1 KG Nº 27 HEBRAS',
-        descripcionProducto: 'Cono de hilo de algodón crudo 1kg para tejido',
-        ofertaProducto: false,
-        precioProducto: D(8887.00),
-        precioVentaPublicoProducto: D(17774.00),
-        utilidadProducto: D(100.00),
-        idSubFamilia: 4, // ALGODON
-      },
-      {
-        codigoProducto: 'ART-004',
-        nombreProducto: 'TELAR SUREÑO 110 CON 1 PEINE',
-        descripcionProducto: 'Telar sureño profesional de 110cm con peine incluido',
-        ofertaProducto: false,
-        precioProducto: D(130000.00),
-        precioVentaPublicoProducto: D(260000.00),
-        utilidadProducto: D(100.00),
-        idSubFamilia: 6, // TELAR
-      },
-      {
-        codigoProducto: 'ART-005',
-        nombreProducto: 'FANTASIA TWITY RAMIREZ',
-        descripcionProducto: 'Hilado de fantasía multicolor Twity Ramirez',
-        ofertaProducto: false,
-        precioProducto: D(29000.00),
-        precioVentaPublicoProducto: D(58000.00),
-        utilidadProducto: D(100.00),
-        idSubFamilia: 5, // FANTASIA
-      },
-      {
-        codigoProducto: 'ART-006',
-        nombreProducto: 'CENTIMETRO CBX AUTOMATICO *150CM',
-        descripcionProducto: 'Centímetro automático de 150cm para costura',
-        ofertaProducto: false,
-        precioProducto: D(2500.00),
-        precioVentaPublicoProducto: D(5000.00),
-        utilidadProducto: D(100.00),
-        idSubFamilia: 2, // VARIOS
-      },
-      {
-        codigoProducto: 'ART-007',
-        nombreProducto: 'LHO-ALGODON 8/3 y 7/8  OSCURO',
-        descripcionProducto: 'Hilado de algodón oscuro para tejido',
-        ofertaProducto: false,
-        precioProducto: D(19968.00),
-        precioVentaPublicoProducto: D(32500.00),
-        utilidadProducto: D(62.80),
-        idSubFamilia: 4, // ALGODON
-      },
-      {
-        codigoProducto: 'ART-008',
-        nombreProducto: 'AGUJA TRICOT  5',
-        descripcionProducto: 'Aguja tricot número 5 para tejer',
-        ofertaProducto: false,
-        precioProducto: D(12.00),
-        precioVentaPublicoProducto: D(2400.00),
-        utilidadProducto: D(19900.00),
-        idSubFamilia: 1, // AGUJA
-      },
-      {
-        codigoProducto: 'ART-009',
-        nombreProducto: 'MIA - LANA 100% PURA-AMANDA 5484/5542',
-        descripcionProducto: 'Lana 100% pura de primera calidad',
-        ofertaProducto: false,
-        precioProducto: D(16006.00),
-        precioVentaPublicoProducto: D(32000.00),
-        utilidadProducto: D(99.88),
-        idSubFamilia: 3, // ACRILICO
-      },
-      {
-        codigoProducto: 'ART-010',
-        nombreProducto: 'BASTIDOR BORDADO F/FACIL 30 CHINO',
-        descripcionProducto: 'Bastidor para bordado chino de 30cm',
-        ofertaProducto: false,
-        precioProducto: D(15000.00),
-        precioVentaPublicoProducto: D(30000.00),
-        utilidadProducto: D(100.00),
-        idSubFamilia: 2, // VARIOS
-      }
-    ],
-    skipDuplicates: true,
-  })
+await prisma.producto.createMany({
+  data: [
+    {
+      codigoProducto: "02-08-0002",
+      nombreProducto: "MER – ABRE COSTURA",
+      descripcionProducto: "MER – ABRE COSTURA",
+      ofertaProducto: false,
+      precioProducto: D(1.0),
+      precioVentaPublicoProducto: D(700.0),
+      utilidadProducto: D(69900.0),
+      idSubFamilia: (8),
+    },
+    {
+      codigoProducto: "02-08-0003",
+      nombreProducto: "MER – ABROJO ROLLO 10 MT 20 mm",
+      descripcionProducto: "MER – ABROJO ROLLO 10 MT 20 mm",
+      ofertaProducto: false,
+      precioProducto: D(1.0),
+      precioVentaPublicoProducto: D(1000.0),
+      utilidadProducto: D(99900.0),
+      idSubFamilia: (8),
+    },
+    {
+      codigoProducto: "01-03-0004",
+      nombreProducto: "LHO – AFRODITA",
+      descripcionProducto: "LHO – AFRODITA",
+      ofertaProducto: false,
+      precioProducto: D(1.0),
+      precioVentaPublicoProducto: D(22000.0),
+      utilidadProducto: D(2199900.0),
+      idSubFamilia: (3),
+    },
+    {
+      codigoProducto: "02-06-0005",
+      nombreProducto: "AGUJA BOLSERA/COLCHONERA",
+      descripcionProducto: "AGUJA BOLSERA/COLCHONERA",
+      ofertaProducto: false,
+      precioProducto: D(1.0),
+      precioVentaPublicoProducto: D(350.0),
+      utilidadProducto: D(34900.0),
+      idSubFamilia: (6),
+    },
+    {
+      codigoProducto: "02-06-0006",
+      nombreProducto: "AGUJA BORDADO ALMENDRA MAGICA",
+      descripcionProducto: "AGUJA BORDADO ALMENDRA MAGICA",
+      ofertaProducto: false,
+      precioProducto: D(1.0),
+      precioVentaPublicoProducto: D(1136.0),
+      utilidadProducto: D(113500.0),
+      idSubFamilia: (6),
+    },
+  ],
+  skipDuplicates: true,
+})
 
   // 18. stock según nuevo schema
   await prisma.stock.createMany({
