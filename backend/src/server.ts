@@ -6,6 +6,7 @@ import bcrypt from "bcrypt";
 import { PrismaClient, Prisma, PapelEnVenta } from "@prisma/client";
 import authRoutes from "./auth";
 import proveedores from "./routes/proveedores";
+import compras from "./routes/compras";
 import { requireAuth } from "./middleware/requireAuth";
 import { authorize } from "./middleware/authorize";
 
@@ -71,6 +72,7 @@ app.use("/api/auth", authRoutes);
 // 4b) RUTAS DE PROVEEDORES (CRUD + productos por proveedor)
 // ==========================
 app.use("/api/proveedores", proveedores);
+app.use("/api/compras", compras);
 
 // ==========================
 // 5) LOG SIMPLE
@@ -1603,6 +1605,14 @@ app.get("/api/tipos-pago", async (_req, res) => {
     orderBy: { tipoPago: "asc" },
   });
   res.json(rows.map(r => ({ idTipoPago: r.idTipoPago, tipoPago: r.tipoPago })));
+});
+// lista métodos de pago (para Compras)
+app.get("/api/metodos-pago", async (_req, res) => {
+  const rows = await prisma.metodoPago.findMany({
+    select: { idMetodoPago: true, metodoPago: true },
+    orderBy: { metodoPago: "asc" },
+  });
+  res.json(rows.map(r => ({ idMetodoPago: r.idMetodoPago, metodoPago: r.metodoPago })));
 });
 // lista monedas
 app.get("/api/monedas", async (_req, res) => {
