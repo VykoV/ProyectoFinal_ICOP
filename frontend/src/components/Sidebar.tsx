@@ -36,6 +36,7 @@ export default function Sidebar() {
       "/compras",
       "/ventas",
       "/dashboard",
+      "/estadisticas",
     ].forEach((r) => blocked.add(r));
   }
   if (hasRole("Cajero")) {
@@ -44,6 +45,7 @@ export default function Sidebar() {
       "/proveedores",
       "/compras",
       "/pre-ventas",
+      "/estadisticas",
     ].forEach((r) => blocked.add(r));
   }
 

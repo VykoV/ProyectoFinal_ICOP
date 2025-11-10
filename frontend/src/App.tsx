@@ -44,7 +44,11 @@ export default function App() {
                     <Route path="/ventas" element={<Ventas />} />
                     <Route path="/pre-ventas" element={<PreVentas />} />
                     <Route path="/usuarios" element={<Usuarios />} />
-                    <Route path="/estadisticas" element={<Estadisticas />} />
+
+                    {/* estadísticas solo administrador */}
+                    <Route element={<AdminRoute />}>
+                      <Route path="/estadisticas" element={<Estadisticas />} />
+                    </Route>
 
                     {/* rutas solo administrador */}
                     <Route element={<AdminRoute />}>

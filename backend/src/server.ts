@@ -1763,7 +1763,11 @@ function parseRange(q: any) {
 }
 
 // Productos vendidos en rango (orden asc/desc por cantidad)
-app.get("/api/stats/products", async (req, res) => {
+app.get(
+  "/api/stats/products",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
   const { desde, hasta } = parseRange(req.query);
   const limit = Math.max(1, Math.min(50, Number(req.query.limit ?? 10)));
   const order = String(req.query.order ?? "desc").toLowerCase() === "asc" ? "asc" : "desc";
@@ -1827,7 +1831,11 @@ app.get("/api/stats/products", async (req, res) => {
 });
 
 // Clientes con más ventas en rango
-app.get("/api/stats/customers", async (req, res) => {
+app.get(
+  "/api/stats/customers",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
   const { desde, hasta } = parseRange(req.query);
   const limit = Math.max(1, Math.min(50, Number(req.query.limit ?? 10)));
   const metric = String(req.query.metric ?? "compras"); // compras | productos | monto
@@ -1890,7 +1898,11 @@ app.get("/api/stats/customers", async (req, res) => {
 });
 
 // Ventas vs Compras por mes (montos), con filtro de cantidad de meses
-app.get("/api/stats/sales-vs-purchases", async (req, res) => {
+app.get(
+  "/api/stats/sales-vs-purchases",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
   const { desde, hasta } = parseRange(req.query);
   const monthsCount = Math.max(1, Math.min(24, Number(req.query.months ?? 12)));
 
@@ -1955,7 +1967,11 @@ app.get("/api/stats/sales-vs-purchases", async (req, res) => {
 });
 
 // Análisis de proveedores: total comprado por proveedor en el período
-app.get("/api/stats/proveedores", async (req, res) => {
+app.get(
+  "/api/stats/proveedores",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
   const { desde, hasta } = parseRange(req.query);
   const limit = Math.max(1, Math.min(50, Number(req.query.limit ?? 10)));
   const where: any = {};
@@ -1984,7 +2000,11 @@ app.get("/api/stats/proveedores", async (req, res) => {
 });
 
 // Ventas por mes (monto total) y el mes con mayor monto
-app.get("/api/stats/months", async (req, res) => {
+app.get(
+  "/api/stats/months",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
   const { desde, hasta } = parseRange(req.query);
   const whereVenta: any = {};
   if (desde || hasta) {
@@ -2005,9 +2025,9 @@ app.get("/api/stats/months", async (req, res) => {
     const f = v.fechaVenta ? new Date(v.fechaVenta) : null;
     if (!f) continue;
     const key = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, "0")}`;
-    const total = await calcularTotal(Number(v.idVenta));
-    buckets.set(key, (buckets.get(key) ?? 0) + Number(total));
-  }
+  const total = await calcularTotal(Number(v.idVenta));
+  buckets.set(key, (buckets.get(key) ?? 0) + Number(total));
+}
   const series = [...buckets.entries()].map(([month, monto]) => ({ month, monto }));
   const best = series.reduce<{ month: string | null; monto: number }>(
     (acc, cur) => (cur.monto > (acc.monto ?? 0) ? cur : acc),
