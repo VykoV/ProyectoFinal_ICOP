@@ -1749,6 +1749,274 @@ app.get("/api/_meta/product-columns", async (_req, res) => {
   res.json(cols.map(c => c.column_name));
 });
 
+/* ========================
+   STATS (Productos, Clientes, Meses)
+   ======================== */
+
+// Utilidad: normaliza rango fechas
+function parseRange(q: any) {
+  const desdeStr = q.desde ? String(q.desde) : undefined;
+  const hastaStr = q.hasta ? String(q.hasta) : undefined;
+  const desde = desdeStr ? new Date(desdeStr) : undefined;
+  const hasta = hastaStr ? new Date(hastaStr) : undefined;
+  return { desde, hasta };
+}
+
+// Productos vendidos en rango (orden asc/desc por cantidad)
+app.get("/api/stats/products", async (req, res) => {
+  const { desde, hasta } = parseRange(req.query);
+  const limit = Math.max(1, Math.min(50, Number(req.query.limit ?? 10)));
+  const order = String(req.query.order ?? "desc").toLowerCase() === "asc" ? "asc" : "desc";
+  const familiaId = req.query.familiaId ? Number(req.query.familiaId) : undefined;
+
+  // Leer ventas en rango con detalles y producto
+  const whereVenta: any = {};
+  if (desde || hasta) {
+    whereVenta.fechaVenta = {
+      ...(desde && { gte: desde }),
+      ...(hasta && { lte: hasta }),
+    };
+  }
+
+  const ventas = await prisma.venta.findMany({
+    where: whereVenta,
+    select: {
+      idVenta: true,
+      detalles: {
+        select: {
+          idProducto: true,
+          cantidad: true,
+          Producto: {
+            select: {
+              nombreProducto: true,
+              SubFamilia: {
+                select: {
+                  Familia: { select: { idFamilia: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const agg = new Map<number, { idProducto: number; nombre: string; cantidad: number }>();
+  for (const v of ventas) {
+    for (const d of v.detalles) {
+      // filtrar por familia si se especifica
+      if (familiaId) {
+        const famId = d.Producto?.SubFamilia?.Familia?.idFamilia
+          ? Number(d.Producto.SubFamilia.Familia.idFamilia)
+          : undefined;
+        if (!famId || famId !== familiaId) continue;
+      }
+      const idP = Number(d.idProducto);
+      const nombre = d.Producto?.nombreProducto ?? String(d.idProducto);
+      const cant = Number(d.cantidad ?? 0);
+      const prev = agg.get(idP) ?? { idProducto: idP, nombre, cantidad: 0 };
+      prev.cantidad += cant;
+      agg.set(idP, prev);
+    }
+  }
+  const rows = [...agg.values()]
+    .sort((a, b) => (order === "asc" ? a.cantidad - b.cantidad : b.cantidad - a.cantidad))
+    .slice(0, limit);
+
+  res.json(rows);
+});
+
+// Clientes con más ventas en rango
+app.get("/api/stats/customers", async (req, res) => {
+  const { desde, hasta } = parseRange(req.query);
+  const limit = Math.max(1, Math.min(50, Number(req.query.limit ?? 10)));
+  const metric = String(req.query.metric ?? "compras"); // compras | productos | monto
+  const search = String(req.query.search ?? "").trim().toLowerCase();
+
+  const whereVenta: any = {};
+  if (desde || hasta) {
+    whereVenta.fechaVenta = {
+      ...(desde && { gte: desde }),
+      ...(hasta && { lte: hasta }),
+    };
+  }
+
+  const ventas = await prisma.venta.findMany({
+    where: whereVenta,
+    select: {
+      idVenta: true,
+      idCliente: true,
+      Cliente: { select: { idCliente: true, nombreCliente: true, apellidoCliente: true } },
+    },
+  });
+
+  const agg = new Map<
+    number,
+    { idCliente: number; nombre: string; compras: number; productos: number; monto: number }
+  >();
+
+  for (const v of ventas) {
+    const idC = Number(v.idCliente ?? v.Cliente?.idCliente);
+    if (!idC) continue;
+    const nombre = v.Cliente
+      ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
+      : String(idC);
+
+    // cantidad de productos en esta venta
+    const dets = await prisma.detalleVenta.findMany({
+      where: { idVenta: Number(v.idVenta) },
+      select: { cantidad: true },
+    });
+    const cantProductos = dets.reduce((a, d) => a + Number(d.cantidad ?? 0), 0);
+
+    // monto total de esta venta
+    const total = await calcularTotal(Number(v.idVenta));
+
+    const prev =
+      agg.get(idC) ?? { idCliente: idC, nombre, compras: 0, productos: 0, monto: 0 };
+    prev.compras += 1;
+    prev.productos += cantProductos;
+    prev.monto += Number(total);
+    agg.set(idC, prev);
+  }
+
+  const rows = [...agg.values()].sort((a, b) => {
+    if (metric === "monto") return b.monto - a.monto;
+    if (metric === "productos") return b.productos - a.productos;
+    return b.compras - a.compras;
+  }).filter(r => !search || r.nombre.toLowerCase().includes(search)).slice(0, limit);
+
+  res.json(rows);
+});
+
+// Ventas vs Compras por mes (montos), con filtro de cantidad de meses
+app.get("/api/stats/sales-vs-purchases", async (req, res) => {
+  const { desde, hasta } = parseRange(req.query);
+  const monthsCount = Math.max(1, Math.min(24, Number(req.query.months ?? 12)));
+
+  const whereVenta: any = {};
+  if (desde || hasta) {
+    whereVenta.fechaVenta = {
+      ...(desde && { gte: desde }),
+      ...(hasta && { lte: hasta }),
+    };
+  }
+  const whereCompra: any = {};
+  if (desde || hasta) {
+    whereCompra.fechaComprobanteCompra = {
+      ...(desde && { gte: desde }),
+      ...(hasta && { lte: hasta }),
+    };
+  }
+
+  const [ventas, compras] = await Promise.all([
+    prisma.venta.findMany({
+      where: whereVenta,
+      select: { idVenta: true, fechaVenta: true },
+      orderBy: { fechaVenta: "asc" },
+    }),
+    prisma.compra.findMany({
+      where: whereCompra,
+      select: { id: true, fechaComprobanteCompra: true, total: true },
+      orderBy: { fechaComprobanteCompra: "asc" },
+    }),
+  ]);
+
+  const bucketsV = new Map<string, number>();
+  for (const v of ventas) {
+    const f = v.fechaVenta ? new Date(v.fechaVenta) : null;
+    if (!f) continue;
+    const key = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, "0")}`;
+    const total = await calcularTotal(Number(v.idVenta));
+    bucketsV.set(key, (bucketsV.get(key) ?? 0) + Number(total));
+  }
+
+  const bucketsC = new Map<string, number>();
+  for (const c of compras) {
+    const f = c.fechaComprobanteCompra ? new Date(c.fechaComprobanteCompra as any) : null;
+    if (!f) continue;
+    const key = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, "0")}`;
+    const total = Number(c.total ?? 0);
+    bucketsC.set(key, (bucketsC.get(key) ?? 0) + total);
+  }
+
+  // union de meses
+  const monthsSet = new Set<string>([...bucketsV.keys(), ...bucketsC.keys()]);
+  const monthsSorted = [...monthsSet.values()].sort();
+  const monthsLimited = monthsSorted.slice(Math.max(0, monthsSorted.length - monthsCount));
+
+  const series = monthsLimited.map((m) => ({
+    month: m,
+    ventas: Number(bucketsV.get(m) ?? 0),
+    compras: Number(bucketsC.get(m) ?? 0),
+  }));
+
+  res.json({ series });
+});
+
+// Análisis de proveedores: total comprado por proveedor en el período
+app.get("/api/stats/proveedores", async (req, res) => {
+  const { desde, hasta } = parseRange(req.query);
+  const limit = Math.max(1, Math.min(50, Number(req.query.limit ?? 10)));
+  const where: any = {};
+  if (desde || hasta) {
+    where.fechaComprobanteCompra = {
+      ...(desde && { gte: desde }),
+      ...(hasta && { lte: hasta }),
+    };
+  }
+
+  const compras = await prisma.compra.findMany({
+    where,
+    select: { idProveedor: true, total: true, Proveedor: { select: { idProveedor: true, nombreProveedor: true } } },
+  });
+
+  const agg = new Map<number, { idProveedor: number; nombre: string; total: number }>();
+  for (const c of compras) {
+    const idP = Number(c.idProveedor ?? c.Proveedor?.idProveedor);
+    const nombre = c.Proveedor?.nombreProveedor ?? String(idP);
+    const prev = agg.get(idP) ?? { idProveedor: idP, nombre, total: 0 };
+    prev.total += Number(c.total ?? 0);
+    agg.set(idP, prev);
+  }
+  const rows = [...agg.values()].sort((a, b) => b.total - a.total).slice(0, limit);
+  res.json(rows);
+});
+
+// Ventas por mes (monto total) y el mes con mayor monto
+app.get("/api/stats/months", async (req, res) => {
+  const { desde, hasta } = parseRange(req.query);
+  const whereVenta: any = {};
+  if (desde || hasta) {
+    whereVenta.fechaVenta = {
+      ...(desde && { gte: desde }),
+      ...(hasta && { lte: hasta }),
+    };
+  }
+
+  const ventas = await prisma.venta.findMany({
+    where: whereVenta,
+    select: { idVenta: true, fechaVenta: true },
+    orderBy: { fechaVenta: "asc" },
+  });
+
+  const buckets = new Map<string, number>();
+  for (const v of ventas) {
+    const f = v.fechaVenta ? new Date(v.fechaVenta) : null;
+    if (!f) continue;
+    const key = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, "0")}`;
+    const total = await calcularTotal(Number(v.idVenta));
+    buckets.set(key, (buckets.get(key) ?? 0) + Number(total));
+  }
+  const series = [...buckets.entries()].map(([month, monto]) => ({ month, monto }));
+  const best = series.reduce<{ month: string | null; monto: number }>(
+    (acc, cur) => (cur.monto > (acc.monto ?? 0) ? cur : acc),
+    { month: null, monto: 0 }
+  );
+
+  res.json({ series, bestMonth: best.month, bestAmount: best.monto });
+});
+
 app.listen(4000, () =>
   console.log("✅ API corriendo en http://localhost:4000")
 );

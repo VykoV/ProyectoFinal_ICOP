@@ -7,6 +7,7 @@ import {
   ShoppingCart,
   ClipboardList,
   ShoppingBag,
+  BarChart3,
 } from "lucide-react";
 import { useUI } from "../store/ui";
 import { useAuth } from "../context/AuthContext";
@@ -20,6 +21,7 @@ const items = [
   { to: "/clientes", icon: Users, label: "Clientes" },
   { to: "/proveedores", icon: Factory, label: "Proveedores" },
   { to: "/usuarios", icon: Users, label: "Usuarios" },
+  { to: "/estadisticas", icon: BarChart3, label: "Estadísticas" },
 ] as const;
 
 export default function Sidebar() {

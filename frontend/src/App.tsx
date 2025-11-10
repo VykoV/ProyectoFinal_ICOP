@@ -11,6 +11,7 @@ import Ventas from "./pages/Ventas";
 import PreVentas from "./pages/PreVentas";
 import Usuarios from "./pages/Usuarios";
 import Compras from "./pages/Compras";
+import Estadisticas from "./pages/Estadisticas";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import AdminRoute from "./routes/AdminRoute";
 
@@ -43,6 +44,7 @@ export default function App() {
                     <Route path="/ventas" element={<Ventas />} />
                     <Route path="/pre-ventas" element={<PreVentas />} />
                     <Route path="/usuarios" element={<Usuarios />} />
+                    <Route path="/estadisticas" element={<Estadisticas />} />
 
                     {/* rutas solo administrador */}
                     <Route element={<AdminRoute />}>
