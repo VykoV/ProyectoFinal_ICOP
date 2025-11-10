@@ -353,7 +353,6 @@ export default function Estadisticas() {
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-medium text-gray-700">Clientes que más vinieron</h2>
             <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-600">Ver</label>
               <select
                 className="rounded border px-2 py-1 text-xs"
                 value={customerMetric}
@@ -400,17 +399,17 @@ export default function Estadisticas() {
               Filtros
             </button>
           </div>
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 flex-wrap mb-3">
             <label className="text-xs text-gray-600">Producto</label>
             <input
               type="text"
               placeholder="Buscar producto"
-              className="rounded border px-2 py-1 text-xs"
+              className="rounded border px-2 py-1 text-xs flex-1 min-w-0"
               value={priceProductQuery}
               onChange={(e) => setPriceProductQuery(e.target.value)}
             />
             <select
-              className="rounded border px-2 py-1 text-xs"
+              className="rounded border px-2 py-1 text-xs w-40 sm:w-56 min-w-0 max-w-full"
               value={priceProductId ?? ""}
               onChange={(e) => setPriceProductId(Number(e.target.value) || null)}
             >
