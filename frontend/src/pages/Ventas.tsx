@@ -992,7 +992,7 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
     <>
       <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
       <div className="fixed inset-0 z-50 p-0 md:p-4">
-        <div className="mx-auto w-full max-w-3xl md:rounded-2xl border bg-white shadow-xl flex flex-col max-h-[90vh]">
+        <div className="mx-auto h-dvh md:h-[90vh] w-full max-w-2xl md:rounded-2xl border bg-white shadow-xl flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b">
             <h3 className="text-base font-semibold">
@@ -1008,56 +1008,90 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
           </div>
 
           {/* Body */}
-          <div className="flex-1 overflow-auto px-4 py-3 text-sm space-y-6">
-            {/* Datos venta en cuadricula */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="rounded border bg-gray-50 p-3">
-                <p className="text-gray-500">N°</p>
-                <p className="font-medium">
-                  {loadingVenta ? "..." : venta?.idVenta ?? id}
-                </p>
-              </div>
-              <div className="rounded border bg-gray-50 p-3">
-                <p className="text-gray-500">Fecha</p>
-                <p className="font-medium">
-                  {loadingVenta
-                    ? "..."
-                    : String(venta?.fechaVenta ?? "").slice(0, 10)}
-                </p>
-              </div>
+          <div className="p-4 text-sm overflow-auto flex-1">
+            {loadingVenta ? (
+              <div className="text-gray-600">Cargando…</div>
+            ) : (
+              <>
+                {/* Resumen superior (similar a Productos) */}
+                <div className="space-y-2 mb-4">
+                  <p className="text-lg font-semibold text-gray-900">
+                    {venta?.Cliente
+                      ? `${venta.Cliente.apellidoCliente}, ${venta.Cliente.nombreCliente}`
+                      : "Presupuesto"}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
+                      N°: {venta?.idVenta ?? id}
+                    </span>
+                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
+                      Fecha: {String(venta?.fechaVenta ?? "").slice(0, 10) || "-"}
+                    </span>
+                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
+                      Estado: {estadoStr}
+                    </span>
+                  </div>
+                </div>
 
-              <div className="rounded border bg-gray-50 p-3 md:col-span-2">
-                <p className="text-gray-500">Cliente</p>
-                <p className="font-medium">
-                  {loadingVenta
-                    ? "..."
-                    : venta?.Cliente
-                    ? `${venta.Cliente.apellidoCliente}, ${venta.Cliente.nombreCliente}`
-                    : "-"}
-                </p>
-              </div>
+                {/* Total principal */}
+                <div className="rounded-xl border bg-white p-3 mb-4">
+                  <p className="text-gray-500">Total</p>
+                  <p className="text-2xl font-semibold">
+                    {new Intl.NumberFormat("es-AR", {
+                      style: "currency",
+                      currency: "ARS",
+                      maximumFractionDigits: 2,
+                    }).format(
+                      (lineItems ?? []).reduce((acc: number, d: any) => {
+                        const cant = Number(d.cantidad ?? 0);
+                        const pu = Number(
+                          d.Producto?.precioVentaPublicoProducto ?? 0
+                        );
+                        return acc + cant * pu;
+                      }, 0)
+                    )}
+                  </p>
+                </div>
 
-              <div className="rounded border bg-gray-50 p-3">
-                <p className="text-gray-500">Método de pago</p>
-                <p className="font-medium">
-                  {loadingVenta ? "..." : venta?.TipoPago?.tipoPago ?? "-"}
-                </p>
-              </div>
+                {/* Información agrupada en tarjetas (como Productos) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  {/* Cliente */}
+                  <div className="rounded-xl border bg-white p-3">
+                    <p className="text-gray-500">Cliente</p>
+                    <p className="font-medium">
+                      {venta?.Cliente
+                        ? `${venta.Cliente.apellidoCliente}, ${venta.Cliente.nombreCliente}`
+                        : "-"}
+                    </p>
+                  </div>
 
-              <div className="rounded border bg-gray-50 p-3">
-                <p className="text-gray-500">Estado actual</p>
-                <p className="font-medium">
-                  {loadingVenta ? "..." : estadoStr}
-                </p>
-              </div>
+                  {/* Datos (Fecha + Método de pago) */}
+                  <div className="rounded-xl border bg-white p-3">
+                    <p className="text-gray-500">Datos</p>
+                    <div className="grid grid-cols-2 gap-3 mt-2">
+                      <div>
+                        <p className="text-gray-500 text-xs">Fecha</p>
+                        <p className="font-medium">
+                          {String(venta?.fechaVenta ?? "").slice(0, 10) || "-"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs">Método de pago</p>
+                        <p className="font-medium">
+                          {venta?.TipoPago?.tipoPago ?? "-"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
-              <div className="rounded border bg-gray-50 p-3 md:col-span-2">
-                <p className="text-gray-500">Observación</p>
-                <p className="font-normal">
-                  {loadingVenta ? "..." : venta?.observacion ?? "-"}
-                </p>
-              </div>
-            </div>
+                  {/* Observación */}
+                  <div className="md:col-span-2 rounded-xl border bg-white p-3">
+                    <p className="text-gray-500">Observación</p>
+                    <p className="font-normal">{venta?.observacion ?? "-"}</p>
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Productos */}
             <div>
@@ -1121,55 +1155,35 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
               </div>
             </div>
 
-            {/* Historial de estado */}
-            <div>
-              <p className="text-gray-700 font-medium mb-2">
-                Historial de estado
-              </p>
-
-              <div className="rounded-xl border max-h-40 overflow-auto">
-                <table className="w-full text-[11px]">
+            {/* Historial (tarjeta similar a Productos) */}
+            <div className="rounded-xl border bg-white p-3 mt-4">
+              <p className="text-gray-500 mb-2">Historial de estado</p>
+              <div className="rounded-xl border overflow-hidden max-h-52">
+                <table className="w-full text-xs">
                   <thead className="bg-gray-50 text-gray-500">
                     <tr>
-                      <th className="px-2 py-1 text-left">Fecha</th>
-                      <th className="px-2 py-1 text-left">Cambio</th>
-                      <th className="px-2 py-1 text-left">Motivo</th>
-                      <th className="px-2 py-1 text-left">Usuario</th>
+                      <th className="px-2 py-2 text-left">Fecha</th>
+                      <th className="px-2 py-2 text-left">Cambio</th>
+                      <th className="px-2 py-2 text-left">Motivo</th>
+                      <th className="px-2 py-2 text-left">Usuario</th>
                     </tr>
                   </thead>
                   <tbody>
                     {loadingHist ? (
                       <tr>
-                        <td
-                          className="px-2 py-4 text-center text-gray-500"
-                          colSpan={4}
-                        >
-                          Cargando historial...
-                        </td>
+                        <td className="px-2 py-3 text-gray-600" colSpan={4}>Cargando…</td>
                       </tr>
                     ) : hist.length === 0 ? (
                       <tr>
-                        <td
-                          className="px-2 py-4 text-center text-gray-500"
-                          colSpan={4}
-                        >
-                          Sin movimientos de estado.
-                        </td>
+                        <td className="px-2 py-3 text-gray-600" colSpan={4}>Sin movimientos de estado.</td>
                       </tr>
                     ) : (
-                      hist.map((ev) => (
-                        <tr key={ev.id} className="border-t align-top">
-                          <td className="px-2 py-1">{ev.fecha}</td>
-                          <td className="px-2 py-1">
-                            {ev.desde ? `${ev.desde} → ${ev.hasta}` : ev.hasta}
-                          </td>
-                          <td className="px-2 py-1">{ev.motivo ?? "-"}</td>
-                          <td className="px-2 py-1">
-                            {ev.usuario
-                              ? ev.usuario.nombreUsuario ||
-                                ev.usuario.emailUsuario
-                              : "-"}
-                          </td>
+                      hist.map((ev, idx) => (
+                        <tr key={ev.id} className={idx % 2 ? "bg-gray-50" : undefined}>
+                          <td className="px-2 py-2">{ev.fecha}</td>
+                          <td className="px-2 py-2">{ev.desde ? `${ev.desde} → ${ev.hasta}` : ev.hasta}</td>
+                          <td className="px-2 py-2">{ev.motivo ?? "-"}</td>
+                          <td className="px-2 py-2">{ev.usuario ? (ev.usuario.nombreUsuario || ev.usuario.emailUsuario) : "-"}</td>
                         </tr>
                       ))
                     )}
