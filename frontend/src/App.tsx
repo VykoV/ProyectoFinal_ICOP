@@ -12,6 +12,7 @@ import PreVentas from "./pages/PreVentas";
 import Usuarios from "./pages/Usuarios";
 import Compras from "./pages/Compras";
 import ProtectedRoute from "./routes/ProtectedRoute";
+import AdminRoute from "./routes/AdminRoute";
 
 export default function App() {
     const isAuthenticated = false; // false al inicio: fuerza el login
@@ -39,12 +40,16 @@ export default function App() {
                     <Route path="/dashboard" element={<Dashboard />} />
                     <Route path="/productos" element={<Productos />} />
                     <Route path="/clientes" element={<Clientes />} />
-                    <Route path="/proveedores" element={<Proveedores />} />
-                    <Route path="/proveedores/:id/productos" element={<ProveedorProductos />} />
                     <Route path="/ventas" element={<Ventas />} />
                     <Route path="/pre-ventas" element={<PreVentas />} />
-                    <Route path="/compras" element={<Compras />} />
                     <Route path="/usuarios" element={<Usuarios />} />
+
+                    {/* rutas solo administrador */}
+                    <Route element={<AdminRoute />}>
+                      <Route path="/proveedores" element={<Proveedores />} />
+                      <Route path="/proveedores/:id/productos" element={<ProveedorProductos />} />
+                      <Route path="/compras" element={<Compras />} />
+                    </Route>
                 </Route>
             </Route>
 

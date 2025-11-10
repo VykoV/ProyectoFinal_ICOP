@@ -916,7 +916,7 @@ await prisma.producto.createMany({
       ofertaProducto: false,
       precioProducto: D(1.0),
       precioVentaPublicoProducto: D(22000.0),
-      utilidadProducto: D(2199900.0),
+      utilidadProducto: D(2199.90),
       idSubFamilia: (3),
     },
     {
@@ -936,28 +936,48 @@ await prisma.producto.createMany({
       ofertaProducto: false,
       precioProducto: D(1.0),
       precioVentaPublicoProducto: D(1136.0),
-      utilidadProducto: D(113500.0),
+      utilidadProducto: D(1135.00),
       idSubFamilia: (6),
     },
   ],
   skipDuplicates: true,
 })
 
-  // 18. stock según nuevo schema
-  await prisma.stock.createMany({
-    data: [
-      { idProducto: 1,  bajoMinimoStock: D(5),  cantidadRealStock: D(42.00),    stockComprometido: D(0) },
-      { idProducto: 2,  bajoMinimoStock: D(10), cantidadRealStock: D(46.14),    stockComprometido: D(0) },
-      { idProducto: 3,  bajoMinimoStock: D(3),  cantidadRealStock: D(21.30),    stockComprometido: D(0) },
-      { idProducto: 4,  bajoMinimoStock: D(2),  cantidadRealStock: D(-2.00),    stockComprometido: D(0) },
-      { idProducto: 5,  bajoMinimoStock: D(5),  cantidadRealStock: D(5834.30),  stockComprometido: D(0) },
-      { idProducto: 6,  bajoMinimoStock: D(5),  cantidadRealStock: D(3.00),     stockComprometido: D(0) },
-      { idProducto: 7,  bajoMinimoStock: D(10), cantidadRealStock: D(99.33),    stockComprometido: D(0) },
-      { idProducto: 8,  bajoMinimoStock: D(10), cantidadRealStock: D(891.00),   stockComprometido: D(0) },
-      { idProducto: 9,  bajoMinimoStock: D(5),  cantidadRealStock: D(5264.64),  stockComprometido: D(0) },
-      { idProducto: 10, bajoMinimoStock: D(3),  cantidadRealStock: D(1.00),     stockComprometido: D(0) },
-    ],
-  })
+  // 18. stock según nuevo schema (evitar IDs hardcodeadas)
+  {
+    const codes = [
+      'ART-001','ART-002','ART-003','ART-004','ART-005',
+      'ART-006','ART-007','ART-008','ART-009','ART-010',
+    ];
+    const prods = await prisma.producto.findMany({
+      where: { codigoProducto: { in: codes } },
+      select: { idProducto: true, codigoProducto: true },
+    });
+    const idByCode = new Map(prods.map(p => [p.codigoProducto, p.idProducto]));
+    const stockByCode = [
+      { code: 'ART-001', bajoMinimoStock: D(5),  cantidadRealStock: D(42.00),   stockComprometido: D(0) },
+      { code: 'ART-002', bajoMinimoStock: D(10), cantidadRealStock: D(46.14),   stockComprometido: D(0) },
+      { code: 'ART-003', bajoMinimoStock: D(3),  cantidadRealStock: D(21.30),   stockComprometido: D(0) },
+      { code: 'ART-004', bajoMinimoStock: D(2),  cantidadRealStock: D(-2.00),   stockComprometido: D(0) },
+      { code: 'ART-005', bajoMinimoStock: D(5),  cantidadRealStock: D(5834.30), stockComprometido: D(0) },
+      { code: 'ART-006', bajoMinimoStock: D(5),  cantidadRealStock: D(3.00),    stockComprometido: D(0) },
+      { code: 'ART-007', bajoMinimoStock: D(10), cantidadRealStock: D(99.33),   stockComprometido: D(0) },
+      { code: 'ART-008', bajoMinimoStock: D(10), cantidadRealStock: D(891.00),  stockComprometido: D(0) },
+      { code: 'ART-009', bajoMinimoStock: D(5),  cantidadRealStock: D(5264.64), stockComprometido: D(0) },
+      { code: 'ART-010', bajoMinimoStock: D(3),  cantidadRealStock: D(1.00),    stockComprometido: D(0) },
+    ];
+    const data = stockByCode
+      .filter(s => idByCode.has(s.code))
+      .map(s => ({
+        idProducto: idByCode.get(s.code)!,
+        bajoMinimoStock: s.bajoMinimoStock,
+        cantidadRealStock: s.cantidadRealStock,
+        stockComprometido: s.stockComprometido,
+      }));
+    if (data.length > 0) {
+      await prisma.stock.createMany({ data });
+    }
+  }
 
   // 19. normalizar EstadoVenta (por si hay espacios)
   await prisma.$executeRawUnsafe(`
