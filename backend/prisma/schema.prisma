@@ -28,6 +28,7 @@ model Usuario {
   ventasActor    VentaActor[]
   eventosVenta   VentaEvento[]
   comentarios    VentaComentario[]
+  ui             UsuarioUI?
 
   @@map("Usuario")
 }
@@ -345,4 +346,33 @@ model VentaComentario {
   Venta   Venta   @relation(fields: [idVenta], references: [idVenta])
   Usuario Usuario @relation(fields: [idUsuario], references: [idUsuario])
   @@map("VentaComentario")
+}
+
+// ===== Configuración de UI =====
+enum UiDensity {
+  COMPACT
+  COZY
+  COMFORTABLE
+}
+
+model ConfigUI {
+  id          Int       @id @default(1)
+  primaryHex  String    @default("#0ea5e9")
+  radiusPx    Int       @default(12)
+  fontScale   Float     @default(1.0)
+  density     UiDensity @default(COZY)
+  darkDefault Boolean   @default(false)
+  updatedAt   DateTime  @updatedAt
+}
+
+model UsuarioUI {
+  idUsuario  Int       @id
+  primaryHex String?
+  radiusPx   Int?
+  fontScale  Float?
+  density    UiDensity?
+  dark       Boolean?
+  updatedAt  DateTime  @updatedAt
+
+  usuario    Usuario   @relation(fields: [idUsuario], references: [idUsuario])
 }

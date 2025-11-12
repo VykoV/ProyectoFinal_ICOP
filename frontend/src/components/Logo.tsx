@@ -1,7 +1,7 @@
 export default function Logo() {
     return (
         <div className="flex items-center gap-2 select-none">
-        <div className="h-8 w-8 rounded-xl bg-black" />
+        <div className="h-8 w-8 rounded-xl bg-primary" />
         <span className="font-semibold tracking-tight">Sistema Comercial</span>
         </div>
     );

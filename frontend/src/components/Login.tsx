@@ -64,7 +64,7 @@ export default function Login() {
                 {err && <p className="text-xs text-red-600">{err}</p>}
                 <button
                     disabled={isSubmitting}
-                    className="w-full rounded-lg bg-black text-white py-2"
+                    className="w-full rounded-lg bg-primary text-white py-2"
                 >
                     Entrar
                 </button>

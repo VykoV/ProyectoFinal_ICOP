@@ -88,6 +88,120 @@ app.use((req, _res, next) => {
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
 // ==========================
+// UI CONFIG: GLOBAL Y POR USUARIO
+// ==========================
+const DEFAULT_UI = {
+  primaryHex: "#0ea5e9",
+  radiusPx: 12,
+  fontScale: 1.0,
+  density: "COZY" as const,
+  darkDefault: false,
+};
+
+app.get("/api/config/ui", async (_req, res) => {
+  try {
+    const cfg = await prisma.configUI.findUnique({ where: { id: 1 } });
+    if (!cfg) return res.json({ id: 1, ...DEFAULT_UI });
+    res.json({
+      id: cfg.id,
+      primaryHex: cfg.primaryHex,
+      radiusPx: cfg.radiusPx,
+      fontScale: Number(cfg.fontScale),
+      density: cfg.density,
+      darkDefault: cfg.darkDefault,
+      updatedAt: cfg.updatedAt,
+    });
+  } catch (err) {
+    console.error("/api/config/ui error", err);
+    res.json({ id: 1, ...DEFAULT_UI });
+  }
+});
+
+app.put(
+  "/api/config/ui",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
+    const body = req.body || {};
+    const data: any = {};
+    if (typeof body.primaryHex === "string") data.primaryHex = body.primaryHex;
+    if (typeof body.radiusPx === "number") data.radiusPx = body.radiusPx;
+    if (typeof body.fontScale === "number") data.fontScale = body.fontScale;
+    if (typeof body.density === "string") data.density = body.density;
+    if (typeof body.darkDefault === "boolean") data.darkDefault = body.darkDefault;
+
+    try {
+      const updated = await prisma.configUI.upsert({
+        where: { id: 1 },
+        update: data,
+        create: { id: 1, ...DEFAULT_UI, ...data },
+      });
+      res.json(updated);
+    } catch (err) {
+      console.error("PUT /api/config/ui error", err);
+      res.status(500).json({ error: "No se pudo guardar la configuración global" });
+    }
+  }
+);
+
+app.get("/api/usuarios/:id/ui", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "id inválido" });
+  try {
+    const r = await prisma.usuarioUI.findUnique({ where: { idUsuario: id } });
+    if (!r) return res.json(null);
+    res.json({
+      idUsuario: r.idUsuario,
+      primaryHex: r.primaryHex ?? null,
+      radiusPx: r.radiusPx ?? null,
+      fontScale: r.fontScale ?? null,
+      density: r.density ?? null,
+      dark: r.dark ?? null,
+      updatedAt: r.updatedAt,
+    });
+  } catch (err) {
+    console.error("GET /api/usuarios/:id/ui error", err);
+    res.json(null);
+  }
+});
+
+app.put(
+  "/api/usuarios/:id/ui",
+  requireAuth,
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "id inválido" });
+
+    // Sólo el propio usuario o Admin pueden guardar overrides
+    const uid = getUserId(req);
+    const isAdmin = Array.isArray((req.session as any)?.roles)
+      ? ((req.session as any).roles as string[]).includes("Administrador")
+      : false;
+    if (uid !== id && !isAdmin) return res.status(403).json({ error: "No autorizado" });
+
+    const body = req.body || {};
+    const data: any = {};
+    if (typeof body.primaryHex === "string") data.primaryHex = body.primaryHex;
+    if (typeof body.radiusPx === "number") data.radiusPx = body.radiusPx;
+    if (typeof body.fontScale === "number") data.fontScale = body.fontScale;
+    if (typeof body.density === "string") data.density = body.density;
+    if (typeof body.dark === "boolean") data.dark = body.dark;
+
+    try {
+      const updated = await prisma.usuarioUI.upsert({
+        where: { idUsuario: id },
+        update: data,
+        create: { idUsuario: id, ...data },
+      });
+      res.json(updated);
+    } catch (err) {
+      console.error("PUT /api/usuarios/:id/ui error", err);
+      res.status(500).json({ error: "No se pudo guardar preferencias del usuario" });
+    }
+  }
+);
+
+// ==========================
 // HELPERS
 // ==========================
 const sumStock = (stocks: { cantidadRealStock: Prisma.Decimal; stockComprometido: Prisma.Decimal }[]) =>
