@@ -4,6 +4,7 @@ import { DataTable } from "../components/DataTable";
 import { Label, Input } from "../components/ui/Form";
 import * as svc from "../lib/api/proveedores";
 import { Button } from "@/components/ui/button";
+import { X, Pencil, Trash2, Search, Plus, Eye } from "lucide-react";
 
 type FormState = Partial<svc.Proveedor>;
 
@@ -13,10 +14,13 @@ export default function ProveedoresPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  const [openFiltros, setOpenFiltros] = useState(false);
 
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<FormState | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [openView, setOpenView] = useState(false);
+  const [viewItem, setViewItem] = useState<svc.Proveedor | null>(null);
 
   async function load() {
     const res = await svc.getPage({ search, page, pageSize });
@@ -30,7 +34,6 @@ export default function ProveedoresPage() {
   const cols = useMemo<ColumnDef<svc.Proveedor>[]>(
     () => [
       { accessorKey: "nombreProveedor", header: "Nombre" },
-      { accessorKey: "CIF_NIFProveedor", header: "CIF/NIF" },
       { accessorKey: "telefonoProveedor", header: "Teléfono" },
       { accessorKey: "mailProveedor", header: "Email" },
       {
@@ -38,8 +41,30 @@ export default function ProveedoresPage() {
         header: "",
         cell: ({ row }) => (
           <div className="flex gap-2 justify-end">
-            <Button variant="secondary" onClick={() => openEdit(row.original)}>Editar</Button>
-            <Button variant="destructive" onClick={() => onDelete(row.original.idProveedor)}>Borrar</Button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded border border-black text-black px-2 py-1 text-xs hover:bg-black hover:text-white"
+              onClick={() => onView(row.original.idProveedor)}
+            >
+              <Eye className="h-3 w-3" />
+              Ver
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded border border-black text-black px-2 py-1 text-xs hover:bg-black hover:text-white"
+              onClick={() => openEdit(row.original)}
+            >
+              <Pencil className="h-3 w-3" />
+              Editar
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded border border-black text-black px-2 py-1 text-xs hover:bg-black hover:text-white"
+              onClick={() => onDelete(row.original.idProveedor)}
+            >
+              <Trash2 className="h-3 w-3" />
+              Borrar
+            </button>
           </div>
         ),
       },
@@ -58,6 +83,15 @@ export default function ProveedoresPage() {
     });
     setErrors({});
     setShowModal(true);
+  }
+  async function onView(id: number) {
+    try {
+      const p = await svc.getOne(id);
+      setViewItem(p);
+      setOpenView(true);
+    } catch (e) {
+      console.error(e);
+    }
   }
   function openEdit(p: svc.Proveedor) {
     setEditing(p);
@@ -100,22 +134,44 @@ export default function ProveedoresPage() {
   }
 
   return (
-    <div className="p-4 space-y-4">
-      <div className="flex items-end gap-3">
-        <div>
-          <Label>Buscar</Label>
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder="Nombre, email u observación"
-              value={search}
-              onChange={(e) => {
-                setPage(1);
-                setSearch(e.target.value);
-              }}
-            />
-          </div>
+    <section className="space-y-4">
+      {/* Título + botón Nuevo proveedor (como Presupuestos) */}
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold">Proveedores</h1>
+        <button
+          onClick={openCreate}
+          className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
+        >
+          <Plus className="h-4 w-4" /> Nuevo proveedor
+        </button>
+      </div>
+
+      {/* Buscador + botón de filtros + contador (como Presupuestos) */}
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <div className="relative w-64 sm:w-72 md:w-80 lg:w-96 xl:w-[32rem] flex-1 min-w-[14rem]">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+          <input
+            className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
+            placeholder="Buscar por nombre, email u observación…"
+            value={search}
+            onChange={(e) => {
+              setPage(1);
+              setSearch(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setSearch("");
+            }}
+          />
         </div>
-        <Button onClick={openCreate}>Nuevo proveedor</Button>
+        <button className="rounded border px-3 py-2" onClick={() => setOpenFiltros(true)}>Filtros</button>
+        <span className="ml-auto text-xs text-gray-600">
+          {(() => {
+            const startIdx = (Math.max(1, page) - 1) * pageSize;
+            const endIdx = Math.min(startIdx + rows.length, total);
+            const from = total === 0 ? 0 : startIdx + 1;
+            return `Mostrando ${from}–${endIdx} de ${total}`;
+          })()}
+        </span>
       </div>
 
       <DataTable
@@ -126,6 +182,41 @@ export default function ProveedoresPage() {
         pageSize={pageSize}
         onPageChange={setPage}
       />
+
+      {/* Popup de filtros (estilo Presupuestos) */}
+      {openFiltros && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg md:max-w-xl lg:max-w-2xl">
+            <div className="flex items-center justify-between border-b px-4 py-2">
+              <h2 className="text-sm font-medium">Filtros de Proveedores</h2>
+              <button className="rounded border px-2 py-1 text-xs" onClick={() => setOpenFiltros(false)}>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600">Orden</span>
+                <select className="rounded border px-2 py-1" defaultValue="asc">
+                  <option value="asc">Ascendente (Nombre)</option>
+                  <option value="desc">Descendente (Nombre)</option>
+                </select>
+                <span className="text-gray-600 ml-auto">Email</span>
+                <select className="rounded border px-2 py-1" defaultValue="todas">
+                  <option value="todas">Todos</option>
+                  <option value="con">Con Email</option>
+                  <option value="sin">Sin Email</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+              <button className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm" onClick={() => {}}>
+                <X className="h-3.5 w-3.5" /> Borrar filtros
+              </button>
+              <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenFiltros(false)}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal && editing && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
@@ -193,6 +284,43 @@ export default function ProveedoresPage() {
           </div>
         </div>
       )}
-    </div>
+
+      {openView && viewItem && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/20" onClick={() => setOpenView(false)} />
+          <div className="fixed inset-0 z-50 p-0 md:p-4">
+            <div className="h-full flex items-center justify-center">
+              <div className="mx-auto w-full max-w-2xl md:rounded-2xl border bg-white shadow-xl">
+                <div className="flex items-center justify-between px-4 py-3 border-b">
+                  <h3 className="text-base font-semibold">Detalle de Proveedor</h3>
+                  <button onClick={() => setOpenView(false)} className="p-2 rounded hover:bg-gray-100" aria-label="Cerrar">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="p-4 text-sm grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-gray-500">Nombre</p>
+                    <p className="font-medium">{viewItem.nombreProveedor}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Teléfono</p>
+                    <p className="font-medium">{viewItem.telefonoProveedor || "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Email</p>
+                    <p className="font-medium">{viewItem.mailProveedor || "-"}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-gray-500">Observación</p>
+                    <p className="font-medium">{viewItem.observacionProveedor || "-"}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

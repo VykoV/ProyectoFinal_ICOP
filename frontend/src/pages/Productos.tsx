@@ -258,39 +258,36 @@ export default function Productos() {
 
   return (
     <section className="space-y-4">
+      {/* Título + botón Nuevo */}
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Productos</h1>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Buscador global (nombre, código, descripción) */}
-          <div className="relative w-64 sm:w-72 md:w-80 lg:w-96 xl:w-[32rem] flex-1 min-w-[14rem]">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-            <input
-              className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
-              placeholder="Buscar por nombre, código o descripción…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => {
-                if ((e as React.KeyboardEvent<HTMLInputElement>).key === "Escape") setQ("");
-              }}
-            />
-          </div>
+        {!(isVendedor || isCajero) && (
           <button
-            className="inline-flex items-center gap-2 rounded-lg border px-3 py-2"
-            onClick={() => setShowFilters(true)}
+            onClick={onNew}
+            className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
           >
-            <Search className="h-4 w-4" />
-            <span>Filtros</span>
+            <Plus className="h-4 w-4" />
+            <span>Nuevo producto</span>
           </button>
-          {!(isVendedor || isCajero) && (
-            <button
-              onClick={onNew}
-              className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Nuevo</span>
-            </button>
-          )}
+        )}
+      </div>
+
+      {/* Buscador + botón Filtros + contador */}
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <div className="relative w-64 sm:w-72 md:w-80 lg:w-96 xl:w-[32rem] flex-1 min-w-[14rem]">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+          <input
+            className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
+            placeholder="Buscar por nombre, código o descripción…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e as React.KeyboardEvent<HTMLInputElement>).key === "Escape") setQ("");
+            }}
+          />
         </div>
+        <button className="rounded border px-3 py-2" onClick={() => setShowFilters(true)}>Filtros</button>
+        <span className="ml-auto text-xs text-gray-600">{`Mostrando ${filteredRows.length === 0 ? 0 : 1}–${filteredRows.length} de ${filteredRows.length}`}</span>
       </div>
 
       {loading ? (

@@ -3,6 +3,7 @@ import { Eye, Search, Plus, Trash2, X, Pencil, Check, Lock } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "../components/DataTable";
 import { Label, Input, Select } from "../components/ui/Form";
+import { fmtPrice } from "../lib/format";
 import { api } from "../lib/api";
 
 /* ===== Tipos ===== */
@@ -125,7 +126,12 @@ export default function Compras() {
         return <span className={`rounded-full px-2 py-1 text-xs font-medium ${cls}`}>{raw}</span>;
       }
     },
-    { header: "Total", cell: ({ row }) => `$${row.original.total.toFixed(2)}` },
+    {
+      header: "Total",
+      cell: ({ row }) => (
+        <span className="block text-right">${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}</span>
+      ),
+    },
     {
       header: "Acciones",
       id: "acciones",
@@ -438,7 +444,7 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
               {/* Total */}
               <div className="rounded-xl border bg-white p-3">
                 <p className="text-gray-500">Total</p>
-                <p className="font-medium">{loading ? "..." : `$${Number(compra?.total ?? 0).toFixed(2)}`}</p>
+                <p className="font-medium">{loading ? "..." : `$${fmtPrice(Number(compra?.total ?? 0))}`}</p>
               </div>
 
               {/* Proveedor */}
@@ -461,10 +467,10 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
                   <thead className="bg-gray-50 text-gray-500">
                     <tr>
                       <th className="px-2 py-2 text-left">Producto</th>
-                      <th className="px-2 py-2 text-center">Cant.</th>
-                      <th className="px-2 py-2 text-center">P.Unit.</th>
-                      <th className="px-2 py-2 text-center">Sin IVA</th>
-                      <th className="px-2 py-2 text-center">Subtotal</th>
+                      <th className="px-2 py-2 text-right">Cant.</th>
+                      <th className="px-2 py-2 text-right">P.Unit.</th>
+                      <th className="px-2 py-2 text-right">Sin IVA</th>
+                      <th className="px-2 py-2 text-right">Subtotal</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -481,10 +487,10 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
                             <td className="px-2 py-2">
                               {d.Producto?.codigoProducto ?? ""} — {d.Producto?.nombreProducto ?? ""}
                             </td>
-                            <td className="px-2 py-2 text-center">{cant}</td>
-                            <td className="px-2 py-2 text-center">${pu.toFixed(2)}</td>
-                            <td className="px-2 py-2 text-center">${base.toFixed(2)}</td>
-                            <td className="px-2 py-2 text-center">${sub.toFixed(2)}</td>
+                            <td className="px-2 py-2 text-right">{cant}</td>
+                            <td className="px-2 py-2 text-right">${fmtPrice(pu, { minFraction: 2, maxFraction: 2 })}</td>
+                            <td className="px-2 py-2 text-right">${fmtPrice(base, { minFraction: 2, maxFraction: 2 })}</td>
+                            <td className="px-2 py-2 text-right">${fmtPrice(sub, { minFraction: 2, maxFraction: 2 })}</td>
                           </tr>
                         );
                       })
@@ -498,15 +504,15 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
                 <div className="rounded-xl border bg-white p-3">
                   <p className="text-sm text-gray-500">Subtotal neto (sin IVA)</p>
-                  <p className="text-xl font-semibold">${resumen.base.toFixed(2)}</p>
+                  <p className="text-xl font-semibold">${fmtPrice(resumen.base)}</p>
                 </div>
                 <div className="rounded-xl border bg-white p-3">
                   <p className="text-sm text-gray-500">IVA</p>
-                  <p className="text-xl font-semibold">${resumen.iva.toFixed(2)}</p>
+                  <p className="text-xl font-semibold">${fmtPrice(resumen.iva)}</p>
                 </div>
                 <div className="rounded-xl border bg-white p-3">
                   <p className="text-sm text-gray-500">Total</p>
-                  <p className="text-xl font-semibold">${resumen.bruto.toFixed(2)}</p>
+                  <p className="text-xl font-semibold">${fmtPrice(resumen.bruto)}</p>
                 </div>
               </div>
             </div>
@@ -795,7 +801,7 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
                             className="block w-full text-left px-2 py-1 hover:bg-gray-50 text-sm"
                             onClick={() => { pickProduct(o); setProdQ(o.label); }}
                           >
-                            {o.label} — ${o.precio.toFixed(2)}
+                            {o.label} — ${fmtPrice(o.precio)}
                           </button>
                         ))}
                       </div>
@@ -839,11 +845,11 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-3 py-2 text-left">Producto</th>
-                    <th className="px-3 py-2 text-center">Cant.</th>
-                    <th className="px-3 py-2 text-center">P.Unit.</th>
-                    <th className="px-3 py-2 text-center">Sin IVA</th>
-                    <th className="px-3 py-2 text-center">Subtotal</th>
-                    <th className="px-3 py-2 text-center">Acciones</th>
+                    <th className="px-3 py-2 text-right">Cant.</th>
+                    <th className="px-3 py-2 text-right">P.Unit.</th>
+                    <th className="px-3 py-2 text-right">Sin IVA</th>
+                    <th className="px-3 py-2 text-right">Subtotal</th>
+                    <th className="px-3 py-2 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -852,22 +858,22 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
                     return (
                       <tr key={`${i.idProducto}-${idx}`} className="border-t">
                         <td className="px-3 py-2">{i.nombre}</td>
-                        <td className="px-3 py-2 text-center">
+                        <td className="px-3 py-2 text-right">
                           <Input type="number" inputMode="numeric" value={i.cantidad}
                             onChange={(e)=> setItemCantidad(i.idProducto, Number(e.target.value) || 0)}
-                            className="w-24 text-center" />
+                            className="w-24 text-right" />
                         </td>
-                        <td className="px-3 py-2 text-center">${i.precioUnit.toFixed(2)}</td>
-                        <td className="px-3 py-2 text-center">
-                          ${ (i.cantidad * base).toFixed(2) }
+                        <td className="px-3 py-2 text-right">${fmtPrice(i.precioUnit, { minFraction: 2, maxFraction: 2 })}</td>
+                        <td className="px-3 py-2 text-right">
+                          ${fmtPrice(i.cantidad * base, { minFraction: 2, maxFraction: 2 })}
                           <div className="text-[11px] text-gray-500">
-                            IVA: ${ (i.cantidad * iva).toFixed(2) }
+                            IVA: ${fmtPrice(i.cantidad * iva, { minFraction: 2, maxFraction: 2 })}
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-center">
-                          ${(i.cantidad * i.precioUnit).toFixed(2)}
+                        <td className="px-3 py-2 text-right">
+                          ${fmtPrice(i.cantidad * i.precioUnit, { minFraction: 2, maxFraction: 2 })}
                         </td>
-                        <td className="px-3 py-2 text-center">
+                        <td className="px-3 py-2 text-right">
                           <button type="button" className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
                             onClick={() => delItem(i.idProducto)}>
                             <Trash2 className="h-3.5 w-3.5" /> Quitar

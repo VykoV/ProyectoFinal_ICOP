@@ -59,6 +59,7 @@ export default function Clientes() {
   const [openEdit, setOpenEdit] = useState<null | number>(null); // id o null
   const [openView, setOpenView] = useState<null | number>(null);
   const [q, setQ] = useState("");
+  const [openFiltros, setOpenFiltros] = useState(false);
 
   useEffect(() => {
     const h = setTimeout(() => { load(q); }, 300);
@@ -142,29 +143,34 @@ export default function Clientes() {
 
   return (
     <section className="space-y-4">
+      {/* Título + botón Nuevo */}
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Clientes</h1>
-        <div className="flex items-center gap-2">
-          <div className="relative w-64">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-            <input
-  className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
-  placeholder="Buscar por nombre, apellido, email o CUIL/Teléfono"
-  value={q}
-  onChange={(e) => setQ(e.target.value)}
-  onKeyDown={(e) => { if (e.key === "Escape") setQ(""); }}
-/>
-          </div>
-          {!isVendedor && (
-            <button
-              onClick={() => setOpenEdit(0)} // 0 = alta
-              className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Nuevo</span>
-            </button>
-          )}
+        {!isVendedor && (
+          <button
+            onClick={() => setOpenEdit(0)} // 0 = alta
+            className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Nuevo cliente</span>
+          </button>
+        )}
+      </div>
+
+      {/* Buscador + botón Filtros + contador */}
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <div className="relative w-64 sm:w-72 md:w-80 lg:w-96 xl:w-[32rem] flex-1 min-w-[14rem]">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+          <input
+            className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
+            placeholder="Buscar por nombre, apellido, email o CUIL/Teléfono"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") setQ(""); }}
+          />
         </div>
+        <button className="rounded border px-3 py-2" onClick={() => setOpenFiltros(true)}>Filtros</button>
+        <span className="ml-auto text-xs text-gray-600">{`Mostrando ${rows.length === 0 ? 0 : 1}–${rows.length} de ${rows.length}`}</span>
       </div>
 
       {loading ? (
@@ -185,6 +191,41 @@ export default function Clientes() {
 
       {openView !== null && (
         <ClienteView id={openView} onClose={() => setOpenView(null)} />
+      )}
+
+      {/* Popup de filtros */}
+      {openFiltros && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg md:max-w-xl lg:max-w-2xl">
+            <div className="flex items-center justify-between border-b px-4 py-2">
+              <h2 className="text-sm font-medium">Filtros de Clientes</h2>
+              <button className="rounded border px-2 py-1 text-xs" onClick={() => setOpenFiltros(false)}>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600">Orden</span>
+                <select className="rounded border px-2 py-1" defaultValue="asc">
+                  <option value="asc">Ascendente (Apellido, Nombre)</option>
+                  <option value="desc">Descendente (Apellido, Nombre)</option>
+                </select>
+                <span className="text-gray-600 ml-auto">Contacto</span>
+                <select className="rounded border px-2 py-1" defaultValue="todas">
+                  <option value="todas">Todos</option>
+                  <option value="con">Con Email/Teléfono</option>
+                  <option value="sin">Sin Email/Teléfono</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+              <button className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm" onClick={() => setQ("")}> 
+                <X className="h-3.5 w-3.5" /> Borrar filtros
+              </button>
+              <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenFiltros(false)}>Cerrar</button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

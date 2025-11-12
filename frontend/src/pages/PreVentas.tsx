@@ -4,6 +4,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "../components/DataTable";
 import { Label, Input, Select } from "../components/ui/Form";
 import { api } from "../lib/api";
+import { fmtPrice } from "../lib/format";
 
 /* ===== Tipos ===== */
 type PreRow = {
@@ -162,7 +163,9 @@ export default function PreVentas() {
     },
     {
       header: "Total",
-      cell: ({ row }) => `$${row.original.total.toFixed(2)}`,
+      cell: ({ row }) => (
+        <span className="block text-right">${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}</span>
+      ),
     },
     {
   header: "Acciones",
@@ -636,9 +639,9 @@ function PreventaView({
                   <thead className="bg-gray-50 text-gray-500">
                     <tr>
                       <th className="px-2 py-2 text-left">Producto</th>
-                      <th className="px-2 py-2 text-center">Cant.</th>
-                      <th className="px-2 py-2 text-center">P.Unit.</th>
-                      <th className="px-2 py-2 text-center">Subtotal</th>
+                      <th className="px-2 py-2 text-right">Cant.</th>
+                      <th className="px-2 py-2 text-right">P.Unit.</th>
+                      <th className="px-2 py-2 text-right">Subtotal</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -667,12 +670,12 @@ function PreventaView({
                               {d.Producto?.codigoProducto ?? ""} —{" "}
                               {d.Producto?.nombreProducto ?? ""}
                             </td>
-                            <td className="px-2 py-2 text-center">{cant}</td>
-                            <td className="px-2 py-2 text-center">
-                              ${pu.toFixed(2)}
+                            <td className="px-2 py-2 text-right">{cant}</td>
+                            <td className="px-2 py-2 text-right">
+                              ${fmtPrice(pu, { minFraction: 2, maxFraction: 2 })}
                             </td>
-                            <td className="px-2 py-2 text-center">
-                              ${subtotal.toFixed(2)}
+                            <td className="px-2 py-2 text-right">
+                              ${fmtPrice(subtotal, { minFraction: 2, maxFraction: 2 })}
                             </td>
                           </tr>
                         );
@@ -712,15 +715,15 @@ function PreventaView({
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
                         <p className="text-sm text-gray-500">Subtotal (sin impuestos)</p>
-                        <p className="text-xl font-semibold">${subtotalSinIVA.toFixed(2)}</p>
+                        <p className="text-xl font-semibold">${fmtPrice(subtotalSinIVA)}</p>
                       </div>
                       <div>
                         <p className="text-sm text-gray-500">Impuestos (IVA)</p>
-                        <p className="text-xl font-semibold">${impuestos.toFixed(2)}</p>
+                        <p className="text-xl font-semibold">${fmtPrice(impuestos)}</p>
                       </div>
                       <div>
                         <p className="text-sm text-gray-500">Total</p>
-                        <p className="text-xl font-semibold">${totalFinal.toFixed(2)}</p>
+                        <p className="text-xl font-semibold">${fmtPrice(totalFinal)}</p>
                       </div>
                     </div>
                   );
@@ -1349,7 +1352,7 @@ function PreventaForm({
                               setProdQ(o.label);
                             }}
                           >
-                            {o.label} — ${o.precio.toFixed(2)}
+                            {o.label} — ${fmtPrice(o.precio, { minFraction: 2, maxFraction: 2 })}
                           </button>
                         ))}
                       </div>
@@ -1440,10 +1443,10 @@ function PreventaForm({
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-3 py-2 text-left">Producto</th>
-                    <th className="px-3 py-2 text-center">Cant. (g)</th>
-                    <th className="px-3 py-2 text-center">Precio</th>
-                    <th className="px-3 py-2 text-center">Desc %</th>
-                    <th className="px-3 py-2 text-center">Total</th>
+                    <th className="px-3 py-2 text-right">Cant. (g)</th>
+                    <th className="px-3 py-2 text-right">Precio</th>
+                    <th className="px-3 py-2 text-right">Desc %</th>
+                    <th className="px-3 py-2 text-right">Total</th>
                     <th className="px-3 py-2 text-center">Acciones</th>
                   </tr>
                 </thead>
@@ -1469,9 +1472,7 @@ function PreventaForm({
                           i.cantidad
                         )}
                       </td>
-                      <td className="px-3 py-2 text-center">
-                        ${i.precio.toFixed(2)}
-                      </td>
+                      <td className="px-3 py-2 text-right">${fmtPrice(i.precio, { minFraction: 2, maxFraction: 2 })}</td>
                       <td className="px-3 py-2 text-center">
                         {isEdit ? (
                           <Input
@@ -1491,13 +1492,8 @@ function PreventaForm({
                           `${i.descuento}%`
                         )}
                       </td>
-                      <td className="px-3 py-2 text-center">
-                        $
-                        {(
-                          i.cantidad *
-                          i.precio *
-                          (1 - (i.descuento || 0) / 100)
-                        ).toFixed(2)}
+                      <td className="px-3 py-2 text-right">
+                        ${fmtPrice(i.cantidad * i.precio * (1 - (i.descuento || 0) / 100), { minFraction: 2, maxFraction: 2 })}
                       </td>
                       <td className="px-3 py-2 text-center">
                         <button

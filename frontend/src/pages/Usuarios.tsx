@@ -1,6 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { useEffect, useState } from "react";
-import { Search, Pencil, Trash, Plus } from "lucide-react";
+import { Search, Pencil, Trash, Plus, X } from "lucide-react";
 import { DataTable } from "../components/DataTable";
 import { api } from "../lib/api";
 
@@ -125,6 +125,9 @@ export default function Usuarios() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
+  const [openFiltros, setOpenFiltros] = useState(false);
+  const [fRolId, setFRolId] = useState<string>("");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const [roles, setRoles] = useState<Rol[]>([]);
   const [form, setForm] = useState({
@@ -150,14 +153,19 @@ export default function Usuarios() {
   }
   useEffect(() => { loadUsers(); loadRoles(); }, []);
 
-  const filtered = q
-    ? rows.filter((r) =>
-        [r.nombre, r.email, r.roles.map((x) => x.nombre).join(" ")]
-          .join(" ")
-          .toLowerCase()
-          .includes(q.toLowerCase())
-      )
-    : rows;
+  const filtered = (() => {
+    const qmatch = (r: Usuario) =>
+      q
+        ? [r.nombre, r.email, r.roles.map((x) => x.nombre).join(" ")]
+            .join(" ")
+            .toLowerCase()
+            .includes(q.toLowerCase())
+        : true;
+    const rmatch = (r: Usuario) => (fRolId ? r.roles.some((x) => String(x.id) === fRolId) : true);
+    const base = rows.filter((r) => qmatch(r) && rmatch(r));
+    const dir = sortDir === "asc" ? 1 : -1;
+    return base.sort((a, b) => a.nombre.localeCompare(b.nombre) * dir);
+  })();
 
   // create or update
   async function handleSubmit(e: React.FormEvent) {
@@ -225,37 +233,79 @@ export default function Usuarios() {
 
   return (
     <section className="space-y-4">
+      {/* Título + botón Nuevo */}
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Usuarios</h1>
-        <div className="flex items-center gap-2">
-          <div className="relative w-64">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-            <input
-              className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
-              placeholder="Buscar"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
-          <button
-            onClick={() => {
-              setEditId(null);
-              setForm({ nombreUsuario: "", emailUsuario: "", contrasenaUsuario: "", idRol: "" });
-              setComentarioRol("");
-              setOpen(true);
-            }}
-            className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Nuevo</span>
-          </button>
+        <button
+          onClick={() => {
+            setEditId(null);
+            setForm({ nombreUsuario: "", emailUsuario: "", contrasenaUsuario: "", idRol: "" });
+            setComentarioRol("");
+            setOpen(true);
+          }}
+          className="inline-flex items-center gap-2 rounded-lg bg-black text-white px-3 py-2"
+        >
+          <Plus className="h-4 w-4" />
+          <span>Nuevo usuario</span>
+        </button>
+      </div>
+
+      {/* Buscador + botón Filtros + contador */}
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <div className="relative w-64 sm:w-72 md:w-80 lg:w-96 xl:w-[32rem] flex-1 min-w-[14rem]">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+          <input
+            className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
+            placeholder="Buscar por nombre, email o rol…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if ((e as React.KeyboardEvent<HTMLInputElement>).key === "Escape") setQ(""); }}
+          />
         </div>
+        <button className="rounded border px-3 py-2" onClick={() => setOpenFiltros(true)}>Filtros</button>
+        <span className="ml-auto text-xs text-gray-600">{`Mostrando ${filtered.length === 0 ? 0 : 1}–${filtered.length} de ${filtered.length}`}</span>
       </div>
 
       {loading ? (
         <div className="rounded-xl border bg-white p-6 text-sm">Cargando…</div>
       ) : (
         <DataTable columns={columns} data={filtered} />
+      )}
+
+      {/* Popup de filtros */}
+      {openFiltros && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg md:max-w-xl lg:max-w-2xl">
+            <div className="flex items-center justify-between border-b px-4 py-2">
+              <h2 className="text-sm font-medium">Filtros de Usuarios</h2>
+              <button className="rounded border px-2 py-1 text-xs" onClick={() => setOpenFiltros(false)}>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600">Rol</span>
+                <select className="rounded border px-2 py-1" value={fRolId} onChange={(e) => setFRolId(e.target.value)}>
+                  <option value="">Todos</option>
+                  {roles.map((r) => (
+                    <option key={r.id} value={String(r.id)}>{r.nombre}</option>
+                  ))}
+                </select>
+                <span className="text-gray-600 ml-auto">Orden</span>
+                <select className="rounded border px-2 py-1" value={sortDir} onChange={(e) => setSortDir(e.target.value as any)}>
+                  <option value="asc">Ascendente</option>
+                  <option value="desc">Descendente</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+              <button className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm" onClick={() => { setFRolId(""); setSortDir("asc"); setQ(""); }}>
+                <X className="h-3.5 w-3.5" /> Borrar filtros
+              </button>
+              <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenFiltros(false)}>Cerrar</button>
+            </div>
+          </div>
+        </div>
       )}
 
       <NuevoUsuarioModal

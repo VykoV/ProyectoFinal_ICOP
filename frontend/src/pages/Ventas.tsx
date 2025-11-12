@@ -4,6 +4,7 @@ import { DataTable } from "../components/DataTable";
 import { Search, Eye, Plus, X } from "lucide-react";
 import { Label, Input } from "../components/ui/Form";
 import { api } from "../lib/api";
+import { fmtPrice } from "../lib/format";
 
 /* Tipos base */
 type VentaRow = {
@@ -312,7 +313,9 @@ setPreRows(
     },
     {
       header: "Total",
-      cell: ({ row }) => `$${row.original.total.toFixed(2)}`,
+      cell: ({ row }) => (
+        <span className="block text-right">${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}</span>
+      ),
     },
     {
       header: "Acciones",
@@ -366,7 +369,9 @@ setPreRows(
 
     {
       header: "Total",
-      cell: ({ row }) => `$${row.original.total.toFixed(2)}`,
+      cell: ({ row }) => (
+        <span className="block text-right">${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}</span>
+      ),
     },
     {
       header: "Acciones",
@@ -900,16 +905,16 @@ function VentaPopup({ onClose }: { onClose: () => void }) {
                 Este popup se conectará al backend después.
               </p>
               <p>
-                Subtotal sin impuestos: {moneda} ${subtotal.toFixed(2)}
+                Subtotal sin impuestos: {moneda} ${fmtPrice(subtotal)}
               </p>
               <p>
-                Impuestos: {moneda} ${impuestos.toFixed(2)}
+                Impuestos: {moneda} ${fmtPrice(impuestos)}
               </p>
               <p>
-                Total final: {moneda} ${totalFinal.toFixed(2)}
+                Total final: {moneda} ${fmtPrice(totalFinal)}
               </p>
               <p className="text-xs text-gray-500">
-                Descuentos totales: ${descuentosTotales.toFixed(2)}
+                Descuentos totales: ${fmtPrice(descuentosTotales)}
               </p>
             </div>
 
@@ -1102,9 +1107,9 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                   <thead className="bg-gray-50 text-gray-500">
                     <tr>
                       <th className="px-2 py-2 text-left">Producto</th>
-                      <th className="px-2 py-2 text-center">Cant.</th>
-                      <th className="px-2 py-2 text-center">P.Unit.</th>
-                      <th className="px-2 py-2 text-center">Subtotal</th>
+                      <th className="px-2 py-2 text-right">Cant.</th>
+                      <th className="px-2 py-2 text-right">P.Unit.</th>
+                      <th className="px-2 py-2 text-right">Subtotal</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1130,12 +1135,12 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                               {d.Producto?.codigoProducto ?? ""} —{" "}
                               {d.Producto?.nombreProducto ?? ""}
                             </td>
-                            <td className="px-2 py-2 text-center">{cant}</td>
-                            <td className="px-2 py-2 text-center">
-                              ${pu.toFixed(2)}
+                            <td className="px-2 py-2 text-right">{cant}</td>
+                            <td className="px-2 py-2 text-right">
+                              ${fmtPrice(pu, { minFraction: 2, maxFraction: 2 })}
                             </td>
-                            <td className="px-2 py-2 text-center">
-                              ${subtotal.toFixed(2)}
+                            <td className="px-2 py-2 text-right">
+                              ${fmtPrice(subtotal, { minFraction: 2, maxFraction: 2 })}
                             </td>
                           </tr>
                         );
@@ -1691,12 +1696,8 @@ function ValidarPreventaModal({
                                     cant
                                   )}
                                 </td>
-                                <td className="px-3 py-2 text-right">
-                                  ${pUnit.toFixed(2)}
-                                </td>
-                                <td className="px-3 py-2 text-right">
-                                  ${tot.toFixed(2)}
-                                </td>
+                                <td className="px-3 py-2 text-right">${fmtPrice(pUnit, { minFraction: 2, maxFraction: 2 })}</td>
+                                <td className="px-3 py-2 text-right">${fmtPrice(tot, { minFraction: 2, maxFraction: 2 })}</td>
                                 {canSave && (
                                   <td className="px-3 py-2 text-right">
                                     <button
@@ -1722,32 +1723,32 @@ function ValidarPreventaModal({
                 <div className="rounded border bg-gray-50 p-3 text-xs text-gray-700 space-y-2">
                   <div className="flex justify-between">
                     <span>Subtotal (sin impuestos)</span>
-                    <span>${Number(subtotalSinIVA).toFixed(2)}</span>
+                    <span className="text-right">${fmtPrice(Number(subtotalSinIVA), { minFraction: 2, maxFraction: 2 })}</span>
                   </div>
 
                   <div className="flex justify-between">
                     <span>Impuestos (IVA)</span>
-                    <span>${Number(impuestos).toFixed(2)}</span>
+                    <span className="text-right">${fmtPrice(Number(impuestos), { minFraction: 2, maxFraction: 2 })}</span>
                   </div>
 
                   <div className="flex justify-between">
                     <span>Descuento general (%)</span>
-                    <span>{Number(descuentoGeneral)}%</span>
+                    <span className="text-right">{Number(descuentoGeneral)}%</span>
                   </div>
 
                   <div className="flex justify-between">
                     <span>Ajuste (+ / -)</span>
-                    <span>${Number(ajuste).toFixed(2)}</span>
+                    <span className="text-right">${fmtPrice(Number(ajuste), { minFraction: 2, maxFraction: 2 })}</span>
                   </div>
 
                   <div className="flex justify-between">
                     <span>Recargo crédito / QR</span>
-                    <span>${Number(recargoPago).toFixed(2)}</span>
+                    <span className="text-right">${fmtPrice(Number(recargoPago), { minFraction: 2, maxFraction: 2 })}</span>
                   </div>
 
                   <div className="flex justify-between font-semibold">
                     <span>Total final</span>
-                    <span>${Number(totalConAjustes).toFixed(2)}</span>
+                    <span className="text-right">${fmtPrice(Number(totalConAjustes), { minFraction: 2, maxFraction: 2 })}</span>
                   </div>
 
                   <div className="flex justify-between">
