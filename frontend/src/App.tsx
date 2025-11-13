@@ -9,6 +9,7 @@ import ProveedorProductos from "./pages/ProveedorProductos";
 import NotFound from "./pages/NotFound";
 import Ventas from "./pages/Ventas";
 import PreVentas from "./pages/PreVentas";
+import Monedas from "./pages/Monedas";
 import Usuarios from "./pages/Usuarios";
 import Compras from "./pages/Compras";
 import Estadisticas from "./pages/Estadisticas";
@@ -43,6 +44,10 @@ export default function App() {
                     <Route path="/clientes" element={<Clientes />} />
                     <Route path="/ventas" element={<Ventas />} />
                     <Route path="/pre-ventas" element={<PreVentas />} />
+                    {/* rutas solo administrador */}
+                    <Route element={<AdminRoute />}>
+                      <Route path="/monedas" element={<Monedas />} />
+                    </Route>
                     <Route path="/usuarios" element={<Usuarios />} />
 
                     {/* estadísticas solo administrador */}

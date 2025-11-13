@@ -5,6 +5,8 @@ import { Search, Eye, Plus, X } from "lucide-react";
 import { Label, Input } from "../components/ui/Form";
 import { api } from "../lib/api";
 import { fmtPrice } from "../lib/format";
+import Modal from "../components/Modal";
+import { getProductStock } from "../lib/api/products";
 
 /* Tipos base */
 type VentaRow = {
@@ -1417,6 +1419,54 @@ function ValidarPreventaModal({
   const subtotalSinIVA = totalConAjustes / (1 + IVA);
   const impuestos = totalConAjustes - subtotalSinIVA;
 
+  // Stock modal state (apertura manual desde "Productos cargados")
+  const [openStock, setOpenStock] = useState(false);
+  const [stockLoading, setStockLoading] = useState(false);
+  const [stockError, setStockError] = useState<string | null>(null);
+  const [stockData, setStockData] = useState<{
+    idProducto: number;
+    nombre: string;
+    real: number;
+    comprometido: number;
+    minimo: number;
+    actualizadoEn: string | null;
+  }[]>([]);
+
+  async function openStockForLoadedProducts() {
+    const detalles = venta?.detalles ?? [];
+    setStockError(null);
+    setStockLoading(true);
+    setOpenStock(true);
+    try {
+      const list = await Promise.all(
+        (Array.isArray(detalles) ? detalles : []).map(async (d: any) => {
+          const idProd = Number(d.idProducto ?? d.Producto?.idProducto);
+          if (!idProd) return null;
+          const nombre =
+            d.Producto?.nombreProducto ||
+            d.Producto?.codigoProducto ||
+            String(idProd);
+          const s = await getProductStock(idProd);
+          return {
+            idProducto: idProd,
+            nombre,
+            real: s.real,
+            comprometido: s.comprometido,
+            minimo: s.minimo,
+            actualizadoEn: s.actualizadoEn ?? null,
+          };
+        })
+      );
+      setStockData(list.filter(Boolean) as any);
+    } catch (e: any) {
+      setStockError(
+        e?.response?.data?.error || e?.message || "No se pudo leer stock"
+      );
+    } finally {
+      setStockLoading(false);
+    }
+  }
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
@@ -1600,10 +1650,62 @@ function ValidarPreventaModal({
                   </div>
                 </div>
 
+                {/* Modal de Stock al cargar productos */}
+                <Modal
+                  open={openStock}
+                  title="Stock de productos cargados"
+                  centered
+                  onClose={() => setOpenStock(false)}
+                >
+                  <div className="space-y-3 text-sm">
+                    {stockLoading ? (
+                      <div className="text-gray-600">Cargando stock…</div>
+                    ) : stockError ? (
+                      <div className="text-red-700">{stockError}</div>
+                    ) : stockData.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {stockData.map((s) => (
+                          <div key={s.idProducto} className="rounded-xl border bg-white p-3">
+                            <p className="text-gray-700 text-sm font-medium mb-2">{s.nombre}</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <p className="text-gray-500 text-xs">Real</p>
+                                <p className="font-medium">{fmtPrice(s.real, { minFraction: 2, maxFraction: 2 })} g</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500 text-xs">Comprometido</p>
+                                <p className="font-medium">{fmtPrice(s.comprometido, { minFraction: 2, maxFraction: 2 })} g</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500 text-xs">Mínimo</p>
+                                <p className="font-medium">{fmtPrice(s.minimo, { minFraction: 2, maxFraction: 2 })} g</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500 text-xs">Actualizado</p>
+                                <p className="font-medium">{s.actualizadoEn ? new Date(s.actualizadoEn).toLocaleString() : "-"}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-gray-600">Sin datos de stock</div>
+                    )}
+                  </div>
+                </Modal>
+
                 {/* Productos cargados */}
                 <div className="rounded border">
-                  <div className="border-b bg-gray-50 px-3 py-2 text-sm font-medium">
-                    Productos cargados
+                  <div className="border-b bg-gray-50 px-3 py-2 text-sm font-medium flex items-center justify-between">
+                    <span>Productos cargados</span>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                      onClick={openStockForLoadedProducts}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      <span>Ver stock</span>
+                    </button>
                   </div>
 
                   <div className="overflow-x-auto">

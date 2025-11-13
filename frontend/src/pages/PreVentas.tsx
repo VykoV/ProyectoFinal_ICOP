@@ -5,6 +5,8 @@ import { DataTable } from "../components/DataTable";
 import { Label, Input, Select } from "../components/ui/Form";
 import { api } from "../lib/api";
 import { fmtPrice } from "../lib/format";
+import Modal from "../components/Modal";
+import { getProductStock } from "../lib/api/products";
 
 /* ===== Tipos ===== */
 type PreRow = {
@@ -40,6 +42,7 @@ export default function PreVentas() {
   const [openForm, setOpenForm] = useState<null | number>(null);
   const [openView, setOpenView] = useState<null | number>(null);
   const [openFiltros, setOpenFiltros] = useState(false);
+  const [soloVencidas, setSoloVencidas] = useState(false);
 
   function normEstado(raw: string): "pendiente" | "listocaja" | "finalizada" | "cancelada" | "otro" {
     const n = String(raw || "").toLowerCase().replace(/[\s_]+/g, "");
@@ -94,9 +97,9 @@ export default function PreVentas() {
   async function load(query?: string) {
     setLoading(true);
     try {
-      const { data } = await api.get("/preventas", {
-        params: { ...(query ? { q: query } : {}) },
-      });
+      const { data } = soloVencidas
+        ? await api.get("/preventas/reservas-vencidas")
+        : await api.get("/preventas", { params: { ...(query ? { q: query } : {}) } });
       setRows(
         (data ?? [])
           .map((v: any) => ({
@@ -129,7 +132,7 @@ export default function PreVentas() {
   useEffect(() => {
     const t = setTimeout(() => load(q), 350);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, soloVencidas]);
   useEffect(() => {
     writeParams();
   }, [q]);
@@ -340,6 +343,17 @@ export default function PreVentas() {
                   }}
                 />
               </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={soloVencidas}
+                  onChange={(e) => {
+                    setSoloVencidas(e.target.checked);
+                    setPage(1);
+                  }}
+                />
+                Solo reservas vencidas
+              </label>
               
             </div>
             <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
@@ -350,6 +364,7 @@ export default function PreVentas() {
                   setPreDesde("");
                   setPreHasta("");
                   setPreSort("desc");
+                  setSoloVencidas(false);
                   setPage(1);
                 }}
               >
@@ -451,6 +466,7 @@ function PreventaView({
   >([]);
   const [loadingVenta, setLoadingVenta] = useState(true);
   const [loadingHist, setLoadingHist] = useState(true);
+  const now = new Date();
 
   async function loadVenta() {
     setLoadingVenta(true);
@@ -496,6 +512,16 @@ function PreventaView({
     (venta?.EstadoVenta?.nombreEstadoVenta ?? "")
       .toLowerCase()
       .replace(/[\s_]+/g, "") === "pendiente";
+
+  const reservaVencida = (() => {
+    try {
+      if (!isEditable) return false;
+      if (!venta?.fechaReservaLimite) return false;
+      return new Date(venta.fechaReservaLimite).getTime() < now.getTime();
+    } catch {
+      return false;
+    }
+  })();
 
   // 3. Handler para cerrar edición (lock -> ListoCaja)
   async function terminarEdicion() {
@@ -567,6 +593,15 @@ function PreventaView({
                     <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
                       Estado: {estadoStr}
                     </span>
+                    {venta?.fechaReservaLimite ? (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${reservaVencida ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"}`}>
+                        Reserva hasta: {new Date(venta.fechaReservaLimite).toLocaleString()}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-gray-100 text-gray-700">
+                        Sin reserva
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -803,6 +838,44 @@ function PreventaForm({
   id?: number;
   onClose: (reload?: boolean) => void;
 }) {
+  // Estado para modal de stock de producto
+  const [openStock, setOpenStock] = useState(false);
+  const [stockLoading, setStockLoading] = useState(false);
+  const [stockError, setStockError] = useState<string | null>(null);
+  const [stockData, setStockData] = useState<{
+    idProducto: number;
+    nombre: string;
+    real: number;
+    comprometido: number;
+    minimo: number;
+    actualizadoEn: string | null;
+  }[]>([]);
+
+  async function openStockForLoadedProducts() {
+    setStockError(null);
+    setStockLoading(true);
+    setOpenStock(true);
+    try {
+      const list = await Promise.all(
+        items.map(async (i) => {
+          const s = await getProductStock(i.idProducto);
+          return {
+            idProducto: i.idProducto,
+            nombre: i.nombre,
+            real: s.real,
+            comprometido: s.comprometido,
+            minimo: s.minimo,
+            actualizadoEn: s.actualizadoEn ?? null,
+          };
+        })
+      );
+      setStockData(list);
+    } catch (e: any) {
+      setStockError(e?.response?.data?.error || e?.message || "No se pudo leer stock");
+    } finally {
+      setStockLoading(false);
+    }
+  }
   const isEdit = !!id;
 
   // tipos de pago
@@ -826,6 +899,9 @@ function PreventaForm({
   // observaciones
   const [obs, setObs] = useState<string>("");
 
+  // reserva hasta (fecha/hora límite de reserva)
+  const [reservaHasta, setReservaHasta] = useState<string>("");
+
   // fecha de facturación = hoy fija
   const todayStr = (() => {
     const d = new Date();
@@ -847,6 +923,53 @@ function PreventaForm({
 
   // items agregados
   const [items, setItems] = useState<Item[]>([]);
+
+  // Indicador de stock bajo (real - comprometido < minimo)
+  const [lowStock, setLowStock] = useState<Record<number, "none" | "orange" | "red">>({});
+  useEffect(() => {
+    let canceled = false;
+    const ids = Array.from(new Set(items.map((i) => i.idProducto)));
+    if (ids.length === 0) {
+      setLowStock({});
+      return;
+    }
+    (async () => {
+      try {
+        const list = await Promise.allSettled(
+          ids.map(async (idP) => {
+            const s = await getProductStock(idP);
+            const disponible = Number(s.real || 0) - Number(s.comprometido || 0);
+            // máximo solicitado para este producto entre las líneas cargadas
+            const maxSolicitada = Math.max(
+              0,
+              ...items
+                .filter((it) => it.idProducto === idP)
+                .map((it) => Number(it.cantidad || 0))
+            );
+            const minimo = Number(s.minimo || 0);
+            const belowMin = disponible < minimo;
+            const atOrBelowMin = disponible <= minimo;
+            const belowRequested = disponible < maxSolicitada;
+            const status: "none" | "orange" | "red" =
+              belowMin || belowRequested ? "red" : atOrBelowMin ? "orange" : "none";
+            return { id: idP, status };
+          })
+        );
+        if (!canceled) {
+          const map: Record<number, "none" | "orange" | "red"> = {};
+          for (const r of list) {
+            if (r.status === "fulfilled") map[r.value.id] = r.value.status;
+          }
+          setLowStock(map);
+        }
+      } catch {
+        // Ignorar errores
+      }
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, [items]);
 
   // recargo visible si método de pago es qr o crédito
   const tieneRecargoMP = (() => {
@@ -969,6 +1092,19 @@ function PreventaForm({
 
       if (data?.porcentajeMetodo != null) {
         setPorcentajeMP(Number(data.porcentajeMetodo) || 0);
+      }
+
+      // fechaReservaLimite viene como ISO; normalizamos a input datetime-local (sin segundos)
+      if (data?.fechaReservaLimite) {
+        const dt = new Date(data.fechaReservaLimite);
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, "0");
+        const d = String(dt.getDate()).padStart(2, "0");
+        const hh = String(dt.getHours()).padStart(2, "0");
+        const mm = String(dt.getMinutes()).padStart(2, "0");
+        setReservaHasta(`${y}-${m}-${d}T${hh}:${mm}`);
+      } else {
+        setReservaHasta("");
       }
 
       if (Array.isArray(data?.detalles)) {
@@ -1164,8 +1300,21 @@ function PreventaForm({
         };
 
     try {
-      if (isEdit) await api.put(`/preventas/${id}`, payload);
-      else await api.post("/preventas", payload);
+      if (isEdit) {
+        await api.put(`/preventas/${id}`, payload);
+        // actualizar reserva si corresponde (permite limpiar si vacío)
+        await api.put(`/preventas/${id}/reserva`, {
+          fechaReservaLimite: reservaHasta || null,
+        });
+      } else {
+        const { data } = await api.post("/preventas", payload);
+        const newId = Number(data?.idVenta ?? data?.id ?? 0);
+        if (newId && reservaHasta) {
+          await api.put(`/preventas/${newId}/reserva`, {
+            fechaReservaLimite: reservaHasta,
+          });
+        }
+      }
       onClose(true);
     } catch (err: any) {
       const msg =
@@ -1202,12 +1351,12 @@ function PreventaForm({
             className="p-4 overflow-auto flex-1 space-y-6"
           >
             {/* === Datos de la operación === */}
-            <div className="rounded-2xl border bg-white p-4 space-y-4">
-              <h4 className="text-sm font-medium text-gray-700">
-                Datos de la operación
-              </h4>
+          <div className="rounded-2xl border bg-white p-4 space-y-4">
+            <h4 className="text-sm font-medium text-gray-700">
+              Datos de la operación
+            </h4>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 {/* Cliente */}
                 <div className="lg:col-span-1">
                   <Label htmlFor="clienteSearch">Cliente</Label>
@@ -1287,6 +1436,17 @@ function PreventaForm({
                   />
                 </div>
 
+                {/* Reserva hasta */}
+                <div className="lg:col-span-1">
+                  <Label htmlFor="fRes">Reserva hasta</Label>
+                  <Input
+                    id="fRes"
+                    type="datetime-local"
+                    value={reservaHasta}
+                    onChange={(e) => setReservaHasta(e.target.value)}
+                  />
+                </div>
+
                 {/* Recargo (QR o Crédito). Aparece debajo */}
                 {tieneRecargoMP && (
                   <div className="lg:col-span-1">
@@ -1325,40 +1485,41 @@ function PreventaForm({
                 Agregar producto
               </h4>
 
-              <div className="grid grid-cols-1 md:grid-cols-20 gap-3">
-                {/* Producto */}
-                <div className="md:col-span-10">
-                  <Label htmlFor="productoSearch" className="mb-1 block">
-                    Producto
-                  </Label>
-                  <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
-                    <input
-                      id="productoSearch"
-                      className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
-                      placeholder="Buscar producto"
-                      value={prodQ}
-                      onChange={(e) => setProdQ(e.target.value)}
-                    />
-                    {prodQ && prodOpts.length > 0 && (
-                      <div className="absolute z-10 mt-1 w-full max-h-64 overflow-auto rounded-md border bg-white shadow">
-                        {prodOpts.map((o) => (
-                          <button
-                            key={o.id}
-                            type="button"
-                            className="block w-full text-left px-2 py-1 hover:bg-gray-50 text-sm"
-                            onClick={() => {
-                              pickProduct(o);
-                              setProdQ(o.label);
-                            }}
-                          >
-                            {o.label} — ${fmtPrice(o.precio, { minFraction: 2, maxFraction: 2 })}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+            <div className="grid grid-cols-1 md:grid-cols-20 gap-3">
+              {/* Producto */}
+              <div className="md:col-span-10">
+                <Label htmlFor="productoSearch" className="mb-1 block">
+                  Producto
+                </Label>
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
+                  <input
+                    id="productoSearch"
+                    className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
+                    placeholder="Buscar producto"
+                    value={prodQ}
+                    onChange={(e) => setProdQ(e.target.value)}
+                  />
+                  {prodQ && prodOpts.length > 0 && (
+                    <div className="absolute z-10 mt-1 w-full max-h-64 overflow-auto rounded-md border bg-white shadow">
+                      {prodOpts.map((o) => (
+                        <button
+                          key={o.id}
+                          type="button"
+                          className="block w-full text-left px-2 py-1 hover:bg-gray-50 text-sm"
+                          onClick={() => {
+                            pickProduct(o);
+                            setProdQ(o.label);
+                          }}
+                        >
+                          {o.label} — ${fmtPrice(o.precio, { minFraction: 2, maxFraction: 2 })}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
+                {prodSel && null}
+              </div>
 
                 {/* Cantidad */}
                 <div className="md:col-span-3">
@@ -1428,9 +1589,16 @@ function PreventaForm({
 
             {/* === Tabla productos === */}
             <div className="rounded-2xl border bg-white p-4">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">
-                Productos cargados
-              </h4>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-medium text-gray-700">Productos cargados</h4>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                  onClick={openStockForLoadedProducts}
+                >
+                  <Eye className="h-3.5 w-3.5" /> Ver stock
+                </button>
+              </div>
               <table className="w-full table-fixed text-sm">
                 <colgroup>
                   <col style={{ width: "40%" }} />
@@ -1453,7 +1621,26 @@ function PreventaForm({
                 <tbody>
                   {items.map((i, idx) => (
                     <tr key={`${i.idProducto}-${idx}`} className="border-t">
-                      <td className="px-3 py-2">{i.nombre}</td>
+                      <td className="px-3 py-2">
+                        {i.nombre}
+                        {lowStock[i.idProducto] && lowStock[i.idProducto] !== "none" && (
+                          <span
+                            title={
+                              lowStock[i.idProducto] === "red"
+                                ? "Stock crítico"
+                                : "Stock bajo (umbral mínimo)"
+                            }
+                            className={
+                              "ml-2 inline-flex items-center justify-center rounded-full text-xs font-bold w-4 h-4 align-middle " +
+                              (lowStock[i.idProducto] === "red"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-orange-100 text-orange-700")
+                            }
+                          >
+                            !
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-center">
                         {isEdit ? (
                           <Input
@@ -1589,6 +1776,50 @@ function PreventaForm({
               </div>
 
               <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t">
+                {/* Modal de Stock de productos cargados */}
+                <Modal
+                  open={openStock}
+                  title="Stock de productos cargados"
+                  onClose={() => setOpenStock(false)}
+                  centered
+                >
+                  <div className="space-y-3 text-sm">
+                    {stockLoading ? (
+                      <div className="text-gray-600">Cargando stock…</div>
+                    ) : stockError ? (
+                      <div className="text-red-700">{stockError}</div>
+                    ) : stockData.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {stockData.map((s) => (
+                          <div key={s.idProducto} className="rounded-xl border bg-white p-3">
+                            <p className="text-gray-700 text-sm font-medium mb-2">{s.nombre}</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <p className="text-gray-500 text-xs">Real</p>
+                                <p className="font-medium">{fmtPrice(s.real, { minFraction: 2, maxFraction: 2 })} g</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500 text-xs">Comprometido</p>
+                                <p className="font-medium">{fmtPrice(s.comprometido, { minFraction: 2, maxFraction: 2 })} g</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500 text-xs">Mínimo</p>
+                                <p className="font-medium">{fmtPrice(s.minimo, { minFraction: 2, maxFraction: 2 })} g</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500 text-xs">Actualizado</p>
+                                <p className="font-medium">{s.actualizadoEn ? new Date(s.actualizadoEn).toLocaleString() : "-"}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-gray-600">Sin datos de stock</div>
+                    )}
+                  </div>
+                </Modal>
+
                 <button
                   type="button"
                   onClick={() => onClose()}

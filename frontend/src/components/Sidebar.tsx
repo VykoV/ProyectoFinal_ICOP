@@ -8,6 +8,7 @@ import {
   ClipboardList,
   ShoppingBag,
   BarChart3,
+  Coins,
 } from "lucide-react";
 import { useUI } from "../store/ui";
 import { useAuth } from "../context/AuthContext";
@@ -17,6 +18,7 @@ const items = [
   { to: "/ventas", icon: ShoppingCart, label: "Ventas" },
   { to: "/pre-ventas", icon: ClipboardList, label: "Presupuestos" },
   { to: "/compras", icon: ShoppingBag, label: "Compras" },
+  { to: "/monedas", icon: Coins, label: "Monedas" },
   { to: "/productos", icon: Boxes, label: "Productos" },
   { to: "/clientes", icon: Users, label: "Clientes" },
   { to: "/proveedores", icon: Factory, label: "Proveedores" },
@@ -34,6 +36,7 @@ export default function Sidebar() {
       "/usuarios",
       "/proveedores",
       "/compras",
+      "/monedas",
       "/ventas",
       "/dashboard",
       "/estadisticas",
@@ -44,6 +47,7 @@ export default function Sidebar() {
       "/usuarios",
       "/proveedores",
       "/compras",
+      "/monedas",
       "/pre-ventas",
       "/estadisticas",
     ].forEach((r) => blocked.add(r));

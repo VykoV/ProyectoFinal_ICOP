@@ -1,4 +1,5 @@
 import express, { Request, Response, NextFunction } from "express";
+import "./jobs/cron";
 import cors from "cors";
 import session from "express-session";
 import pgSession from "connect-pg-simple";
@@ -260,12 +261,20 @@ app.get("/api/products/:id/stock", async (req, res) => {
   const id = Number(req.params.id);
   try {
     const s = await prisma.stock.findFirst({ where: { idProducto: id } });
-    if (!s) return res.status(404).json({ error: "STOCK_NOT_FOUND" });
+    // Si no hay fila de stock, devolver valores por defecto en vez de 404
+    if (!s) {
+      return res.json({
+        real: 0,
+        comprometido: 0,
+        minimo: 0,
+        actualizadoEn: null,
+      });
+    }
     res.json({
-      real: Number(s.cantidadRealStock),
-      comprometido: Number(s.stockComprometido),
-      minimo: Number(s.bajoMinimoStock),
-      actualizadoEn: s.ultimaModificacionStock,
+      real: Number(s.cantidadRealStock || 0),
+      comprometido: Number(s.stockComprometido || 0),
+      minimo: Number(s.bajoMinimoStock || 0),
+      actualizadoEn: s.ultimaModificacionStock ?? null,
     });
   } catch (e) {
     console.error(e);
@@ -1611,6 +1620,49 @@ app.delete("/api/preventas/:id", async (req, res) => {
   }
 });
 
+// Reserva PREVENTA: actualizar fecha límite de reserva
+app.put("/api/preventas/:id/reserva", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { fechaReservaLimite } = req.body ?? {};
+    const data = {
+      fechaReservaLimite: fechaReservaLimite ? new Date(fechaReservaLimite) : null,
+    };
+    const pv = await prisma.venta.update({ where: { idVenta: id }, data });
+    res.json(pv);
+  } catch (err) {
+    console.error("PUT /api/preventas/:id/reserva error", err);
+    res.status(500).json({ error: "SERVER_ERROR" });
+  }
+});
+
+// Listado de PREVENTAS con reserva vencida
+app.get("/api/preventas/reservas-vencidas", requireAuth, async (_req, res) => {
+  try {
+    // obtener id del estado 'Pendiente'
+    const estados = await prisma.estadoVenta.findMany({
+      select: { idEstadoVenta: true, nombreEstadoVenta: true },
+    });
+    const pendiente = estados.find(
+      e => e.nombreEstadoVenta.toLowerCase() === "pendiente"
+    )?.idEstadoVenta;
+    if (!pendiente) return res.json([]);
+
+    const rows = await prisma.venta.findMany({
+      where: {
+        idEstadoVenta: pendiente,
+        fechaReservaLimite: { not: null, lt: new Date() },
+      },
+      orderBy: { fechaVenta: "asc" },
+      include: { Cliente: true, TipoPago: true, EstadoVenta: true },
+    });
+    res.json(rows);
+  } catch (err) {
+    console.error("GET /api/preventas/reservas-vencidas error", err);
+    res.status(500).json({ error: "SERVER_ERROR" });
+  }
+});
+
 // Ventas: listar solo Finalizadas o Canceladas
 app.get("/api/ventas", async (req, res) => {
   const q = String(req.query.q ?? "").trim().toLowerCase();
@@ -1729,11 +1781,104 @@ app.get("/api/metodos-pago", async (_req, res) => {
 // lista monedas
 app.get("/api/monedas", async (_req, res) => {
   const rows = await prisma.moneda.findMany({
-    select: { idMoneda: true, moneda: true, precio: true },
+    select: { idMoneda: true, moneda: true, precio: true, updatedAt: true },
     orderBy: { moneda: "asc" },
   });
-  res.json(rows.map(r => ({ idMoneda: r.idMoneda, moneda: r.moneda, precio: Number(r.precio) })));
+  res.json(
+    rows.map(r => ({
+      idMoneda: r.idMoneda,
+      moneda: r.moneda,
+      precio: Number(r.precio),
+      updatedAt: r.updatedAt,
+    }))
+  );
 });
+
+// Crear moneda (Admin)
+app.post(
+  "/api/monedas",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
+    try {
+      const { moneda, precio } = req.body ?? {};
+      if (!moneda || precio === undefined || precio === null) {
+        return res.status(400).json({ error: "FALTAN_DATOS" });
+      }
+      const row = await prisma.moneda.create({
+        data: { moneda: String(moneda), precio: new Prisma.Decimal(Number(precio)) },
+      });
+      res.status(201).json({
+        idMoneda: row.idMoneda,
+        moneda: row.moneda,
+        precio: Number(row.precio),
+        updatedAt: row.updatedAt,
+      });
+    } catch (err) {
+      console.error("POST /api/monedas error", err);
+      res.status(500).json({ error: "SERVER_ERROR" });
+    }
+  }
+);
+
+// Actualizar precio moneda (Admin)
+app.put(
+  "/api/monedas/:id",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { precio, moneda } = req.body ?? {};
+      if (!id) {
+        return res.status(400).json({ error: "FALTAN_DATOS" });
+      }
+      const data: { precio?: Prisma.Decimal; moneda?: string } = {};
+      if (precio !== undefined && precio !== null) {
+        data.precio = new Prisma.Decimal(Number(precio));
+      }
+      if (typeof moneda === "string" && moneda.trim().length > 0) {
+        data.moneda = String(moneda).trim();
+      }
+      if (!data.precio && !data.moneda) {
+        return res.status(400).json({ error: "FALTAN_DATOS" });
+      }
+      const row = await prisma.moneda.update({ where: { idMoneda: id }, data });
+      res.json({
+        idMoneda: row.idMoneda,
+        moneda: row.moneda,
+        precio: Number(row.precio),
+        updatedAt: row.updatedAt,
+      });
+    } catch (err) {
+      console.error("PUT /api/monedas/:id error", err);
+      res.status(500).json({ error: "SERVER_ERROR" });
+    }
+  }
+);
+
+// Eliminar moneda (Admin)
+app.delete(
+  "/api/monedas/:id",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!id) {
+        return res.status(400).json({ error: "FALTAN_DATOS" });
+      }
+      await prisma.moneda.delete({ where: { idMoneda: id } });
+      res.status(204).end();
+    } catch (err: any) {
+      if (err?.code === "P2025") {
+        return res.status(404).json({ error: "NO_ENCONTRADO" });
+      }
+      console.error("DELETE /api/monedas/:id error", err);
+      res.status(500).json({ error: "SERVER_ERROR" });
+    }
+  }
+);
 
 /* ---- montar router ---- */
 app.use("/api", api);
