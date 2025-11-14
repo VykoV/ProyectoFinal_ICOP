@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "../components/DataTable";
 import { Label, Input, FieldError, Select } from "../components/ui/Form";
-import { Search, Plus, Pencil, Trash, X, Eye } from "lucide-react";
+import { toast } from "react-hot-toast";
+import { askConfirm, showAlert } from "../lib/alerts";
+import { Search, Plus, Pencil, Trash, X, Eye, Phone, Mail, Info } from "lucide-react";
 import { useForm, type SubmitHandler } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -32,7 +34,7 @@ const schema = z.object({
     .refine(v => !v || /^\d{2}-?\d{8}-?\d$/.test(v), "CUIL/CUIT inválido"),
   nombre: z.string().min(1, "Requerido"),
   apellido: z.string().min(1, "Requerido"),
-  email: z.string().email("Email inválido").optional().or(z.literal("")),
+  email: z.string().trim().min(1, "Requerido").email("Email inválido"),
   telefono: z.string().optional(),
   observacion: z.string().optional(),
   tipoId: z.string().optional(),
@@ -85,8 +87,25 @@ export default function Clientes() {
   } finally {
     setLoading(false);
   }
-}
+  }
 
+  async function confirmDelete(id: number, nombre?: string, apellido?: string) {
+    const ok = await askConfirm({
+      title: "¿Quiere eliminar cliente?",
+      message: nombre || apellido ? `${apellido ?? ""}, ${nombre ?? ""}`.trim() : "",
+      confirmText: "Sí",
+      cancelText: "No",
+      type: "question",
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/clientes/${id}`);
+      await load();
+      await showAlert({ type: "success", message: "Cliente eliminado" });
+    } catch (err) {
+      await showAlert({ type: "error", message: "Error al eliminar" });
+    }
+  }
 
   useEffect(() => {
     load();
@@ -126,11 +145,7 @@ export default function Clientes() {
           {!(isVendedor || isCajero) && (
             <button
               className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-              onClick={async () => {
-                if (!confirm("¿Eliminar cliente?")) return;
-                await api.delete(`/clientes/${row.original.id}`);
-                await load();
-              }}
+              onClick={() => confirmDelete(row.original.id, row.original.nombre, row.original.apellido)}
               title="Eliminar"
             >
               <Trash className="h-3.5 w-3.5" /> Eliminar
@@ -245,6 +260,7 @@ function ClienteFormModal({
   const [niveles, setNiveles] = useState<Nivel[]>([]);
   const [provincias, setProvincias] = useState<Provincia[]>([]);
   const [localidades, setLocalidades] = useState<Localidad[]>([]);
+  const [showErrors, setShowErrors] = useState(false);
 
   const {
     register,
@@ -353,21 +369,46 @@ function ClienteFormModal({
   }, [isEdit, id, reset]);
 
   const onSubmit: SubmitHandler<FormData> = async (v) => {
+    // Submit OK: limpiar banderas de error
+    setShowErrors(false);
+    const onlyDigits = (s: string) => s.replace(/\D/g, "");
+    // Clasificación por defecto si no se selecciona nada
+    const defaultTipo = !v.tipoId
+      ? tipos.find((t) => (t.nombre || "").toLowerCase() === "consumidor final")
+      : undefined;
+    const defaultNivel = !v.nivelId
+      ? niveles.find((n) => Number(n.indice) === 0)
+      : undefined;
+
+    const tipoIdFinal = v.tipoId || (defaultTipo ? String(defaultTipo.id) : "");
+    const nivelIdFinal = v.nivelId || (defaultNivel ? String(defaultNivel.id) : "");
+
     const payload = {
-      cuil: v.cuil?.replace(/-/g, "") || null,
-      nombreCliente: v.nombre,
-      apellidoCliente: v.apellido,
-      emailCliente: v.email || null,
-      telefonoCliente: v.telefono ? Number(v.telefono) : null,
+      cuil: v.cuil ? onlyDigits(v.cuil) : null,
+      nombreCliente: (v.nombre || "").trim(),
+      apellidoCliente: (v.apellido || "").trim(),
+      emailCliente: (v.email || "").trim(),
+      telefonoCliente: v.telefono ? onlyDigits(v.telefono) : null,
       observacion: v.observacion || null,
-      idTipoCliente: v.tipoId ? Number(v.tipoId) : null,
-      idNivelCliente: v.nivelId ? Number(v.nivelId) : null,
+      idTipoCliente: tipoIdFinal ? Number(tipoIdFinal) : null,
+      idNivelCliente: nivelIdFinal ? Number(nivelIdFinal) : null,
       idLocalidad: v.localidadId ? Number(v.localidadId) : null,
-      fechaRegistro: v.fechaRegistro ? new Date(v.fechaRegistro) : new Date(),
+      fechaRegistro: v.fechaRegistro ? v.fechaRegistro : new Date().toISOString().split("T")[0],
     };
     if (isEdit) await api.put(`/clientes/${id}`, payload);
     else await api.post("/clientes", payload);
     onClose(true);
+  };
+
+  const onInvalid = (errs: any) => {
+    setShowErrors(true);
+    const faltantes: string[] = [];
+    if (errs?.nombre) faltantes.push("Nombre");
+    if (errs?.apellido) faltantes.push("Apellido");
+    if (errs?.email) faltantes.push("Email");
+    if (faltantes.length > 0) {
+      toast.error(`Te faltó cargar: ${faltantes.join(", ")}`);
+    }
   };
 
   return (
@@ -378,10 +419,28 @@ function ClienteFormModal({
       />
       <div className="fixed inset-0 z-50 p-0 md:p-4">
         <div className="mx-auto h-dvh md:h-[90vh] w-full max-w-3xl md:rounded-2xl border bg-white shadow-xl flex flex-col">
-          <div className="flex items-center justify-between px-4 py-3 border-b">
-            <h3 className="text-base font-semibold">
-              {isEdit ? "Editar Cliente" : "Nuevo Cliente"}
-            </h3>
+          {/* Header estilizado */}
+          <div className="relative px-6 py-5 border-b bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-black text-white flex items-center justify-center font-semibold">
+                {(() => {
+                  const n = (watch("apellido") || watch("nombre") || "?") as string;
+                  return n.trim().charAt(0).toUpperCase();
+                })()}
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">
+                  {(() => {
+                    const nombre = watch("nombre");
+                    const apellido = watch("apellido");
+                    const tieneNombre = (nombre && nombre.trim().length > 0) || (apellido && apellido.trim().length > 0);
+                    if (tieneNombre) return `${(apellido || "").trim() || "-"}, ${(nombre || "").trim() || "-"}`;
+                    return isEdit ? "Editar Cliente" : "Nuevo Cliente";
+                  })()}
+                </h3>
+                <p className="text-xs text-gray-500">Cliente</p>
+              </div>
+            </div>
             <button
               onClick={() => onClose()}
               className="p-2 rounded hover:bg-gray-100"
@@ -394,118 +453,157 @@ function ClienteFormModal({
           <div className="p-4 overflow-auto flex-1">
             <form
               id="cliente-form"
-              onSubmit={handleSubmit(onSubmit)}
-              className="grid gap-4"
+              onSubmit={handleSubmit(onSubmit, onInvalid)}
+              className="grid gap-6"
             >
-              {/* Identificación */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="cuil">CUIL/CUIT</Label>
-                  <Input
-                    id="cuil"
-                    placeholder="20-12345678-3"
-                    {...register("cuil")}
-                  />
-                  <FieldError message={errors.cuil?.message} />
-                </div>
-                <div>
-                  <Label htmlFor="nombre">Nombre</Label>
-                  <Input id="nombre" {...register("nombre")} />
-                  <FieldError message={errors.nombre?.message} />
-                </div>
-                <div>
-                  <Label htmlFor="apellido">Apellido</Label>
-                  <Input id="apellido" {...register("apellido")} />
-                  <FieldError message={errors.apellido?.message} />
+              {/* Identidad */}
+              <div className="rounded-lg border p-4">
+                <div className="mb-3 text-sm font-medium text-gray-700">Identidad</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="cuil">CUIL/CUIT</Label>
+                    <Input
+                      id="cuil"
+                      placeholder="20-12345678-3"
+                      {...register("cuil")}
+                    />
+                    <FieldError message={errors.cuil?.message} />
+                  </div>
+                  <div>
+                    <Label htmlFor="nombre">Nombre</Label>
+                    <Input
+                      id="nombre"
+                      placeholder="Juan"
+                      className={(showErrors && (errors.nombre || !(watch("nombre") || "").trim()))
+                        ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                        : "border-black focus:border-black focus:ring-black"}
+                      {...register("nombre")}
+                    />
+                    <FieldError message={errors.nombre?.message} />
+                  </div>
+                  <div>
+                    <Label htmlFor="apellido">Apellido</Label>
+                    <Input
+                      id="apellido"
+                      placeholder="Pérez"
+                      className={(showErrors && (errors.apellido || !(watch("apellido") || "").trim()))
+                        ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                        : "border-black focus:border-black focus:ring-black"}
+                      {...register("apellido")}
+                    />
+                    <FieldError message={errors.apellido?.message} />
+                  </div>
                 </div>
               </div>
 
               {/* Clasificación */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="tipo">Tipo de cliente</Label>
-                  <Select id="tipo" {...register("tipoId")}>
-                    <option value="">Sin especificar</option>
-                    {tipos.map((t) => (
-                      <option key={t.id} value={String(t.id)}>
-                        {t.nombre}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="nivel">Nivel</Label>
-                  <Select id="nivel" {...register("nivelId")}>
-                    <option value="">Sin especificar</option>
-                    {niveles.map((n) => (
-                      <option key={n.id} value={String(n.id)}>
-                        {n.indice}
-                      </option>
-                    ))}
-                  </Select>
+              <div className="rounded-lg border p-4">
+                <div className="mb-3 text-sm font-medium text-gray-700">Clasificación</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="tipo">Tipo de cliente</Label>
+                    <Select id="tipo" {...register("tipoId")}>
+                      <option value="">Sin especificar</option>
+                      {tipos.map((t) => (
+                        <option key={t.id} value={String(t.id)}>
+                          {t.nombre}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="nivel">Nivel</Label>
+                    <Select id="nivel" {...register("nivelId")}>
+                      <option value="">Sin especificar</option>
+                      {niveles.map((n) => (
+                        <option key={n.id} value={String(n.id)}>
+                          {n.indice}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                 </div>
               </div>
 
-              {/* Ubicación */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="provincia">Provincia</Label>
-                  <Select id="provincia" {...register("provinciaId")}>
-                    <option value="">Seleccionar</option>
-                    {provincias.map((p) => (
-                      <option key={p.id} value={String(p.id)}>
-                        {p.nombre}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="localidad">Localidad</Label>
-                  <Select id="localidad" {...register("localidadId")}>
-                    <option value="">Seleccionar</option>
-                    {localidades
-                      .filter(
-                        (l) =>
-                          String(l.provinciaId) === String(provinciaId || "")
-                      )
-                      .map((l) => (
-                        <option key={l.id} value={String(l.id)}>
-                          {l.nombre}
+              {/* Ubicación y fecha */}
+              <div className="rounded-lg border p-4">
+                <div className="mb-3 text-sm font-medium text-gray-700">Ubicación y fecha</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="provincia">Provincia</Label>
+                    <Select id="provincia" {...register("provinciaId")}>
+                      <option value="">Seleccionar</option>
+                      {provincias.map((p) => (
+                        <option key={p.id} value={String(p.id)}>
+                          {p.nombre}
                         </option>
                       ))}
-                  </Select>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="localidad">Localidad</Label>
+                    <Select id="localidad" {...register("localidadId")}>
+                      <option value="">Seleccionar</option>
+                      {localidades
+                        .filter(
+                          (l) => String(l.provinciaId) === String(provinciaId || "")
+                        )
+                        .map((l) => (
+                          <option key={l.id} value={String(l.id)}>
+                            {l.nombre}
+                          </option>
+                        ))}
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="fechaRegistro">Fecha de registro</Label>
+                    <Input
+                      id="fechaRegistro"
+                      type="date"
+                      max={new Date().toISOString().split("T")[0]}
+                      {...register("fechaRegistro")}
+                    />
+                    <FieldError message={errors.fechaRegistro?.message} />
+                  </div>
                 </div>
-              </div>
-              {/* Fecha de registro */}
-              <div>
-                <Label htmlFor="fechaRegistro">Fecha de registro</Label>
-                <Input
-                  id="fechaRegistro"
-                  type="date"
-                  max={new Date().toISOString().split("T")[0]}
-                  {...register("fechaRegistro")}
-                />
-                <FieldError message={errors.fechaRegistro?.message} />
               </div>
 
               {/* Contacto */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="tel">Teléfono</Label>
-                  <Input id="tel" {...register("telefono")} />
+              <div className="rounded-lg border p-4">
+                <div className="mb-3 flex items-center gap-2 text-gray-700">
+                  <Phone className="h-4 w-4" />
+                  <span className="text-sm font-medium">Contacto</span>
                 </div>
-                <div className="md:col-span-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" {...register("email")} />
-                  <FieldError message={errors.email?.message as any} />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="tel">Teléfono</Label>
+                    <Input id="tel" placeholder="1122334455" {...register("telefono")} />
+                  </div>
+                  <div className="md:col-span-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="nombre@dominio.com"
+                      className={(showErrors && (errors.email || !(watch("email") || "").trim()))
+                        ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                        : "border-black focus:border-black focus:ring-black"}
+                      {...register("email")}
+                    />
+                    <FieldError message={errors.email?.message as any} />
+                  </div>
                 </div>
               </div>
 
               {/* Observación */}
-              <div>
-                <Label htmlFor="obs">Observaciones</Label>
+              <div className="rounded-lg border p-4">
+                <div className="mb-3 flex items-center gap-2 text-gray-700">
+                  <Info className="h-4 w-4" />
+                  <span className="text-sm font-medium">Observaciones</span>
+                </div>
                 <textarea
                   id="obs"
+                  placeholder="Notas relevantes, preferencias, comentarios…"
                   className="w-full rounded-lg border px-3 py-2 text-sm min-h-24"
                   {...(register("observacion") as any)}
                 />
@@ -549,86 +647,95 @@ function ClienteView({ id, onClose }: { id: number; onClose: () => void }) {
     <>
       <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
       <div className="fixed inset-0 z-50 p-0 md:p-4">
-        <div className="mx-auto w-full max-w-2xl md:rounded-2xl border bg-white shadow-xl">
-          <div className="flex items-center justify-between px-4 py-3 border-b">
-            <h3 className="text-base font-semibold">Detalle de Cliente</h3>
-            <button
-              onClick={onClose}
-              className="p-2 rounded hover:bg-gray-100"
-              aria-label="Cerrar"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+        <div className="h-full flex items-center justify-center">
+          <div className="mx-auto w-full max-w-2xl md:rounded-2xl border bg-white shadow-xl">
+            {/* Header estilizado */}
+            <div className="relative px-6 py-5 border-b bg-gradient-to-r from-slate-50 to-white">
+              <button onClick={onClose} className="absolute right-3 top-3 p-2 rounded hover:bg-gray-100" aria-label="Cerrar">
+                <X className="h-4 w-4" />
+              </button>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-black text-white flex items-center justify-center font-semibold">
+                  {((data?.apellidoCliente ?? data?.apellido ?? data?.nombreCliente ?? data?.nombre ?? "?") as string).charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold">
+                    {`${data?.apellidoCliente ?? data?.apellido ?? "-"}, ${data?.nombreCliente ?? data?.nombre ?? "-"}`}
+                  </h3>
+                  <p className="text-xs text-gray-500">Cliente</p>
+                </div>
+              </div>
+            </div>
 
-          <div className="p-4 text-sm grid grid-cols-2 gap-3">
-            <div>
-              <p className="text-gray-500">ID</p>
-              <p className="font-medium">
-                {data?.idCliente ?? data?.id ?? "-"}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">CUIL/CUIT</p>
-              <p className="font-medium">{data?.cuil ?? "-"}</p>
-            </div>
-            <div className="col-span-2">
-              <p className="text-gray-500">Nombre</p>
-              <p className="font-medium">
-                {(data?.apellidoCliente ?? data?.apellido ?? "-") +
-                  ", " +
-                  (data?.nombreCliente ?? data?.nombre ?? "-")}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Email</p>
-              <p className="font-medium">
-                {data?.emailCliente ?? data?.email ?? "-"}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Teléfono</p>
-              <p className="font-medium">
-                {data?.telefonoCliente ?? data?.telefono ?? "-"}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Tipo</p>
-              <p className="font-medium">
-                {data?.TipoCliente?.tipoCliente ?? "-"}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Nivel</p>
-              <p className="font-medium">
-                {data?.NivelCliente?.indiceBeneficio ?? "-"}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Provincia</p>
-              <p className="font-medium">
-                {data?.Localidad?.Provincia?.nombreProvincia ?? "-"}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Localidad</p>
-              <p className="font-medium">
-                {data?.Localidad?.nombreLocalidad ?? "-"}
-              </p>
-            </div>
-            <div className="col-span-2">
-              <p className="text-gray-500">Observación</p>
-              <p className="font-normal">{data?.observacion ?? "-"}</p>
-            </div>
-          </div>
+            {/* Contenido con mejor estética */}
+            <div className="p-6 space-y-6 text-sm">
+              {/* Contacto */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <Phone className="h-4 w-4" />
+                    <span className="text-sm font-medium">Teléfono</span>
+                  </div>
+                  <p className={`mt-2 text-sm ${data?.telefonoCliente || data?.telefono ? "text-gray-900" : "text-gray-400"}`}>
+                    {data?.telefonoCliente ?? data?.telefono ?? "No especificado"}
+                  </p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <Mail className="h-4 w-4" />
+                    <span className="text-sm font-medium">Email</span>
+                  </div>
+                  <p className={`mt-2 text-sm ${data?.emailCliente || data?.email ? "text-gray-900" : "text-gray-400"}`}>
+                    {data?.emailCliente ?? data?.email ?? "No especificado"}
+                  </p>
+                </div>
+              </div>
 
-          <div className="px-4 py-3 border-t bg-gray-50 flex justify-end">
-            <button
-              onClick={onClose}
-              className="rounded-lg border px-3 py-2 text-sm"
-            >
-              Cerrar
-            </button>
+              {/* Datos adicionales */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <span className="text-sm font-medium">CUIL/CUIT</span>
+                  </div>
+                  <p className={`mt-2 text-sm ${data?.cuil ? "text-gray-900" : "text-gray-400"}`}>{data?.cuil ?? "No especificado"}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <span className="text-sm font-medium">Ubicación</span>
+                  </div>
+                  <p className="mt-2 text-sm text-gray-900">
+                    {`${data?.Localidad?.Provincia?.nombreProvincia ?? "-"} / ${data?.Localidad?.nombreLocalidad ?? "-"}`}
+                  </p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <span className="text-sm font-medium">Tipo</span>
+                  </div>
+                  <p className={`mt-2 text-sm ${data?.TipoCliente?.tipoCliente ? "text-gray-900" : "text-gray-400"}`}>{data?.TipoCliente?.tipoCliente ?? "No especificado"}</p>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <span className="text-sm font-medium">Nivel</span>
+                  </div>
+                  <p className={`mt-2 text-sm ${data?.NivelCliente?.indiceBeneficio ? "text-gray-900" : "text-gray-400"}`}>{data?.NivelCliente?.indiceBeneficio ?? "No especificado"}</p>
+                </div>
+              </div>
+
+              {/* Observación */}
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center gap-2 text-gray-700">
+                  <Info className="h-4 w-4" />
+                  <span className="text-sm font-medium">Observación</span>
+                </div>
+                <p className={`mt-2 text-sm ${data?.observacion ? "text-gray-900" : "text-gray-400"}`}>
+                  {data?.observacion ?? "Sin observaciones"}
+                </p>
+              </div>
+            </div>
+
+            <div className="px-4 py-3 border-t bg-gray-50 flex justify-end">
+              <button onClick={onClose} className="rounded-lg border px-3 py-2 text-sm">Cerrar</button>
+            </div>
           </div>
         </div>
       </div>

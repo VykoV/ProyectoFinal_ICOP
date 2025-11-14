@@ -1,8 +1,20 @@
 import { Outlet } from "react-router-dom";
 import Navbar from "./Navbar";
 import Sidebar from "./Sidebar";
+import { useAuth } from "../context/AuthContext";
+import { useDailyReminder } from "../hooks/useDailyReminder";
 
 export default function Layout() {
+  const { hasRole } = useAuth();
+  // Recordatorio diario para actualizar monedas a las 11:00 (solo Administrador)
+  useDailyReminder({
+    hour: 11,
+    minute: 0,
+    message: "Recordatorio diario: actualizar el precio de las monedas",
+    type: "warning",
+    enabled: hasRole("Administrador"),
+    title: "Monedas",
+  });
   return (
     <div className="h-dvh flex flex-col">
       <Navbar />

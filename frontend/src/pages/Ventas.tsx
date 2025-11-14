@@ -4,6 +4,7 @@ import { DataTable } from "../components/DataTable";
 import { Search, Eye, Plus, X } from "lucide-react";
 import { Label, Input } from "../components/ui/Form";
 import { api } from "../lib/api";
+import { askText } from "../lib/alerts";
 import { fmtPrice } from "../lib/format";
 import Modal from "../components/Modal";
 import { getProductStock } from "../lib/api/products";
@@ -1345,8 +1346,19 @@ function ValidarPreventaModal({
       };
 
       if (accion === "cancelar") {
-        const motivo = window.prompt("Motivo de cancelación?");
-        payload.motivoCancelacion = motivo ?? null;
+        const motivo = await askText({
+          title: "Cancelar presupuesto",
+          label: "Motivo de cancelación",
+          placeholder: "Ingresa un motivo (opcional)",
+          confirmText: "Cancelar presupuesto",
+          cancelText: "Volver",
+          required: false,
+        });
+        if (motivo === null) {
+          setSaving(false);
+          return; // cancelado por usuario
+        }
+        payload.motivoCancelacion = (motivo && motivo.length > 0) ? motivo : null;
       }
 
       await api.put(`/preventas/${ventaId}`, payload);

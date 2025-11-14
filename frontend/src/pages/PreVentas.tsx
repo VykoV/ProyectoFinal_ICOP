@@ -7,6 +7,7 @@ import { api } from "../lib/api";
 import { fmtPrice } from "../lib/format";
 import Modal from "../components/Modal";
 import { getProductStock } from "../lib/api/products";
+import { askText } from "../lib/alerts";
 
 /* ===== Tipos ===== */
 type PreRow = {
@@ -204,11 +205,18 @@ export default function PreVentas() {
           <button
             className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
             onClick={async () => {
-              const motivo = window.prompt("Motivo de cancelación?");
-              if (motivo === null) return; // cancelado por usuario
+    const motivo = await askText({
+      title: "Cancelar presupuesto",
+      label: "Motivo de cancelación",
+      placeholder: "Ingresa un motivo (opcional)",
+      confirmText: "Cancelar presupuesto",
+      cancelText: "Volver",
+      required: false,
+    });
+    if (motivo === null) return; // cancelado por usuario
               await api.put(`/preventas/${row.original.id}` , {
                 accion: "cancelar",
-                motivoCancelacion: motivo || null,
+    motivoCancelacion: (motivo && motivo.length > 0) ? motivo : null,
               });
               await load(q);
             }}

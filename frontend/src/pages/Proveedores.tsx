@@ -4,7 +4,9 @@ import { DataTable } from "../components/DataTable";
 import { Label, Input } from "../components/ui/Form";
 import * as svc from "../lib/api/proveedores";
 import { Button } from "@/components/ui/button";
-import { X, Pencil, Trash2, Search, Plus, Eye } from "lucide-react";
+import { X, Pencil, Trash2, Search, Plus, Eye, Phone, Mail, Info } from "lucide-react";
+import { toast } from "react-hot-toast";
+import { showAlert, askConfirm } from "../lib/alerts";
 
 type FormState = Partial<svc.Proveedor>;
 
@@ -60,7 +62,7 @@ export default function ProveedoresPage() {
             <button
               type="button"
               className="inline-flex items-center gap-1 rounded border border-black text-black px-2 py-1 text-xs hover:bg-black hover:text-white"
-              onClick={() => onDelete(row.original.idProveedor)}
+              onClick={() => onDelete(row.original)}
             >
               <Trash2 className="h-3 w-3" />
               Borrar
@@ -99,19 +101,66 @@ export default function ProveedoresPage() {
     setShowModal(true);
   }
 
-  async function onDelete(id: number) {
-    if (!confirm("¿Eliminar proveedor?")) return;
+  async function onDelete(item: svc.Proveedor) {
+    const ok = await askConfirm({
+      title: "Eliminar proveedor",
+      message: `¿Deseas eliminar al proveedor "${item.nombreProveedor}"?`,
+      confirmText: "Eliminar",
+      cancelText: "Cancelar",
+      type: "warning",
+    });
+    if (!ok) return;
     try {
-      await svc.remove(id);
+      await svc.remove(item.idProveedor!);
       await load();
     } catch (e: any) {
-      alert(e?.response?.data?.error || "No se pudo eliminar");
+      const msg: string | undefined = e?.response?.data?.error;
+      const status: number | undefined = e?.response?.status;
+      const message = status === 409 || (msg && /compra/i.test(msg))
+        ? "No se puede eliminar el proveedor porque tiene compras realizadas."
+        : (msg || "No se pudo eliminar el proveedor");
+      await showAlert({ type: "error", title: "No se puede eliminar", message });
     }
   }
 
   async function onSubmit() {
     if (!editing) return;
     setErrors({});
+    // Validaciones: requeridos y duplicados
+    const nextErrors: Record<string, string> = {};
+    const missing: string[] = [];
+    const nombreKey = (editing.nombreProveedor || "").trim();
+    if (!nombreKey) {
+      nextErrors.nombreProveedor = "required";
+      missing.push("Nombre");
+    }
+    if (missing.length > 0) {
+      setErrors(nextErrors);
+      toast.error(`Faltan completar: ${missing.join(", ")}`);
+      return;
+    }
+
+    // Duplicados: nombre y email (si email presente). Observación se permite duplicar.
+    const nombreKeyLower = nombreKey.toLowerCase();
+    const emailKeyLower = (editing.mailProveedor || "").trim().toLowerCase();
+    const conflictNombre = rows.some(
+      (r) => r.nombreProveedor.trim().toLowerCase() === nombreKeyLower && (editing.idProveedor ? r.idProveedor !== editing.idProveedor : true)
+    );
+    const conflictEmail = emailKeyLower
+      ? rows.some(
+          (r) => (r.mailProveedor || "").trim().toLowerCase() === emailKeyLower && (editing.idProveedor ? r.idProveedor !== editing.idProveedor : true)
+        )
+      : false;
+    if (conflictNombre || conflictEmail) {
+      const mensajes = [
+        conflictNombre ? "El nombre de proveedor ya está registrado" : null,
+        conflictEmail ? "El correo de proveedor ya está registrado" : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      await showAlert({ type: "error", title: "Datos duplicados", message: mensajes || "Nombre o correo ya registrados" });
+      return;
+    }
     const payload = {
       ...editing,
       // normaliza string vacíos a null
@@ -234,6 +283,7 @@ export default function ProveedoresPage() {
                   onChange={(e) =>
                     setEditing((s) => ({ ...s!, nombreProveedor: e.target.value }))
                   }
+                  className={errors.nombreProveedor ? "border-red-500" : undefined}
                 />
               </div>
               <div>
@@ -291,29 +341,55 @@ export default function ProveedoresPage() {
           <div className="fixed inset-0 z-50 p-0 md:p-4">
             <div className="h-full flex items-center justify-center">
               <div className="mx-auto w-full max-w-2xl md:rounded-2xl border bg-white shadow-xl">
-                <div className="flex items-center justify-between px-4 py-3 border-b">
-                  <h3 className="text-base font-semibold">Detalle de Proveedor</h3>
-                  <button onClick={() => setOpenView(false)} className="p-2 rounded hover:bg-gray-100" aria-label="Cerrar">
+                {/* Header estilizado */}
+                <div className="relative px-6 py-5 border-b bg-gradient-to-r from-slate-50 to-white">
+                  <button onClick={() => setOpenView(false)} className="absolute right-3 top-3 p-2 rounded hover:bg-gray-100" aria-label="Cerrar">
                     <X className="h-4 w-4" />
                   </button>
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-black text-white flex items-center justify-center font-semibold">
+                      {(viewItem.nombreProveedor || "?").charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold">{viewItem.nombreProveedor}</h3>
+                      <p className="text-xs text-gray-500">Proveedor</p>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="p-4 text-sm grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-gray-500">Nombre</p>
-                    <p className="font-medium">{viewItem.nombreProveedor}</p>
+                {/* Contenido con mejor estética */}
+                <div className="p-6 space-y-6">
+                  {/* Contacto */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="rounded-lg border p-4">
+                      <div className="flex items-center gap-2 text-gray-700">
+                        <Phone className="h-4 w-4" />
+                        <span className="text-sm font-medium">Teléfono</span>
+                      </div>
+                      <p className={`mt-2 text-sm ${viewItem.telefonoProveedor ? "text-gray-900" : "text-gray-400"}`}>
+                        {viewItem.telefonoProveedor || "No especificado"}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border p-4">
+                      <div className="flex items-center gap-2 text-gray-700">
+                        <Mail className="h-4 w-4" />
+                        <span className="text-sm font-medium">Email</span>
+                      </div>
+                      <p className={`mt-2 text-sm ${viewItem.mailProveedor ? "text-gray-900" : "text-gray-400"}`}>
+                        {viewItem.mailProveedor || "No especificado"}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-gray-500">Teléfono</p>
-                    <p className="font-medium">{viewItem.telefonoProveedor || "-"}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Email</p>
-                    <p className="font-medium">{viewItem.mailProveedor || "-"}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <p className="text-gray-500">Observación</p>
-                    <p className="font-medium">{viewItem.observacionProveedor || "-"}</p>
+
+                  {/* Observación */}
+                  <div className="rounded-lg border p-4">
+                    <div className="flex items-center gap-2 text-gray-700">
+                      <Info className="h-4 w-4" />
+                      <span className="text-sm font-medium">Observación</span>
+                    </div>
+                    <p className={`mt-2 text-sm ${viewItem.observacionProveedor ? "text-gray-900" : "text-gray-400"}`}>
+                      {viewItem.observacionProveedor || "Sin observaciones"}
+                    </p>
                   </div>
                 </div>
               </div>

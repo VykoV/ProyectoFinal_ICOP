@@ -1,8 +1,10 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { useEffect, useState } from "react";
-import { Search, Pencil, Trash, Plus, X } from "lucide-react";
+import { toast } from "react-hot-toast";
+import { Search, Pencil, Trash, Plus, X, Eye, EyeOff } from "lucide-react";
 import { DataTable } from "../components/DataTable";
 import { api } from "../lib/api";
+import { showAlert, askConfirm } from "../lib/alerts";
 
 // =============== Modal ===============
 type NuevoUsuarioModalProps = {
@@ -10,6 +12,7 @@ type NuevoUsuarioModalProps = {
   onClose: () => void;
   title: string;
   submitLabel: string;
+  isEdit: boolean;
   form: {
     nombreUsuario: string;
     emailUsuario: string;
@@ -35,6 +38,7 @@ function NuevoUsuarioModal({
   onClose,
   title,
   submitLabel,
+  isEdit,
   form,
   setForm,
   roles,
@@ -55,41 +59,106 @@ function NuevoUsuarioModal({
     }
   };
 
+  const [errors, setErrors] = useState<{ [k in keyof NuevoUsuarioModalProps["form"]]?: boolean }>({});
+  const [showPassword, setShowPassword] = useState(false);
+
+  function isPasswordComplex(pw: string): boolean {
+    const s = pw.trim();
+    if (s.length < 6) return false;
+    const hasUpper = /[A-Z]/.test(s);
+    const hasLower = /[a-z]/.test(s);
+    const hasDigit = /\d/.test(s);
+    const hasSymbol = /[^A-Za-z0-9]/.test(s);
+    return hasUpper && hasLower && hasDigit && hasSymbol;
+  }
+
+  function validate(): string[] {
+    const missing: string[] = [];
+    const nextErrors: { [k in keyof NuevoUsuarioModalProps["form"]]?: boolean } = {};
+    if (!form.nombreUsuario.trim()) { nextErrors.nombreUsuario = true; missing.push("Nombre"); }
+    if (!form.emailUsuario.trim()) { nextErrors.emailUsuario = true; missing.push("Email"); }
+    if (!form.idRol.trim()) { nextErrors.idRol = true; missing.push("Rol"); }
+    // Contraseña: requerida sólo en creación; en edición es opcional pero si se ingresa debe cumplir complejidad
+    if (!isEdit) {
+      if (!form.contrasenaUsuario.trim()) {
+        nextErrors.contrasenaUsuario = true;
+        missing.push("Contraseña");
+      } else if (!isPasswordComplex(form.contrasenaUsuario)) {
+        nextErrors.contrasenaUsuario = true;
+        missing.push("Contraseña: mínimo 6 caracteres, incluir mayúscula, minúscula, número y símbolo");
+      }
+    } else {
+      if (form.contrasenaUsuario.trim() && !isPasswordComplex(form.contrasenaUsuario)) {
+        nextErrors.contrasenaUsuario = true;
+        missing.push("Contraseña: mínimo 6 caracteres, incluir mayúscula, minúscula, número y símbolo");
+      }
+    }
+    setErrors(nextErrors);
+    return missing;
+  }
+
+  const onSubmitInternal = (e: React.FormEvent) => {
+    e.preventDefault();
+    const missing = validate();
+    if (missing.length > 0) {
+      toast.error(`Faltan completar: ${missing.join(", ")}`);
+      return;
+    }
+    // limpiar errores si todo ok
+    setErrors({});
+    handleSubmit(e);
+  };
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-6 relative">
         <button onClick={onClose} className="absolute top-3 right-3">×</button>
         <h2 className="text-lg font-semibold mb-4">{title}</h2>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={onSubmitInternal} noValidate className="space-y-3">
           <input
             name="nombreUsuario"
             placeholder="Nombre"
-            className="w-full border rounded px-3 py-2"
+            className={`w-full border rounded px-3 py-2 ${errors.nombreUsuario ? "border-red-500" : ""}`}
             value={form.nombreUsuario}
             onChange={handleChange}
-            required
           />
           <input
             type="email"
             name="emailUsuario"
             placeholder="Email"
-            className="w-full border rounded px-3 py-2"
+            className={`w-full border rounded px-3 py-2 ${errors.emailUsuario ? "border-red-500" : ""}`}
             value={form.emailUsuario}
             onChange={handleChange}
-            required
           />
-          <input
-            type="password"
-            name="contrasenaUsuario"
-            placeholder="Contraseña (deja vacío para no cambiar)"
-            className="w-full border rounded px-3 py-2"
-            value={form.contrasenaUsuario}
-            onChange={handleChange}
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              name="contrasenaUsuario"
+              placeholder={
+                isEdit
+                  ? "Contraseña (opcional — mín. 6, mayúsc., minúsc., número y símbolo)"
+                  : "Contraseña (mín. 6, mayúsc., minúsc., número y símbolo)"
+              }
+              className={`w-full border rounded px-3 py-2 pr-10 ${errors.contrasenaUsuario ? "border-red-500" : ""}`}
+              value={form.contrasenaUsuario}
+              onChange={handleChange}
+            />
+            <button
+              type="button"
+              aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+              onClick={() => setShowPassword((v) => !v)}
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          {errors.contrasenaUsuario && (
+            <p className="text-xs text-red-600">La contraseña debe tener al menos 6 caracteres e incluir mayúscula, minúscula, número y símbolo.</p>
+          )}
           <select
             name="idRol"
-            className="w-full border rounded px-3 py-2"
+            className={`w-full border rounded px-3 py-2 ${errors.idRol ? "border-red-500" : ""}`}
             value={form.idRol}
             onChange={handleChange}
           >
@@ -170,6 +239,19 @@ export default function Usuarios() {
   // create or update
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Validación de duplicados (cliente): nombre y email
+    const nameKey = form.nombreUsuario.trim().toLowerCase();
+    const emailKey = form.emailUsuario.trim().toLowerCase();
+    const conflictNombre = rows.some((u) => u.nombre.trim().toLowerCase() === nameKey && (editId ? u.id !== editId : true));
+    const conflictEmail = rows.some((u) => u.email.trim().toLowerCase() === emailKey && (editId ? u.id !== editId : true));
+    if (conflictNombre || conflictEmail) {
+      const detalles = [
+        conflictNombre ? "El nombre de usuario ya está registrado" : null,
+        conflictEmail ? "El correo ya está registrado" : null,
+      ].filter(Boolean).join("\n");
+      await showAlert({ type: "error", title: "Datos duplicados", message: detalles || "Nombre o correo ya registrados" });
+      return;
+    }
     if (editId) {
       await api.put(`/usuarios/${editId}`, form);
       setEditId(null);
@@ -218,8 +300,16 @@ export default function Usuarios() {
             className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
             title="Eliminar"
             onClick={async () => {
-              if (!confirm("¿Eliminar usuario?")) return;
-              await api.delete(`/usuarios/${row.original.id}`);
+              const u = row.original;
+              const ok = await askConfirm({
+                title: "Eliminar usuario",
+                message: `¿Deseas eliminar al usuario "${u.nombre}"?`,
+                confirmText: "Eliminar",
+                cancelText: "Cancelar",
+                type: "warning",
+              });
+              if (!ok) return;
+              await api.delete(`/usuarios/${u.id}`);
               loadUsers();
             }}
           >
@@ -313,6 +403,7 @@ export default function Usuarios() {
         onClose={() => setOpen(false)}
         title={editId ? "Editar usuario" : "Nuevo usuario"}
         submitLabel={editId ? "Guardar cambios" : "Guardar"}
+        isEdit={!!editId}
         form={form}
         setForm={setForm}
         roles={roles}
