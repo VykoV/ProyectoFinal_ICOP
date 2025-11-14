@@ -208,6 +208,7 @@ export default function Monedas() {
         open={openEdit}
         title="Editar moneda"
         onClose={() => setOpenEdit(false)}
+        centered
         footer={
           <div className="flex items-center justify-end gap-2">
             <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenEdit(false)}>

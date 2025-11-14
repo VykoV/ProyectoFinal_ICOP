@@ -5,6 +5,8 @@ import { DataTable } from "../components/DataTable";
 import { Label, Input, Select } from "../components/ui/Form";
 import { fmtPrice } from "../lib/format";
 import { api } from "../lib/api";
+import { toast } from "react-hot-toast";
+import { showAlert, askConfirm } from "../lib/alerts";
 
 /* ===== Tipos ===== */
 type CompraRow = {
@@ -156,15 +158,19 @@ export default function Compras() {
             {canEdit && (
               <button className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
                 onClick={async () => {
-                  const ok = window.confirm(
-                    "¿Finalizar edición y aplicar stock?\nSe bloqueará la edición y NO se modificará el estado."
-                  );
+                  const ok = await askConfirm({
+                    title: "Finalizar edición",
+                    message: "¿Finalizar edición y aplicar stock? Se bloqueará la edición y NO se modificará el estado.",
+                    confirmText: "Sí",
+                    cancelText: "No",
+                  });
                   if (!ok) return;
                   try {
                     await api.post(`/compras/${row.original.id}/aplicar-stock`, {});
+                    await showAlert({ type: "success", message: "Edición finalizada y stock aplicado" });
                     await load();
                   } catch (e: any) {
-                    alert(e?.response?.data?.error || e?.message || "No se pudo finalizar la edición y aplicar stock");
+                    await showAlert({ type: "error", message: e?.response?.data?.error || e?.message || "No se pudo finalizar la edición y aplicar stock" });
                   }
                 }}
                 title="Finalizar edición">
@@ -172,12 +178,23 @@ export default function Compras() {
               </button>
             )}
 
-            {isPendiente && (
+            {isPendiente && row.original.bloqueada && (
               <button className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
                 onClick={async () => {
-                  if (!confirm("Marcar pago finalizado (solo cambia estado).")) return;
-                  await api.post(`/compras/${row.original.id}/confirmar`, {});
-                  await load();
+                  const ok = await askConfirm({
+                    title: "Pago finalizado",
+                    message: "Marcar pago finalizado (solo cambia estado).",
+                    confirmText: "Sí",
+                    cancelText: "No",
+                  });
+                  if (!ok) return;
+                  try {
+                    await api.post(`/compras/${row.original.id}/confirmar`, {});
+                    await showAlert({ type: "success", message: "Compra marcada como finalizada" });
+                    await load();
+                  } catch (e:any) {
+                    await showAlert({ type: "error", message: e?.response?.data?.error || e?.message || "No se pudo confirmar el pago" });
+                  }
                 }}
                 title="Pago finalizado">
                 <Check className="h-3.5 w-3.5" /> Pago finalizado
@@ -187,9 +204,20 @@ export default function Compras() {
             {canEdit && (
               <button className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
                 onClick={async () => {
-                  if (!confirm("Eliminar compra en Pendiente de pago?")) return;
-                  await api.delete(`/compras/${row.original.id}`);
-                  await load();
+                  const ok = await askConfirm({
+                    title: "Eliminar compra",
+                    message: "¿Eliminar compra en Pendiente de pago?",
+                    confirmText: "Sí",
+                    cancelText: "No",
+                  });
+                  if (!ok) return;
+                  try {
+                    await api.delete(`/compras/${row.original.id}`);
+                    await showAlert({ type: "success", message: "Compra eliminada" });
+                    await load();
+                  } catch (e:any) {
+                    await showAlert({ type: "error", message: e?.response?.data?.error || e?.message || "No se pudo eliminar la compra" });
+                  }
                 }}
                 title="Eliminar compra">
                 <Trash2 className="h-3.5 w-3.5" /> Eliminar
@@ -559,9 +587,10 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
 
   // errores
   const [err, setErr] = useState<string>("");
+  const [showErrors, setShowErrors] = useState<boolean>(false);
 
   // IVA informativo (solo visual)
-  const [ivaPctView, setIvaPctView] = useState<number>(IVA_PCT_DEFAULT);
+  const ivaPctView = IVA_PCT_DEFAULT;
 
   function splitIVA(pu: number, ivaPct: number) {
     const base = pu / (1 + ivaPct / 100);
@@ -665,7 +694,7 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
   }
 
   // totales
-  const totalCalc = items.reduce((a,i)=> a + i.cantidad * i.precioUnit, 0);
+  // totalCalc eliminado por no usarse; cálculo se muestra derivado en 'info'
   const info = items.reduce((acc, i) => {
     const { base, iva } = splitIVA(i.precioUnit, ivaPctView);
     acc.base += i.cantidad * base;
@@ -677,11 +706,17 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
   async function onSubmit(e?: React.FormEvent) {
     e?.preventDefault();
     setErr("");
-    if (!idProveedor) return setErr("Seleccioná un proveedor.");
-    if (!idMetodoPago) return setErr("Seleccioná método de pago.");
-    if (!idMoneda) return setErr("Seleccioná moneda.");
-    if (!nroFactura.trim()) return setErr("Ingresá número de factura.");
-    if (items.length === 0) return setErr("Agregá al menos un producto.");
+    const missing: string[] = [];
+    if (!idProveedor && !isEdit) missing.push("Proveedor");
+    if (!idMetodoPago) missing.push("Método de pago");
+    if (!idMoneda) missing.push("Moneda");
+    if (!nroFactura.trim() && !isEdit) missing.push("Nro. Factura");
+    if (items.length === 0) missing.push("Productos");
+    if (missing.length > 0) {
+      setShowErrors(true);
+      toast.error(`Completar: ${missing.join(", ")}`);
+      return;
+    }
     // Validación: fecha no puede ser posterior a hoy
     try {
       const f = new Date(fecha);
@@ -690,29 +725,41 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
       if (f > hoy) return setErr("La fecha comprobante no puede ser posterior a hoy.");
     } catch {}
 
-    const payload = {
+    const baseItems = items.map(i => ({
+      idProducto: Number(i.idProducto),
+      cantidad: Number(i.cantidad),
+      precioUnit: Number(i.precioUnit),
+    }));
+
+    const payloadCreate = {
       idProveedor: Number(idProveedor),
       idMetodoPago: Number(idMetodoPago),
       idMoneda: Number(idMoneda),
       fechaComprobanteCompra: new Date(fecha),
       nroFactura: nroFactura.trim(),
       observacion: obs || null,
-      items: items.map(i => ({
-        idProducto: Number(i.idProducto),
-        cantidad: Number(i.cantidad),
-        precioUnit: Number(i.precioUnit),
-      })),
+      items: baseItems,
+    };
+
+    const payloadUpdate = {
+      idMetodoPago: Number(idMetodoPago),
+      idMoneda: Number(idMoneda),
+      fechaComprobanteCompra: new Date(fecha),
+      observacion: obs || null,
+      items: baseItems,
     };
 
     try {
       if (isEdit) {
-        await api.put(`/compras/${id}`, payload);
+        await api.put(`/compras/${id}`, payloadUpdate);
       } else {
-        await api.post("/compras", payload);
+        await api.post("/compras", payloadCreate);
       }
       onClose(true);
     } catch (e:any) {
-      setErr(e?.response?.data?.error || "Error al guardar");
+      const msg = e?.response?.data?.error || e?.message || "Error al guardar";
+      setErr(msg);
+      await showAlert({ type: "error", message: msg });
     }
   }
 
@@ -737,21 +784,24 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div>
                   <Label>Proveedor</Label>
-                  <Select value={idProveedor} onChange={(e)=> setIdProveedor(e.target.value)}>
+                  <Select value={idProveedor} onChange={(e)=> setIdProveedor(e.target.value)} disabled={isEdit}
+                    className={showErrors && !idProveedor ? "border-red-500 focus:ring-red-500" : undefined}>
                     <option value="">Seleccionar</option>
                     {proveedores.map(p => <option key={p.id} value={String(p.id)}>{p.label}</option>)}
                   </Select>
                 </div>
                 <div>
                   <Label>Método de pago</Label>
-                  <Select value={idMetodoPago} onChange={(e)=> setIdMetodoPago(e.target.value)}>
+                  <Select value={idMetodoPago} onChange={(e)=> setIdMetodoPago(e.target.value)}
+                    className={showErrors && !idMetodoPago ? "border-red-500 focus:ring-red-500" : undefined}>
                     <option value="">Seleccionar</option>
                     {metodos.map(t => <option key={t.id} value={String(t.id)}>{t.label}</option>)}
                   </Select>
                 </div>
                 <div>
                   <Label>Moneda</Label>
-                  <Select value={idMoneda} onChange={(e)=> setIdMoneda(e.target.value)}>
+                  <Select value={idMoneda} onChange={(e)=> setIdMoneda(e.target.value)}
+                    className={showErrors && !idMoneda ? "border-red-500 focus:ring-red-500" : undefined}>
                     <option value="">Seleccionar</option>
                     {monedas.map(m => <option key={m.id} value={String(m.id)}>{m.label}</option>)}
                   </Select>
@@ -763,17 +813,12 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
                 </div>
                 <div>
                   <Label>Nro. Factura</Label>
-                  <Input value={nroFactura} onChange={e=> setNroFactura(e.target.value)} />
+                  <Input value={nroFactura} onChange={e=> setNroFactura(e.target.value)} disabled={isEdit}
+                    className={showErrors && !nroFactura.trim() ? "border-red-500 focus:ring-red-500" : undefined} />
                 </div>
                 <div className="lg:col-span-1">
                   <Label>Observación</Label>
                   <Input value={obs} onChange={e=> setObs(e.target.value)} placeholder="Opcional" />
-                </div>
-
-                <div className="lg:col-span-3 flex items-center gap-3">
-                  <span className="text-sm text-gray-600">IVA %</span>
-                  <Input type="number" className="w-24" value={ivaPctView}
-                    onChange={e=> setIvaPctView(Math.max(0, Number(e.target.value) || 0))}/>
                 </div>
               </div>
             </div>
@@ -833,6 +878,9 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
             {/* Tabla items */}
             <div className="rounded-2xl border bg-white p-4">
               <h4 className="text-sm font-medium text-gray-700 mb-2">Productos cargados</h4>
+              {showErrors && items.length === 0 && (
+                <div className="mb-2 text-sm text-red-600">Agregá al menos un producto.</div>
+              )}
               <table className="w-full table-fixed text-sm">
                 <colgroup>
                   <col style={{ width: "40%" }} />

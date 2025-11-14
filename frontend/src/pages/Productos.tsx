@@ -8,6 +8,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Label, Input, FieldError, Select } from "../components/ui/Form";
 import type { Producto } from "../types";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "react-hot-toast";
+import { showAlert, askConfirm } from "../lib/alerts";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 
@@ -188,20 +190,32 @@ export default function Productos() {
             <button
               className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
               onClick={async () => {
+                const id = (row.original as any).id;
+                const nombre = (row.original as any).nombre ?? (row.original as any).nombreProducto;
+                const ok = await askConfirm({
+                  title: "¿Quiere eliminar producto?",
+                  message: nombre ? String(nombre) : "",
+                  confirmText: "Sí",
+                  cancelText: "No",
+                  type: "question",
+                });
+                if (!ok) return;
                 try {
-                  const id = (row.original as any).id;
                   await api.delete(`/products/${id}`);
                   await loadProducts();
+                  await showAlert({ type: "success", message: "Producto eliminado" });
                 } catch (err: any) {
                   const s = err?.response?.status;
                   const e = err?.response?.data;
-                  if (s === 409 && e?.error === "FK_CONSTRAINT_IN_USE") {
-                    alert(
-                      "No se puede eliminar: tiene movimientos relacionados."
-                    );
+                  if (s === 409 && e?.error === "PRODUCT_IN_USE") {
+                    await showAlert({ type: "error", message: e?.message || "No se puede eliminar: el producto tiene movimientos, histórico o stock." });
                     return;
                   }
-                  alert("No se pudo eliminar");
+                  if (s === 409 && e?.error === "FK_CONSTRAINT_IN_USE") {
+                    await showAlert({ type: "error", message: "No se puede eliminar: tiene movimientos relacionados." });
+                    return;
+                  }
+                  await showAlert({ type: "error", message: "No se pudo eliminar" });
                   console.error(err);
                 }
               }}
@@ -453,6 +467,7 @@ function ProductoPopup({
   });
 
   const isEdit = !!initial?.id;
+  const [showErrors, setShowErrors] = useState(false);
 
   useEffect(() => {
     if (!initial?.id) return;
@@ -581,12 +596,13 @@ function ProductoPopup({
   }, [subfamilias, familiaSelected, familiaNameSelected]);
 
   const onSubmit: SubmitHandler<FormData> = async (v) => {
+    setShowErrors(false);
     const base = {
-      nombre: v.nombre,
+      nombre: String(v.nombre ?? "").trim(),
       precio: v.precioVenta,
       precioCosto: v.precioCosto,
       utilidad: v.utilidad,
-      descripcion: v.descripcion || null,
+      descripcion: v.descripcion?.trim() || null,
       codigoBarras: v.codigoBarras?.trim() || null,
       oferta: !!v.oferta,
       bajoMinimoStock: v.bajoMinimoStock,
@@ -607,19 +623,26 @@ function ProductoPopup({
       const status = err?.response?.status;
       const data = err?.response?.data;
       if (status === 409 && data?.error === "UNIQUE_CONSTRAINT") {
-        alert(
-          `Valor duplicado en: ${data.fields?.join(", ") || "campo único"}`
-        );
+        await showAlert({ type: "error", message: `Valor duplicado en: ${data.fields?.join(", ") || "campo único"}` });
         return;
       }
       if (status === 409 && data?.error === "FK_CONSTRAINT_IN_USE") {
-        alert("No se puede editar: tiene movimientos relacionados.");
+        await showAlert({ type: "error", message: "No se puede editar: tiene movimientos relacionados." });
         return;
       }
-      alert("Operación fallida");
+      await showAlert({ type: "error", message: "Operación fallida" });
       console.error(err);
     }
   };
+
+  function onInvalid() {
+    setShowErrors(true);
+    const missing: string[] = [];
+    if (errors.nombre) missing.push("Nombre");
+    if (errors.familia) missing.push("Familia");
+    if (errors.subfamilia) missing.push("Subfamilia");
+    if (missing.length) toast.error(`Te faltó cargar: ${missing.join(", ")}`);
+  }
 
   return (
     <>
@@ -645,145 +668,129 @@ function ProductoPopup({
           <div className="p-4 overflow-auto flex-1 space-y-4">
             <form
               id="producto-form"
-              onSubmit={handleSubmit(onSubmit)}
+              onSubmit={handleSubmit(onSubmit, onInvalid)}
               className="grid gap-3"
             >
-              {/* 1) Familia / Subfamilia */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="familia">Familia</Label>
-                  <Select id="familia" {...register("familia")}>
-                    <option value="">Seleccionar familia</option>
-                    {familiasDisplay.map((f, i) => (
-                      <option
-                        key={`fam-${f.id ?? `i${i}`}`}
-                        value={String(f.id)}
-                      >
-                        {String(f.nombre).charAt(0).toUpperCase() +
-                          String(f.nombre).slice(1).toLowerCase()}
-                      </option>
-                    ))}
-                  </Select>
-                  <FieldError message={errors.familia?.message} />
-                </div>
-                <div>
-                  <Label htmlFor="subfamilia">Subfamilia</Label>
-                  <Select id="subfamilia" {...register("subfamilia")}>
-                    <option value="">Seleccionar subfamilia</option>
-                    {subfamiliasFiltradas.map((sf, i) => (
-                      <option
-                        key={`sub-${sf.id ?? `i${i}`}`}
-                        value={String(sf.id)}
-                      >
-                        {sf.nombre}
-                      </option>
-                    ))}
-                  </Select>
-                  <FieldError message={errors.subfamilia?.message} />
+              {/* Clasificación */}
+              <div className="rounded-2xl border bg-white p-4 space-y-3">
+                <h4 className="text-sm font-medium text-gray-700">Clasificación</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="familia">Familia</Label>
+                    <Select id="familia" className={showErrors && errors.familia ? "border-red-500" : "border-black"} {...register("familia")}>
+                      <option value="">Seleccionar familia</option>
+                      {familiasDisplay.map((f, i) => (
+                        <option key={`fam-${f.id ?? `i${i}`}`} value={String(f.id)}>
+                          {String(f.nombre).charAt(0).toUpperCase() + String(f.nombre).slice(1).toLowerCase()}
+                        </option>
+                      ))}
+                    </Select>
+                    <FieldError message={errors.familia?.message} />
+                  </div>
+                  <div>
+                    <Label htmlFor="subfamilia">Subfamilia</Label>
+                    <Select id="subfamilia" className={showErrors && errors.subfamilia ? "border-red-500" : "border-black"} {...register("subfamilia")}>
+                      <option value="">Seleccionar subfamilia</option>
+                      {subfamiliasFiltradas.map((sf, i) => (
+                        <option key={`sub-${sf.id ?? `i${i}`}`} value={String(sf.id)}>
+                          {sf.nombre}
+                        </option>
+                      ))}
+                    </Select>
+                    <FieldError message={errors.subfamilia?.message} />
+                  </div>
                 </div>
               </div>
 
-              {/* 2) Código de Barras */}
-              <div>
-                <Label htmlFor="codigoBarras">Código de Barras</Label>
-                <Input
-                  id="codigoBarras"
-                  placeholder="7791234567890"
-                  {...register("codigoBarras")}
-                />
-                <FieldError message={errors.codigoBarras?.message} />
-              </div>
-
-              {/* 3) Nombre */}
-              <div>
-                <Label htmlFor="nombre">Nombre</Label>
-                <Input
-                  id="nombre"
-                  placeholder="Ovillo Merino 100 g"
-                  {...register("nombre")}
-                />
-                <FieldError message={errors.nombre?.message} />
-              </div>
-
-              {/* 4) Descripción */}
-              <div>
-                <Label htmlFor="descripcion">Descripción</Label>
-                <textarea
-                  id="descripcion"
-                  className="w-full rounded-lg border px-3 py-2 text-sm min-h-[80px]"
-                  placeholder="Madeja de lana merino suave para agujas 4–5 mm"
-                  {...(register("descripcion") as any)}
-                />
-              </div>
-
-              {/* 5) Precios */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <Label htmlFor="precioCosto">Precio de Costo</Label>
-                  <Input
-                    id="precioCosto"
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    placeholder="2500"
-                    {...register("precioCosto", {
-                      valueAsNumber: true,
-                      onChange: onCostoChange,
-                    })}
-                  />
-                  <FieldError message={errors.precioCosto?.message} />
-                </div>
-                <div>
-                  <Label htmlFor="utilidad">Utilidad (%)</Label>
-                  <Input
-                    id="utilidad"
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    placeholder="60"
-                    {...register("utilidad", {
-                      valueAsNumber: true,
-                      onChange: onUtilChange,
-                    })}
-                  />
-                  <FieldError message={errors.utilidad?.message} />
-                </div>
-                <div>
-                  <Label htmlFor="precioVenta">Precio de Venta</Label>
-                  <Input
-                    id="precioVenta"
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    placeholder="4000"
-                    readOnly
-                    {...register("precioVenta", { valueAsNumber: true })}
-                  />
-                  <FieldError message={errors.precioVenta?.message} />
+              {/* Identificación */}
+              <div className="rounded-2xl border bg-white p-4 space-y-3">
+                <h4 className="text-sm font-medium text-gray-700">Identificación</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="codigoBarras">Código de Barras</Label>
+                    <Input id="codigoBarras" placeholder="7791234567890" {...register("codigoBarras")} />
+                    <FieldError message={errors.codigoBarras?.message} />
+                  </div>
+                  <div>
+                    <Label htmlFor="nombre">Nombre</Label>
+                    <Input id="nombre" placeholder="Ovillo Merino 100 g" className={showErrors && errors.nombre ? "border-red-500" : "border-black"} {...register("nombre")} />
+                    <FieldError message={errors.nombre?.message} />
+                  </div>
                 </div>
               </div>
 
-              {/* 6) Umbral y última modificación (sin campo de stock) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Detalles */}
+              <div className="rounded-2xl border bg-white p-4 space-y-3">
+                <h4 className="text-sm font-medium text-gray-700">Detalles</h4>
                 <div>
-                  <Label htmlFor="bajoMinimoStock">Bajo mínimo</Label>
-                  <Input
-                    id="bajoMinimoStock"
-                    type="number"
-                    inputMode="numeric"
-                    {...register("bajoMinimoStock", { valueAsNumber: true })}
+                  <Label htmlFor="descripcion">Descripción</Label>
+                  <textarea
+                    id="descripcion"
+                    className="w-full rounded-lg border px-3 py-2 text-sm min-h-[80px]"
+                    placeholder="Madeja de lana merino suave para agujas 4–5 mm"
+                    {...(register("descripcion") as any)}
                   />
-                  <FieldError message={errors.bajoMinimoStock?.message} />
                 </div>
-                <div>
-                  <Label htmlFor="ultimaModificacionStock">Última modificación</Label>
-                  <Input
-                    id="ultimaModificacionStock"
-                    type="date"
-                    max={todayISO}
-                    {...register("ultimaModificacionStock")}
-                  />
-                  <FieldError message={errors.ultimaModificacionStock?.message} />
+              </div>
+
+              {/* Precios */}
+              <div className="rounded-2xl border bg-white p-4 space-y-3">
+                <h4 className="text-sm font-medium text-gray-700">Precios</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <Label htmlFor="precioCosto">Precio de Costo</Label>
+                    <Input
+                      id="precioCosto"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      placeholder="2500"
+                      {...register("precioCosto", { valueAsNumber: true, onChange: onCostoChange })}
+                    />
+                    <FieldError message={errors.precioCosto?.message} />
+                  </div>
+                  <div>
+                    <Label htmlFor="utilidad">Utilidad (%)</Label>
+                    <Input
+                      id="utilidad"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      placeholder="60"
+                      {...register("utilidad", { valueAsNumber: true, onChange: onUtilChange })}
+                    />
+                    <FieldError message={errors.utilidad?.message} />
+                  </div>
+                  <div>
+                    <Label htmlFor="precioVenta">Precio de Venta</Label>
+                    <Input
+                      id="precioVenta"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      placeholder="4000"
+                      readOnly
+                      {...register("precioVenta", { valueAsNumber: true })}
+                    />
+                    <FieldError message={errors.precioVenta?.message} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Stock */}
+              <div className="rounded-2xl border bg-white p-4 space-y-3">
+                <h4 className="text-sm font-medium text-gray-700">Stock</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="bajoMinimoStock">Bajo mínimo</Label>
+                    <Input id="bajoMinimoStock" type="number" inputMode="numeric" {...register("bajoMinimoStock", { valueAsNumber: true })} />
+                    <FieldError message={errors.bajoMinimoStock?.message} />
+                  </div>
+                  <div>
+                    <Label htmlFor="ultimaModificacionStock">Última modificación</Label>
+                    <Input id="ultimaModificacionStock" type="date" max={todayISO} {...register("ultimaModificacionStock")} />
+                    <FieldError message={errors.ultimaModificacionStock?.message} />
+                  </div>
                 </div>
               </div>
             </form>
