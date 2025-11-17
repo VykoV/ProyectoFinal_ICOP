@@ -7,7 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/* ===== Enum de roles en venta ===== */
+/**
+ * ===== Enum de roles en venta =====
+ */
 enum PapelEnVenta {
   CREADOR
   CAJERO
@@ -15,19 +17,24 @@ enum PapelEnVenta {
   EDITOR
 }
 
-/* ===== Usuario y roles globales ===== */
+/**
+ * ===== Usuario y roles globales =====
+ */
 model Usuario {
-  idUsuario         Int       @id @default(autoincrement()) @db.Integer
-  nombreUsuario     String    @db.VarChar(100)
-  emailUsuario      String    @unique @db.VarChar(320)
-  contrasenaUsuario String    @map("contraseñaUsuario") @db.VarChar(100)
-  createdAt         DateTime  @default(now())
+  idUsuario         Int      @id @default(autoincrement()) @db.Integer
+  nombreUsuario     String   @db.VarChar(100)
+  emailUsuario      String   @unique @db.VarChar(320)
+  contrasenaUsuario String   @map("contraseñaUsuario") @db.VarChar(100)
+  createdAt         DateTime @default(now())
 
-  roles          UsuarioRol[]
-  ventasCreadas  Venta[]        @relation("UsuarioCreador")
-  ventasActor    VentaActor[]
-  eventosVenta   VentaEvento[]
-  comentarios    VentaComentario[]
+  roles         UsuarioRol[]
+  ventasCreadas Venta[]           @relation("UsuarioCreador")
+  ventasActor   VentaActor[]
+  eventosVenta  VentaEvento[]
+  comentarios   VentaComentario[]
+
+  cierresCaja    CierreCaja[]
+  notificaciones Notificacion[]
 
   @@map("Usuario")
 }
@@ -52,68 +59,73 @@ model UsuarioRol {
   @@map("UsuarioRol")
 }
 
-/* ===== Clientes ===== */
+/**
+ * ===== Clientes =====
+ */
 model TipoCliente {
-  idTipoCliente Int    @id @default(autoincrement()) @db.Integer
-  tipoCliente   String @db.VarChar(100)
-  clientes Cliente[]
+  idTipoCliente Int       @id @default(autoincrement()) @db.Integer
+  tipoCliente   String    @db.VarChar(100)
+  clientes      Cliente[]
 
   @@map("TipoCliente")
 }
 
 model NivelCliente {
-  idNivelCliente  Int @id @default(autoincrement()) @db.Integer
+  idNivelCliente  Int       @id @default(autoincrement()) @db.Integer
   indiceBeneficio Int
-  clientes Cliente[]
+  clientes        Cliente[]
 
   @@map("NivelCliente")
 }
 
 model Provincia {
-  idProvincia     Int    @id @default(autoincrement()) @db.Integer
-  nombreProvincia String @db.Char(100)
-  localidades Localidad[]
+  idProvincia     Int         @id @default(autoincrement()) @db.Integer
+  nombreProvincia String      @db.Char(100)
+  localidades     Localidad[]
 
   @@map("Provincia")
 }
 
 model Localidad {
-  idLocalidad     Int       @id @default(autoincrement()) @db.Integer
-  nombreLocalidad String    @db.Char(100)
+  idLocalidad     Int         @id @default(autoincrement()) @db.Integer
+  nombreLocalidad String      @db.Char(100)
   idProvincia     Int
-  Provincia       Provincia @relation(fields: [idProvincia], references: [idProvincia])
-  clientes    Cliente[]
-  proveedores Proveedor[]
+  Provincia       Provincia   @relation(fields: [idProvincia], references: [idProvincia])
+  clientes        Cliente[]
+  proveedores     Proveedor[]
 
   @@unique([idProvincia, nombreLocalidad])
   @@map("Localidad")
 }
 
 model Cliente {
-  idCliente       Int      @id @default(autoincrement()) @db.Integer
-  nombreCliente   String   @db.VarChar(100)
-  apellidoCliente String   @db.VarChar(100)
-  cuil            BigInt?
-  emailCliente    String   @db.VarChar(100)
+  idCliente       Int           @id @default(autoincrement()) @db.Integer
+  nombreCliente   String        @db.VarChar(100)
+  apellidoCliente String        @db.VarChar(100)
+  cuil            BigInt?       @unique
+  emailCliente    String        @db.VarChar(100)
   telefonoCliente BigInt?
-  observacion     String?  @db.Text
-  fechaRegistro   DateTime @default(now())
+  observacion     String?       @db.Text
+  fechaRegistro   DateTime      @default(now())
   idTipoCliente   Int?
   idNivelCliente  Int?
   idLocalidad     Int?
-  TipoCliente  TipoCliente?  @relation(fields: [idTipoCliente], references: [idTipoCliente])
-  NivelCliente NivelCliente? @relation(fields: [idNivelCliente], references: [idNivelCliente])
-  Localidad    Localidad?    @relation(fields: [idLocalidad], references: [idLocalidad])
-  ventas Venta[]
+  TipoCliente     TipoCliente?  @relation(fields: [idTipoCliente], references: [idTipoCliente])
+  NivelCliente    NivelCliente? @relation(fields: [idNivelCliente], references: [idNivelCliente])
+  Localidad       Localidad?    @relation(fields: [idLocalidad], references: [idLocalidad])
+  ventas          Venta[]
 
   @@map("Cliente")
 }
 
-/* ===== Catálogo ===== */
+/**
+ * ===== Catálogo =====
+ */
 model Familia {
   idFamilia   Int          @id @default(autoincrement()) @db.Integer
   tipoFamilia String       @unique @db.Char(100)
   subFamilias SubFamilia[]
+
   @@map("Familia")
 }
 
@@ -129,27 +141,50 @@ model SubFamilia {
 }
 
 model Producto {
-  idProducto                 Int     @id @default(autoincrement()) @db.Integer
-  codigoBarrasProducto       BigInt? @unique
-  codigoProducto             String  @unique @db.VarChar(50)
-  nombreProducto             String  @db.VarChar(100)
-  descripcionProducto        String? @db.Text
-  ofertaProducto             Boolean @default(false)
-  precioProducto             Decimal @db.Decimal(12, 2)
-  precioVentaPublicoProducto Decimal @db.Decimal(12, 2)
-  utilidadProducto           Decimal @db.Decimal(7, 2)
+  idProducto                 Int                       @id @default(autoincrement()) @db.Integer
+  codigoBarrasProducto       BigInt?                   @unique
+  codigoProducto             String                    @unique @db.VarChar(50)
+  nombreProducto             String                    @db.VarChar(100)
+  descripcionProducto        String?                   @db.Text
+  ofertaProducto             Boolean                   @default(false)
+  porcentajeOfertaProducto   Decimal                   @default(0) @db.Decimal(7, 2)
+  fechaInicioOferta          DateTime?
+  fechaFinOferta             DateTime?
+  precioProducto             Decimal                   @db.Decimal(12, 2)
+  precioVentaPublicoProducto Decimal                   @db.Decimal(12, 2)
+  utilidadProducto           Decimal                   @db.Decimal(7, 2)
   idUsuario                  Int?
   idSubFamilia               Int
-  SubFamilia SubFamilia @relation(fields: [idSubFamilia], references: [idSubFamilia])
-  stocks             Stock[]
-  proveedorProductos ProveedorProducto[]
-  detalleCompras     DetalleCompra[]
-  detalleVentas      DetalleVenta[]
+  updatedAt                  DateTime                  @default(now()) @updatedAt
+  SubFamilia                 SubFamilia                @relation(fields: [idSubFamilia], references: [idSubFamilia])
+  stocks                     Stock[]
+  proveedorProductos         ProveedorProducto[]
+  detalleCompras             DetalleCompra[]
+  detalleVentas              DetalleVenta[]
+  ofertaHistoriales          OfertaProductoHistorial[]
 
   @@map("Producto")
 }
 
-/* ===== Stock con campos nuevos ===== */
+// Historial de cambios de oferta en producto
+model OfertaProductoHistorial {
+  idOfertaProductoHistorial Int       @id @default(autoincrement())
+  idProducto                Int
+  ofertaProducto            Boolean
+  porcentajeOfertaProducto  Decimal   @db.Decimal(7, 2)
+  fechaInicio               DateTime  @default(now())
+  fechaFin                  DateTime?
+  creadoPor                 Int?
+
+  Producto Producto @relation(fields: [idProducto], references: [idProducto])
+
+  @@index([idProducto])
+  @@map("OfertaProductoHistorial")
+}
+
+/**
+ * ===== Stock con campos nuevos =====
+ */
 model Stock {
   idStock                 Int      @id @default(autoincrement()) @db.Integer
   idProducto              Int      @unique
@@ -157,61 +192,71 @@ model Stock {
   cantidadRealStock       Decimal  @db.Decimal(12, 2)
   stockComprometido       Decimal  @default(0) @db.Decimal(12, 2)
   ultimaModificacionStock DateTime @default(now())
-  Producto Producto @relation(fields: [idProducto], references: [idProducto])
+  Producto                Producto @relation(fields: [idProducto], references: [idProducto])
+
   @@map("Stock")
 }
 
-/* Vista sólo lectura para stockDisponible */
+/**
+ * Vista sólo lectura para stockDisponible
+ */
 model VwStock {
-  idProducto          Int
-  cantidadRealStock   Decimal @db.Decimal(12, 2)
-  stockComprometido   Decimal @db.Decimal(12, 2)
-  stockDisponible     Decimal @db.Decimal(12, 2)
+  idProducto        Int
+  cantidadRealStock Decimal @db.Decimal(12, 2)
+  stockComprometido Decimal @db.Decimal(12, 2)
+  stockDisponible   Decimal @db.Decimal(12, 2)
+
   @@ignore
 }
 
-/* ===== Proveedores y compras ===== */
+/**
+ * ===== Proveedores y compras =====
+ */
 model Proveedor {
-  idProveedor          Int     @id @default(autoincrement()) @db.Integer
-  CIF_NIFProveedor     BigInt? @unique
-  nombreProveedor      String  @db.VarChar(100)
-  mailProveedor        String? @db.VarChar(100)
+  idProveedor          Int                 @id @default(autoincrement()) @db.Integer
+  CIF_NIFProveedor     BigInt?             @unique
+  nombreProveedor      String              @db.VarChar(100)
+  mailProveedor        String?             @db.VarChar(100)
   telefonoProveedor    BigInt?
-  observacionProveedor String? @db.Text
+  observacionProveedor String?             @db.Text
   idLocalidad          Int?
-  Localidad Localidad? @relation(fields: [idLocalidad], references: [idLocalidad], onDelete: SetNull, onUpdate: Cascade)
-  proveedorProductos ProveedorProducto[]
-  compras Compra[]
+  Localidad            Localidad?          @relation(fields: [idLocalidad], references: [idLocalidad], onDelete: SetNull, onUpdate: Cascade)
+  proveedorProductos   ProveedorProducto[]
+  compras              Compra[]
+
   @@map("Proveedor")
 }
 
 model ProveedorProducto {
-  idProveedorProducto     Int      @id @default(autoincrement()) @db.Integer
+  idProveedorProducto     Int       @id @default(autoincrement()) @db.Integer
   idProveedor             Int
   idProducto              Int
-  codigoArticuloProveedor String   @db.VarChar(50)
-  fechaIngreso            DateTime @db.Date
-  precioHistorico         Decimal  @db.Decimal(12, 2)
-  Proveedor Proveedor @relation(fields: [idProveedor], references: [idProveedor], onDelete: Restrict)
-  Producto  Producto  @relation(fields: [idProducto], references: [idProducto], onDelete: Restrict)
+  codigoArticuloProveedor String    @db.VarChar(50)
+  fechaIngreso            DateTime  @db.Date
+  precioHistorico         Decimal   @db.Decimal(12, 2)
+  Proveedor               Proveedor @relation(fields: [idProveedor], references: [idProveedor], onDelete: Restrict)
+  Producto                Producto  @relation(fields: [idProducto], references: [idProducto], onDelete: Restrict)
+
   @@index([idProducto])
   @@map("ProveedorProducto")
 }
 
 model MetodoPago {
-  idMetodoPago Int     @id @default(autoincrement()) @db.Integer
-  metodoPago   String? @db.Char(100)
-  compras Compra[]
+  idMetodoPago Int      @id @default(autoincrement()) @db.Integer
+  metodoPago   String?  @db.Char(100)
+  compras      Compra[]
+
   @@map("MetodoPago")
 }
 
 model Moneda {
-  idMoneda Int     @id @default(autoincrement()) @db.Integer
-  moneda   String  @db.VarChar(50)
-  precio   Decimal @db.Decimal(12, 4)
+  idMoneda  Int      @id @default(autoincrement()) @db.Integer
+  moneda    String   @db.VarChar(50)
+  precio    Decimal  @db.Decimal(12, 4)
   updatedAt DateTime @default(now()) @updatedAt
-  compras Compra[]
-  ventas  Venta[]
+  compras   Compra[]
+  ventas    Venta[]
+
   @@map("Moneda")
 }
 
@@ -237,7 +282,7 @@ model Compra {
   MetodoPago MetodoPago @relation(fields: [idMetodoPago], references: [idMetodoPago])
   Moneda     Moneda     @relation(fields: [idMoneda], references: [idMoneda])
 
-  detalles   DetalleCompra[]
+  detalles DetalleCompra[]
 
   @@unique([idProveedor, nroFactura])
   @@index([fechaComprobanteCompra])
@@ -245,96 +290,186 @@ model Compra {
 }
 
 model DetalleCompra {
-  id          Int      @id @default(autoincrement()) @map("idDetalleCompra") @db.Integer
-  idCompra    Int
-  idProducto  Int
-  cantidad    Decimal  @db.Decimal(12, 2)
-  precioUnit  Decimal  @db.Decimal(12, 2)
+  id         Int     @id @default(autoincrement()) @map("idDetalleCompra") @db.Integer
+  idCompra   Int
+  idProducto Int
+  cantidad   Decimal @db.Decimal(12, 2)
+  precioUnit Decimal @db.Decimal(12, 2)
 
-  Compra      Compra   @relation(fields: [idCompra], references: [id], onDelete: Cascade)
-  Producto    Producto @relation(fields: [idProducto], references: [idProducto], onDelete: Restrict)
+  Compra   Compra   @relation(fields: [idCompra], references: [id], onDelete: Cascade)
+  Producto Producto @relation(fields: [idProducto], references: [idProducto], onDelete: Restrict)
 
   @@map("DetalleCompra")
 }
 
-/* ===== Ventas ===== */
+/**
+ * ===== Ventas =====
+ */
 model TipoPago {
-  idTipoPago Int      @id @default(autoincrement()) @db.Integer
-  tipoPago   String   @db.Char(100)
-  
+  idTipoPago Int    @id @default(autoincrement()) @db.Integer
+  tipoPago   String @db.Char(100)
+
   ventas Venta[]
+
   @@map("TipoPago")
 }
 
 model EstadoVenta {
-  idEstadoVenta     Int    @id @default(autoincrement()) @db.Integer
-  nombreEstadoVenta String @db.VarChar(100)
-  ventas       Venta[]
-  eventosDesde VentaEvento[] @relation("EventoDesde")
-  eventosHasta VentaEvento[] @relation("EventoHasta")
+  idEstadoVenta     Int           @id @default(autoincrement()) @db.Integer
+  nombreEstadoVenta String        @db.VarChar(100)
+  ventas            Venta[]
+  eventosDesde      VentaEvento[] @relation("EventoDesde")
+  eventosHasta      VentaEvento[] @relation("EventoHasta")
+
   @@map("EstadoVenta")
 }
 
+// Estado de pago de la venta
+enum EstadoPagoVenta {
+  PENDIENTE
+  PAGADO
+  PARCIAL
+  RESERVA
+}
+
 model Venta {
-  idVenta         Int      @id @default(autoincrement()) @db.Integer
-  fechaVenta      DateTime @db.Date
-  fechaCobroVenta DateTime @db.Date
-  fechaReservaLimite DateTime? @db.Date
-  observacion     String?  @db.Text
-  idCliente       Int
-  idEstadoVenta   Int
-  idTipoPago      Int
-  idMoneda        Int
-  idUsuario       Int?
-  descuentoGeneralVenta Decimal @default(0) @db.Decimal(7, 2)
-  ajusteVenta           Decimal @default(0) @db.Decimal(12, 2)
-  recargoPagoVenta      Decimal @default(0) @db.Decimal(12, 2)
-  Cliente     Cliente     @relation(fields: [idCliente], references: [idCliente])
-  EstadoVenta EstadoVenta @relation(fields: [idEstadoVenta], references: [idEstadoVenta])
-  TipoPago    TipoPago    @relation(fields: [idTipoPago], references: [idTipoPago])
-  Moneda      Moneda      @relation(fields: [idMoneda], references: [idMoneda])
-  Usuario     Usuario?    @relation("UsuarioCreador", fields: [idUsuario], references: [idUsuario])
-  detalles     DetalleVenta[]
-  actores      VentaActor[]
-  eventos      VentaEvento[]
-  comentarios  VentaComentario[]
+  idVenta               Int               @id @default(autoincrement()) @db.Integer
+  fechaVenta            DateTime          @db.Date
+  fechaCobroVenta       DateTime          @db.Date
+  fechaReservaLimite    DateTime?         @db.Date
+  observacion           String?           @db.Text
+  idCliente             Int
+  idEstadoVenta         Int
+  idTipoPago            Int
+  idMoneda              Int
+  idUsuario             Int?
+  descuentoGeneralVenta Decimal           @default(0) @db.Decimal(7, 2)
+  ajusteVenta           Decimal           @default(0) @db.Decimal(12, 2)
+  recargoPagoVenta      Decimal           @default(0) @db.Decimal(12, 2)
+  estadoPago            EstadoPagoVenta   @default(PENDIENTE)
+  Cliente               Cliente           @relation(fields: [idCliente], references: [idCliente])
+  EstadoVenta           EstadoVenta       @relation(fields: [idEstadoVenta], references: [idEstadoVenta])
+  TipoPago              TipoPago          @relation(fields: [idTipoPago], references: [idTipoPago])
+  Moneda                Moneda            @relation(fields: [idMoneda], references: [idMoneda])
+  Usuario               Usuario?          @relation("UsuarioCreador", fields: [idUsuario], references: [idUsuario])
+  detalles              DetalleVenta[]
+  actores               VentaActor[]
+  eventos               VentaEvento[]
+  comentarios           VentaComentario[]
+
   @@map("Venta")
 }
 
 model DetalleVenta {
-  idDetalleVenta Int     @id @default(autoincrement()) @db.Integer
+  idDetalleVenta Int      @id @default(autoincrement()) @db.Integer
   idVenta        Int
   idProducto     Int
-  cantidad       Decimal @db.Decimal(10, 3)
-  Venta    Venta    @relation(fields: [idVenta], references: [idVenta])
-  Producto Producto @relation(fields: [idProducto], references: [idProducto])
+  cantidad       Decimal  @db.Decimal(10, 3)
+  precioUnit     Decimal  @default(0) @db.Decimal(12, 2)
+  descuentoItem  Decimal  @default(0) @db.Decimal(7, 2) // porcentaje (%)
+  recargoItem    Decimal  @default(0) @db.Decimal(7, 2) // porcentaje (%)
+  Venta          Venta    @relation(fields: [idVenta], references: [idVenta])
+  Producto       Producto @relation(fields: [idProducto], references: [idProducto])
+
   @@map("DetalleVenta")
 }
 
-/* ===== Tablas de auditoría ===== */
+/**
+ * ===== Notificaciones =====
+ */
+enum TipoNotificacion {
+  MONEDA
+  STOCK_BAJO
+  RESERVA_VENCIDA
+  OTRO
+}
+
+enum NivelNotificacion {
+  INFO
+  WARN
+  ERROR
+}
+
+model Notificacion {
+  idNotificacion Int               @id @default(autoincrement()) @db.Integer
+  tipo           TipoNotificacion
+  mensaje        String            @db.Text
+  nivel          NivelNotificacion
+  leido          Boolean           @default(false)
+  data           Json?
+  createdAt      DateTime          @default(now())
+  idUsuario      Int?
+
+  Usuario Usuario? @relation(fields: [idUsuario], references: [idUsuario])
+
+  @@map("Notificacion")
+}
+
+/**
+ * ===== Cierre de Caja =====
+ */
+model CierreCaja {
+  idCierre     Int      @id @default(autoincrement()) @db.Integer
+  fecha        DateTime @db.Date
+  totalVentas  Decimal  @default(0) @db.Decimal(12, 2)
+  totalCobros  Decimal  @default(0) @db.Decimal(12, 2)
+  totalCompras Decimal  @default(0) @db.Decimal(12, 2)
+  saldoInicial Decimal  @default(0) @db.Decimal(12, 2)
+  saldoFinal   Decimal  @default(0) @db.Decimal(12, 2)
+  idUsuario    Int
+  Usuario      Usuario  @relation(fields: [idUsuario], references: [idUsuario])
+  createdAt    DateTime @default(now())
+
+  @@map("CierreCaja")
+}
+
+/**
+ * ===== Backup Log (RF14) =====
+ */
+enum ResultadoBackup {
+  OK
+  ERROR
+}
+
+model BackupLog {
+  idBackup     Int             @id @default(autoincrement()) @db.Integer
+  fecha        DateTime        @default(now())
+  rutaArchivo  String?         @db.VarChar(255)
+  descripcion  String?         @db.Text
+  resultado    ResultadoBackup
+  detalleError String?
+
+  @@map("BackupLog")
+}
+
+/**
+ * ===== Tablas de auditoría =====
+ */
 model VentaActor {
   idVenta   Int
   idUsuario Int
   papel     PapelEnVenta
-  createdAt DateTime @default(now())
-  Venta   Venta   @relation(fields: [idVenta], references: [idVenta])
-  Usuario Usuario @relation(fields: [idUsuario], references: [idUsuario])
+  createdAt DateTime     @default(now())
+  Venta     Venta        @relation(fields: [idVenta], references: [idVenta])
+  Usuario   Usuario      @relation(fields: [idUsuario], references: [idUsuario])
+
   @@id([idVenta, idUsuario, papel])
   @@map("VentaActor")
 }
 
 model VentaEvento {
-  idVentaEvento Int      @id @default(autoincrement()) @db.Integer
+  idVentaEvento Int          @id @default(autoincrement()) @db.Integer
   idVenta       Int
   idUsuario     Int
   estadoDesde   Int?
   estadoHasta   Int
-  motivo        String?  @db.Text
-  createdAt     DateTime @default(now())
-  Venta   Venta   @relation(fields: [idVenta], references: [idVenta])
-  Usuario Usuario @relation(fields: [idUsuario], references: [idUsuario])
-  EstadoDesde EstadoVenta? @relation("EventoDesde", fields: [estadoDesde], references: [idEstadoVenta])
-  EstadoHasta EstadoVenta  @relation("EventoHasta", fields: [estadoHasta], references: [idEstadoVenta])
+  motivo        String?      @db.Text
+  createdAt     DateTime     @default(now())
+  Venta         Venta        @relation(fields: [idVenta], references: [idVenta])
+  Usuario       Usuario      @relation(fields: [idUsuario], references: [idUsuario])
+  EstadoDesde   EstadoVenta? @relation("EventoDesde", fields: [estadoDesde], references: [idEstadoVenta])
+  EstadoHasta   EstadoVenta  @relation("EventoHasta", fields: [estadoHasta], references: [idEstadoVenta])
+
   @@map("VentaEvento")
 }
 
@@ -344,7 +479,8 @@ model VentaComentario {
   idUsuario         Int
   comentario        String   @db.Text
   createdAt         DateTime @default(now())
-  Venta   Venta   @relation(fields: [idVenta], references: [idVenta])
-  Usuario Usuario @relation(fields: [idUsuario], references: [idUsuario])
+  Venta             Venta    @relation(fields: [idVenta], references: [idVenta])
+  Usuario           Usuario  @relation(fields: [idUsuario], references: [idUsuario])
+
   @@map("VentaComentario")
 }

@@ -1050,13 +1050,25 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                       currency: "ARS",
                       maximumFractionDigits: 2,
                     }).format(
-                      (lineItems ?? []).reduce((acc: number, d: any) => {
-                        const cant = Number(d.cantidad ?? 0);
-                        const pu = Number(
-                          d.Producto?.precioVentaPublicoProducto ?? 0
-                        );
-                        return acc + cant * pu;
-                      }, 0)
+                      (() => {
+                        const tot = venta?.totales;
+                        if (tot) return Number(tot.totalFinal ?? 0);
+                        const IVA = 0.21;
+                        const bruto = (lineItems ?? []).reduce((acc: number, d: any) => {
+                          const cant = Number(d.cantidad ?? 0);
+                          const puBase = Number(
+                            d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
+                          );
+                          const descPct = Number(d.descuentoItem ?? 0) / 100;
+                          const puFinal = puBase * (1 - descPct);
+                          return acc + cant * puFinal;
+                        }, 0);
+                        const descGPercent = Number(venta?.descuentoGeneralVenta ?? venta?.descuentoGeneral ?? 0) / 100;
+                        const recargoPercent = Number(venta?.recargoPagoVenta ?? venta?.recargoPago ?? 0) / 100;
+                        const trasDescuento = bruto * (1 - descGPercent);
+                        const finalFallback = trasDescuento * (1 + recargoPercent);
+                        return finalFallback;
+                      })()
                     )}
                   </p>
                 </div>
@@ -1112,6 +1124,7 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                       <th className="px-2 py-2 text-left">Producto</th>
                       <th className="px-2 py-2 text-right">Cant.</th>
                       <th className="px-2 py-2 text-right">P.Unit.</th>
+                      <th className="px-2 py-2 text-right">Desc %</th>
                       <th className="px-2 py-2 text-right">Subtotal</th>
                     </tr>
                   </thead>
@@ -1120,7 +1133,7 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                       <tr>
                         <td
                           className="px-2 py-4 text-center text-gray-500"
-                          colSpan={4}
+                          colSpan={5}
                         >
                           Cargando productos...
                         </td>
@@ -1128,10 +1141,12 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                     ) : lineItems.length > 0 ? (
                       lineItems.map((d: any, idx: number) => {
                         const cant = Number(d.cantidad ?? 0);
-                        const pu = Number(
-                          d.Producto?.precioVentaPublicoProducto ?? 0
+                        const puBase = Number(
+                          d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
                         );
-                        const subtotal = cant * pu;
+                        const descPct = Number(d.descuentoItem ?? 0);
+                        const puFinal = puBase * (1 - (descPct || 0) / 100);
+                        const subtotal = cant * puFinal;
                         return (
                           <tr key={idx} className="border-t">
                             <td className="px-2 py-2">
@@ -1140,7 +1155,23 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                             </td>
                             <td className="px-2 py-2 text-right">{cant}</td>
                             <td className="px-2 py-2 text-right">
-                              ${fmtPrice(pu, { minFraction: 2, maxFraction: 2 })}
+                              {descPct > 0 ? (
+                                <div className="flex flex-col items-end">
+                                  <span className="line-through text-gray-400">
+                                    ${fmtPrice(puBase, { minFraction: 2, maxFraction: 2 })}
+                                  </span>
+                                  <span className="text-green-700 font-medium">
+                                    ${fmtPrice(puFinal, { minFraction: 2, maxFraction: 2 })}
+                                  </span>
+                                </div>
+                              ) : (
+                                <>
+                                  ${fmtPrice(puBase, { minFraction: 2, maxFraction: 2 })}
+                                </>
+                              )}
+                            </td>
+                            <td className="px-2 py-2 text-right">
+                              {descPct > 0 ? `-${descPct}%` : "-"}
                             </td>
                             <td className="px-2 py-2 text-right">
                               ${fmtPrice(subtotal, { minFraction: 2, maxFraction: 2 })}
@@ -1152,7 +1183,7 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                       <tr>
                         <td
                           className="px-2 py-4 text-center text-gray-500"
-                          colSpan={4}
+                          colSpan={5}
                         >
                           Sin items
                         </td>
@@ -1161,6 +1192,86 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                   </tbody>
                 </table>
               </div>
+            </div>
+
+            {/* Resumen */}
+            <div className="rounded-xl border bg-white p-3 mt-4">
+              <p className="text-gray-700 font-medium mb-2">Resumen</p>
+              {loadingVenta ? (
+                <div className="text-sm text-gray-500">Cargando resumen…</div>
+              ) : (
+                (() => {
+                  const tot = venta?.totales;
+                  const IVA = 0.21;
+                  let subtotalSinIVA: number;
+                  let impuestos: number;
+                  let totalFinal: number;
+                  let baseArticulos: number;
+                  let descuentoGeneralMonto = 0;
+                  let recargoPagoMonto = 0;
+                  const descGPercent = Number(venta?.descuentoGeneralVenta ?? venta?.descuentoGeneral ?? 0) / 100;
+                  const recargoPercent = Number(venta?.recargoPagoVenta ?? venta?.recargoPago ?? 0) / 100;
+
+                  if (tot) {
+                    subtotalSinIVA = Number(tot.importeNeto ?? 0);
+                    impuestos = Number(tot.impuesto ?? 0);
+                    totalFinal = Number(tot.totalFinal ?? 0);
+                    baseArticulos = Number(tot.importeArticulos ?? 0);
+                    descuentoGeneralMonto = baseArticulos * descGPercent;
+                    const trasDescuento = baseArticulos * (1 - descGPercent);
+                    recargoPagoMonto = trasDescuento * recargoPercent;
+                  } else {
+                    const bruto = (lineItems ?? []).reduce((acc: number, d: any) => {
+                      const cant = Number(d.cantidad ?? 0);
+                      const puBase = Number(
+                        d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
+                      );
+                      const descPct = Number(d.descuentoItem ?? 0) / 100;
+                      const puFinal = puBase * (1 - descPct);
+                      return acc + cant * puFinal;
+                    }, 0);
+                    baseArticulos = bruto;
+                    descuentoGeneralMonto = baseArticulos * descGPercent;
+                    const trasDescuento = baseArticulos * (1 - descGPercent);
+                    recargoPagoMonto = trasDescuento * recargoPercent;
+                    const finalFallback = trasDescuento * (1 + recargoPercent);
+                    subtotalSinIVA = finalFallback / (1 + IVA);
+                    impuestos = finalFallback - subtotalSinIVA;
+                    totalFinal = finalFallback;
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <p className="text-sm text-gray-500">Subtotal (sin impuestos)</p>
+                        <p className="text-xl font-semibold">${fmtPrice(subtotalSinIVA)}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Impuestos (IVA)</p>
+                        <p className="text-xl font-semibold">${fmtPrice(impuestos)}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Total</p>
+                        <p className="text-xl font-semibold">${fmtPrice(totalFinal)}</p>
+                      </div>
+                      <div className="sm:col-span-3 border-t pt-2 mt-2">
+                        <div className="flex flex-wrap items-center justify-between text-xs">
+                          <span className="text-gray-600">Base artículos (con descuentos por ítem)</span>
+                          <span className="font-medium">${fmtPrice(baseArticulos)}</span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between text-xs mt-1">
+                          <span className="text-gray-600">Descuento general {descGPercent > 0 ? `(${Math.round(descGPercent*100)}%)` : ""}</span>
+                          <span className="font-medium text-green-700">−${fmtPrice(descuentoGeneralMonto)}</span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between text-xs mt-1">
+                          <span className="text-gray-600">Recargo método de pago {recargoPercent > 0 ? `(${Math.round(recargoPercent*100)}%)` : ""}</span>
+                          <span className="font-medium text-orange-700">+${fmtPrice(recargoPagoMonto)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              )}
             </div>
 
             {/* Historial (tarjeta similar a Productos) */}
@@ -1326,12 +1437,41 @@ function ValidarPreventaModal({
       if (accion === "guardar") {
         console.log("CLICK GUARDAR", { estado: estadoActual, ventaId: id });
       }
-      const items = (venta?.detalles ?? []).
-        map((d: any) => ({
-          idProducto: Number(d.idProducto ?? d.Producto?.idProducto),
-          cantidad: Number(d.cantidad ?? 0),
-        }))
-        .filter((i: any) => i.idProducto && i.cantidad > 0);
+      // Recalcular precio/descuento por línea considerando ofertas vigentes por día local.
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayTs = today.getTime();
+      const toTs = (raw: any, isEnd: boolean): number | null => {
+        if (!raw) return null;
+        if (typeof raw === "string" && raw.length === 10) {
+          // YYYY-MM-DD como día local completo
+          return new Date(`${raw}${isEnd ? "T23:59:59.999" : "T00:00:00"}`).getTime();
+        }
+        const d = new Date(raw);
+        return Number.isNaN(d.valueOf()) ? null : d.getTime();
+      };
+
+      const items = (venta?.detalles ?? [])
+        .map((d: any) => {
+          const idProducto = Number(d.idProducto ?? d.Producto?.idProducto);
+          const cantidad = Number(d.cantidad ?? 0);
+          if (!idProducto || cantidad <= 0) return null;
+          const precioUnit = Number(
+            d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
+          );
+          const descOriginal = Number(d.descuentoItem ?? 0);
+          // Datos de oferta desde Producto (si está incluido en la preventa)
+          const p = d.Producto ?? {};
+          const pct = Number(p.porcentajeOfertaProducto ?? p.porcentajeOferta ?? 0);
+          const ofertaFlag = p.ofertaProducto ?? p.oferta;
+          const ini = toTs(p.fechaInicioOfertaProducto ?? p.fechaInicioOferta, false);
+          const fin = toTs(p.fechaFinOfertaProducto ?? p.fechaFinOferta, true);
+          const dentroRango = (ini == null || todayTs >= ini) && (fin == null || todayTs <= fin);
+          const ofertaActiva = (ofertaFlag === undefined ? pct > 0 : Boolean(ofertaFlag)) && pct > 0 && dentroRango;
+          const descuentoItem = descOriginal > 0 ? descOriginal : ofertaActiva ? pct : 0;
+          return { idProducto, cantidad, precioUnit, descuentoItem };
+        })
+        .filter(Boolean) as { idProducto: number; cantidad: number; precioUnit: number; descuentoItem: number }[];
 
       // Payload básico. En "guardar" NO enviar descuentoGeneral/ajuste/recargoPago.
       const payload: any = {
@@ -1413,11 +1553,15 @@ function ValidarPreventaModal({
   //   Producto.nombreProducto / codigoProducto
   const lineItems = venta?.detalles ?? [];
 
-  // subtotal Bruto (antes de descuentos de caja)
+  // subtotal Bruto (antes de descuentos de caja), usando precioUnit/desc por línea si existen
   const subtotalBruto = lineItems.reduce((acc: number, d: any) => {
     const cant = Number(d.cantidad ?? 0);
-    const precioUnit = Number(d.Producto?.precioVentaPublicoProducto ?? 0);
-    return acc + cant * precioUnit;
+    const puBase = Number(
+      d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
+    );
+    const descPct = Number(d.descuentoItem ?? 0) / 100;
+    const puFinal = puBase * (1 - descPct);
+    return acc + cant * puFinal;
   }, 0);
 
   // aplicar descuentoGeneral (%), ajuste (+/-), recargoPago (+)
@@ -1754,10 +1898,12 @@ function ValidarPreventaModal({
                         ) : (
                           lineItems.map((d: any, idx: number) => {
                             const cant = Number(d.cantidad ?? 0);
-                            const pUnit = Number(
-                              d.Producto?.precioVentaPublicoProducto ?? 0
+                            const puBase = Number(
+                              d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
                             );
-                            const tot = cant * pUnit;
+                            const descPct = Number(d.descuentoItem ?? 0);
+                            const puFinal = puBase * (1 - (descPct || 0) / 100);
+                            const tot = cant * puFinal;
 
                             function setCantidad(c: number) {
                               const next = Math.max(0, Number(c || 0));
@@ -1810,7 +1956,22 @@ function ValidarPreventaModal({
                                     cant
                                   )}
                                 </td>
-                                <td className="px-3 py-2 text-right">${fmtPrice(pUnit, { minFraction: 2, maxFraction: 2 })}</td>
+                                <td className="px-3 py-2 text-right">
+                                  {Number(descPct) > 0 ? (
+                                    <div className="flex flex-col items-end">
+                                      <span className="line-through text-gray-400">
+                                        ${fmtPrice(puBase, { minFraction: 2, maxFraction: 2 })}
+                                      </span>
+                                      <span className="text-green-700 font-medium">
+                                        ${fmtPrice(puFinal, { minFraction: 2, maxFraction: 2 })}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      ${fmtPrice(puBase, { minFraction: 2, maxFraction: 2 })}
+                                    </>
+                                  )}
+                                </td>
                                 <td className="px-3 py-2 text-right">${fmtPrice(tot, { minFraction: 2, maxFraction: 2 })}</td>
                                 {canSave && (
                                   <td className="px-3 py-2 text-right">

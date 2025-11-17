@@ -136,6 +136,9 @@ app.get(
       codigoProducto: true,
       precioVentaPublicoProducto: true,
       ofertaProducto: true,
+      porcentajeOfertaProducto: true,
+      fechaInicioOferta: true,
+      fechaFinOferta: true,
       descripcionProducto: true,
       idSubFamilia: true,
       SubFamilia: {
@@ -163,6 +166,9 @@ app.get(
       precio: Number(r.precioVentaPublicoProducto),
       stock: sumStock(r.stocks),
       oferta: r.ofertaProducto,
+      porcentajeOferta: r.porcentajeOfertaProducto ?? null,
+      fechaInicioOferta: r.fechaInicioOferta ?? null,
+      fechaFinOferta: r.fechaFinOferta ?? null,
       descripcion: r.descripcionProducto ?? null,
       subFamiliaId: r.SubFamilia?.idSubFamilia ?? r.idSubFamilia ?? null,
       nombreSubfamilia: r.SubFamilia?.tipoSubFamilia ?? null,
@@ -186,6 +192,9 @@ app.get("/api/products/:id", async (req, res) => {
       descripcionProducto: true,
       codigoBarrasProducto: true,
       ofertaProducto: true,
+      porcentajeOfertaProducto: true,
+      fechaInicioOferta: true,
+      fechaFinOferta: true,
       idSubFamilia: true,
       precioProducto: true,
       utilidadProducto: true,
@@ -240,6 +249,9 @@ app.get("/api/products/:id", async (req, res) => {
       ? String(r.codigoBarrasProducto)
       : null,
     oferta: r.ofertaProducto,
+    porcentajeOferta: r.porcentajeOfertaProducto ?? null,
+    fechaInicioOferta: r.fechaInicioOferta ?? null,
+    fechaFinOferta: r.fechaFinOferta ?? null,
     precioCosto: Number(r.precioProducto),
     utilidad: Number(r.utilidadProducto),
     subFamiliaId: r.SubFamilia?.idSubFamilia ?? r.idSubFamilia,
@@ -337,6 +349,9 @@ app.post(
       descripcion,
       codigoBarras,
       oferta,
+      porcentajeOferta,
+      fechaInicioOferta,
+      fechaFinOferta,
       subFamiliaId,
       stock = 0,
       bajoMinimoStock = 0,
@@ -346,6 +361,22 @@ app.post(
       fechaIngreso,
       precioHistorico,
     } = req.body;
+
+    // Validaciones de fechas de oferta
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const start = parseLocalDate(fechaInicioOferta, false);
+      const end = parseLocalDate(fechaFinOferta, true);
+      if (start) start.setHours(0, 0, 0, 0);
+      if (end) end.setHours(0, 0, 0, 0);
+      if (start && start < today) {
+        return res.status(422).json({ error: "OFERTA_INICIO_PASADO", message: "La fecha de inicio de oferta no puede ser anterior a hoy." });
+      }
+      if (start && end && end < start) {
+        return res.status(422).json({ error: "OFERTA_FIN_ANTES_INICIO", message: "La fecha de fin de oferta no puede ser anterior a la fecha de inicio." });
+      }
+    } catch {}
 
     const sf = await prisma.subFamilia.findUnique({
       where: { idSubFamilia: Number(subFamiliaId) },
@@ -363,6 +394,11 @@ app.post(
         descripcionProducto: descripcion ?? null,
         codigoBarrasProducto: codigoBarras ? BigInt(codigoBarras) : null,
         ofertaProducto: !!oferta,
+        ...(porcentajeOferta !== undefined && {
+          porcentajeOfertaProducto: Number(porcentajeOferta ?? 0),
+        }),
+        fechaInicioOferta: fechaInicioOferta !== undefined ? (fechaInicioOferta ? parseLocalDate(fechaInicioOferta, false) : null) : undefined,
+        fechaFinOferta: fechaFinOferta !== undefined ? (fechaFinOferta ? parseLocalDate(fechaFinOferta, true) : null) : undefined,
         idSubFamilia: Number(subFamiliaId),
       },
       select: { idProducto: true },
@@ -397,6 +433,18 @@ app.post(
       },
     });
 
+    // Registrar historial de oferta al crear
+    await prisma.ofertaProductoHistorial.create({
+      data: {
+        idProducto: row.idProducto,
+        ofertaProducto: !!oferta,
+        porcentajeOfertaProducto: Number(porcentajeOferta ?? 0),
+        ...(fechaInicioOferta ? { fechaInicio: new Date(fechaInicioOferta) } : {}),
+        ...(fechaFinOferta ? { fechaFin: new Date(fechaFinOferta) } : {}),
+        creadoPor: getUserId(req),
+      },
+    });
+
     if (proveedorId) {
       await prisma.proveedorProducto.create({
         data: {
@@ -416,6 +464,9 @@ app.post(
       precio: Number(row.precioVentaPublicoProducto),
       stock: Number(stock ?? 0),
       oferta: row.ofertaProducto,
+      porcentajeOferta: porcentajeOferta ?? null,
+      fechaInicioOferta: fechaInicioOferta ?? null,
+      fechaFinOferta: fechaFinOferta ?? null,
     });
   } catch (e: any) {
     if (e instanceof Prisma.PrismaClientKnownRequestError) {
@@ -444,6 +495,9 @@ app.put("/api/products/:id", async (req, res) => {
     descripcion,
     codigoBarras,
     oferta,
+    porcentajeOferta,
+    fechaInicioOferta,
+    fechaFinOferta,
     subFamiliaId,
     stock,
     bajoMinimoStock,
@@ -455,6 +509,21 @@ app.put("/api/products/:id", async (req, res) => {
   } = req.body;
 
   try {
+    // Validaciones de fechas de oferta
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const start = parseLocalDate(fechaInicioOferta, false);
+      const end = parseLocalDate(fechaFinOferta, true);
+      if (start) start.setHours(0, 0, 0, 0);
+      if (end) end.setHours(0, 0, 0, 0);
+      if (start && start < today) {
+        return res.status(422).json({ error: "OFERTA_INICIO_PASADO", message: "La fecha de inicio de oferta no puede ser anterior a hoy." });
+      }
+      if (start && end && end < start) {
+        return res.status(422).json({ error: "OFERTA_FIN_ANTES_INICIO", message: "La fecha de fin de oferta no puede ser anterior a la fecha de inicio." });
+      }
+    } catch {}
     // Leer actual para comparar precio
     const actual = await prisma.producto.findUnique({
       where: { idProducto: id },
@@ -464,6 +533,9 @@ app.put("/api/products/:id", async (req, res) => {
         codigoProducto: true,
         precioVentaPublicoProducto: true,
         ofertaProducto: true,
+        porcentajeOfertaProducto: true,
+        fechaInicioOferta: true,
+        fechaFinOferta: true,
       },
     });
     if (!actual) return res.status(404).json({ error: "NOT_FOUND" });
@@ -484,6 +556,15 @@ app.put("/api/products/:id", async (req, res) => {
           codigoBarrasProducto: codigoBarras ? BigInt(codigoBarras) : null,
         }),
         ...(oferta !== undefined && { ofertaProducto: !!oferta }),
+        ...(porcentajeOferta !== undefined && {
+          porcentajeOfertaProducto: Number(porcentajeOferta ?? 0),
+        }),
+        ...(fechaInicioOferta !== undefined && {
+          fechaInicioOferta: fechaInicioOferta ? parseLocalDate(fechaInicioOferta, false) : null,
+        }),
+        ...(fechaFinOferta !== undefined && {
+          fechaFinOferta: fechaFinOferta ? parseLocalDate(fechaFinOferta, true) : null,
+        }),
         ...(subFamiliaId !== undefined && { idSubFamilia: Number(subFamiliaId) }),
       },
       select: {
@@ -492,6 +573,9 @@ app.put("/api/products/:id", async (req, res) => {
         codigoProducto: true,
         precioVentaPublicoProducto: true,
         ofertaProducto: true,
+        porcentajeOfertaProducto: true,
+        fechaInicioOferta: true,
+        fechaFinOferta: true,
       },
     });
 
@@ -532,7 +616,7 @@ app.put("/api/products/:id", async (req, res) => {
       }
     }
 
-    // Registrar histórico sólo si hubo cambio de precio
+    // Registrar histórico de precio si hubo cambio de precio
     if (precioCambio) {
       let provId: number | undefined = proveedorId ? Number(proveedorId) : undefined;
       if (!provId) {
@@ -561,12 +645,42 @@ app.put("/api/products/:id", async (req, res) => {
       });
     }
 
+    // Registrar historial de oferta si hubo cambios en oferta/porcentaje/fechas
+    const oldPct = actual.porcentajeOfertaProducto != null
+      ? Number(actual.porcentajeOfertaProducto)
+      : null;
+    const newPct = porcentajeOferta != null
+      ? Number(porcentajeOferta)
+      : null;
+    const porcentajeCambios = porcentajeOferta !== undefined && oldPct !== newPct;
+    const fechaInicioCambios = fechaInicioOferta !== undefined &&
+      ((actual.fechaInicioOferta ? new Date(actual.fechaInicioOferta).getTime() : null) !== (fechaInicioOferta ? new Date(fechaInicioOferta).getTime() : null));
+    const fechaFinCambios = fechaFinOferta !== undefined &&
+      ((actual.fechaFinOferta ? new Date(actual.fechaFinOferta).getTime() : null) !== (fechaFinOferta ? new Date(fechaFinOferta).getTime() : null));
+    const ofertaCambios = oferta !== undefined && (!!oferta !== actual.ofertaProducto);
+
+    if (porcentajeCambios || fechaInicioCambios || fechaFinCambios || ofertaCambios) {
+      await prisma.ofertaProductoHistorial.create({
+        data: {
+          idProducto: row.idProducto,
+          ofertaProducto: row.ofertaProducto,
+          porcentajeOfertaProducto: Number(row.porcentajeOfertaProducto ?? 0),
+          ...(row.fechaInicioOferta ? { fechaInicio: row.fechaInicioOferta } : {}),
+          ...(row.fechaFinOferta ? { fechaFin: row.fechaFinOferta } : {}),
+          creadoPor: getUserId(req),
+        },
+      });
+    }
+
     res.json({
       id: row.idProducto,
       nombre: row.nombreProducto,
       sku: row.codigoProducto,
       precio: Number(row.precioVentaPublicoProducto),
       oferta: row.ofertaProducto,
+      porcentajeOferta: row.porcentajeOfertaProducto ?? null,
+      fechaInicioOferta: row.fechaInicioOferta ?? null,
+      fechaFinOferta: row.fechaFinOferta ?? null,
     });
   } catch (e: any) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
@@ -923,6 +1037,9 @@ const toNum = (v: any) => {
 // Normaliza cantidades a 3 decimales (Decimal con 3dp exactos)
 const toDec3 = (n: number | string) =>
   new Prisma.Decimal(Number(n ?? 0)).toDecimalPlaces(3);
+// helper para valores con 2 decimales (precios, porcentajes)
+const toDec2 = (n: number | string) =>
+  new Prisma.Decimal(Number(n ?? 0)).toDecimalPlaces(2);
 
 // Asegura que existan los estados base 
 async function ensureEstadosBase() {
@@ -1133,19 +1250,57 @@ async function leerItemsVenta(tx: Prisma.TransactionClient, idVenta: number) {
   return items.map((r) => ({ idProducto: Number(r.idProducto), cantidad: Number(r.cantidad) }));
 }
 
-// — totales:
-async function calcularTotal(idVenta: number) {
-  const dets = await prisma.detalleVenta.findMany({
+// — totales avanzados:
+async function calcularTotales(idVenta: number) {
+  const venta = await prisma.venta.findUnique({
     where: { idVenta },
     select: {
-      cantidad: true,
-      Producto: { select: { precioVentaPublicoProducto: true } },
+      descuentoGeneralVenta: true,
+      recargoPagoVenta: true,
+      detalles: {
+        select: {
+          cantidad: true,
+          precioUnit: true,
+          descuentoItem: true,
+          recargoItem: true,
+        },
+      },
     },
   });
-  return dets.reduce(
-    (a, d) => a + Number(d.cantidad) * Number(d.Producto?.precioVentaPublicoProducto ?? 0),
-    0
-  );
+  if (!venta) return { importeArticulos: 0, importeNeto: 0, impuesto: 0, totalFinal: 0 };
+
+  const IVA_RATE = Number(process.env.IVA_RATE ?? 0.21);
+
+  // 1) Precios de productos ya incluyen IVA: trabajamos siempre con montos IVA-incluido
+  //    Aplicamos descuentos/recargos por línea sobre el precio final (incluido IVA)
+  const importeArticulos = venta.detalles.reduce((acc, d) => {
+    const cantidad = Number(d.cantidad ?? 0);
+    const pu = Number(d.precioUnit ?? 0); // IVA incluido
+    const base = cantidad * pu;
+    const descPct = Number(d.descuentoItem ?? 0) / 100;
+    const recPct = Number(d.recargoItem ?? 0) / 100;
+    const conDesc = base * (1 - descPct);
+    const conRecargo = conDesc * (1 + recPct);
+    return acc + conRecargo;
+  }, 0);
+
+  // 2) Aplicamos descuento general y recargo por método de pago sobre el total IVA-incluido
+  const descGeneralPct = Number(venta.descuentoGeneralVenta ?? 0) / 100;
+  const recargoPagoPct = Number(venta.recargoPagoVenta ?? 0) / 100;
+  const totalConDescuento = importeArticulos * (1 - descGeneralPct);
+  const totalFinal = totalConDescuento * (1 + recargoPagoPct);
+
+  // 3) Derivamos neto e IVA a partir de un total IVA-incluido, sin sumar IVA extra
+  const importeNeto = totalFinal / (1 + IVA_RATE);
+  const impuesto = totalFinal - importeNeto;
+
+  return { importeArticulos, importeNeto, impuesto, totalFinal };
+}
+
+// compatibilidad: función anterior devuelve solo el total final
+async function calcularTotal(idVenta: number) {
+  const t = await calcularTotales(idVenta);
+  return t.totalFinal;
 }
 
 // Crear PREVENTA = estado Pendiente + reservar comprometido
@@ -1155,47 +1310,94 @@ app.post(
   authorize(["Administrador", "Vendedor"]),
   async (req, res) => {
   try {
-    const { idCliente, idTipoPago, observacion, detalles = [] } = req.body;
+    const {
+      idCliente,
+      idTipoPago,
+      observacion,
+      detalles = [],
+      items = [],
+      descuentoGeneral,
+      recargoPago,
+      fechaFacturacion,
+      fechaCobro,
+    } = req.body;
 
-    if (!idCliente || !idTipoPago || !Array.isArray(detalles) || detalles.length === 0)
+    const detallesIn: any[] = Array.isArray(items) && items.length > 0 ? items : detalles;
+
+    if (!idCliente || !idTipoPago || !Array.isArray(detallesIn) || detallesIn.length === 0)
       return res.status(400).json({ error: "FALTAN_DATOS" });
 
     // Validar ítems antes de crear
     if (
-      !Array.isArray(detalles) ||
-      detalles.length === 0 ||
-      detalles.some((d: any) => !Number(d.idProducto) || !(toNum(d.cantidad) > 0))
+      !Array.isArray(detallesIn) ||
+      detallesIn.length === 0 ||
+      detallesIn.some((d: any) => !Number(d.idProducto) || !(toNum(d.cantidad) > 0))
     ) {
       return res.status(400).json({ error: "SIN_ITEMS" });
     }
 
     const idUsuario = getUserId(req);
 
-    const result = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
       const idPend = await getEstadoId(tx, ESTADOS.PENDIENTE);
       const m = await tx.moneda.findFirst({ select: { idMoneda: true } });
       const idMoneda = m?.idMoneda ?? 1;
 
+      // precios por defecto para cada producto (si no viene precioUnit)
+      const ids = detallesIn.map((d: any) => Number(d.idProducto)).filter((x: any) => Number(x));
+      const precios = await tx.producto.findMany({
+        where: { idProducto: { in: ids } },
+        select: { idProducto: true, precioVentaPublicoProducto: true },
+      });
+      const priceMap = new Map<number, number>(
+        precios.map((p) => [Number(p.idProducto), Number(p.precioVentaPublicoProducto ?? 0)])
+      );
+
+      // normalización de fechas si vienen en el payload
+      const fFactIn = (() => {
+        if (!fechaFacturacion) return undefined;
+        const d = new Date(fechaFacturacion);
+        return isNaN(d.getTime()) ? undefined : d;
+      })();
+      const fCobroIn = (() => {
+        if (!fechaCobro) return undefined;
+        const d = new Date(fechaCobro);
+        return isNaN(d.getTime()) ? undefined : d;
+      })();
+
       const v = await tx.venta.create({
         data: {
-          fechaVenta: new Date(),
-          fechaCobroVenta: new Date(),
+          fechaVenta: fFactIn ?? new Date(),
+          fechaCobroVenta: fCobroIn ?? new Date(),
           observacion: observacion ?? null,
           idCliente: Number(idCliente),
           idEstadoVenta: idPend,
           idTipoPago: Number(idTipoPago),
           idMoneda,
+          estadoPago: 'RESERVA',
+          ...(descuentoGeneral !== undefined && { descuentoGeneralVenta: new Prisma.Decimal(descuentoGeneral) }),
+          ...(recargoPago !== undefined && { recargoPagoVenta: new Prisma.Decimal(recargoPago) }),
           detalles: {
-            create: detalles.map((d: any) => ({
-              idProducto: Number(d.idProducto),
-              cantidad: toDec3(d.cantidad),
-            })),
+            create: detallesIn.map((d: any) => {
+              const idP = Number(d.idProducto);
+              const cant = toDec3(d.cantidad);
+              const pu = toDec2(d.precioUnit ?? priceMap.get(idP) ?? 0);
+              const descItem = toDec2(d.descuentoItem ?? 0);
+              const recItem = toDec2(d.recargoItem ?? 0);
+              return {
+                idProducto: idP,
+                cantidad: cant,
+                precioUnit: pu,
+                descuentoItem: descItem,
+                recargoItem: recItem,
+              };
+            }),
           },
         },
         select: { idVenta: true },
       });
 
-      const items = detalles.map((d: any) => ({
+      const items = detallesIn.map((d: any) => ({
         idProducto: Number(d.idProducto),
         cantidad: toNum(d.cantidad),
       }));
@@ -1203,11 +1405,12 @@ app.post(
       await validarDisponible(tx, items);
       await reservarComprometido(tx, items);
 
-      const nomPend = ESTADOS.PENDIENTE;
       await registrarEventoIds(tx, {
-        idVenta: v.idVenta, idUsuario,
-        desdeId: idPend, hastaId: idPend,
-        motivo: "creación"
+        idVenta: v.idVenta,
+        idUsuario,
+        desdeId: null,
+        hastaId: idPend,
+        motivo: "creación",
       });
 
       await registrarActor(tx, { idVenta: v.idVenta, idUsuario, papel: PapelEnVenta.CREADOR });
@@ -1275,6 +1478,8 @@ app.get(
       fecha: v.fechaVenta,
       metodoPago: v.TipoPago?.tipoPago ?? null,
       estado: v.EstadoVenta?.nombreEstadoVenta ?? "",
+      descuentoGeneral: Number(v.descuentoGeneralVenta ?? 0),
+      recargoPago: Number(v.recargoPagoVenta ?? 0),
       total: await calcularTotal(v.idVenta),
     }))
   );
@@ -1299,7 +1504,9 @@ app.get(
     },
   });
   if (!v) return res.status(404).json({ error: "NOT_FOUND" });
-  res.json(v);
+  // Adjuntamos totales calculados para facilitar la visualización de descuentos/recargos
+  const totals = await calcularTotales(id);
+  res.json({ ...v, totales: totals });
 });
 
 // Historial PREVENTA
@@ -1348,6 +1555,43 @@ app.get("/api/preventas/:id/historial", async (req, res) => {
   res.json(eventosDecorados);
 });
 
+// Desglose de totales para una preventa (montos IVA-incluido y separación neto/IVA)
+app.get(
+  "/api/preventas/:id/totales",
+  requireAuth,
+  authorize(["Administrador", "Vendedor", "Cajero"]),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    const v = await prisma.venta.findUnique({
+      where: { idVenta: id },
+      select: {
+        idVenta: true,
+        descuentoGeneralVenta: true,
+        recargoPagoVenta: true,
+        detalles: {
+          select: {
+            idProducto: true,
+            cantidad: true,
+            precioUnit: true,
+            descuentoItem: true,
+            recargoItem: true,
+          },
+        },
+      },
+    });
+    if (!v) return res.status(404).json({ error: "NOT_FOUND" });
+
+    const totals = await calcularTotales(id);
+    res.json({
+      id: v.idVenta,
+      descuentoGeneral: Number(v.descuentoGeneralVenta ?? 0),
+      recargoPago: Number(v.recargoPagoVenta ?? 0),
+      detalles: v.detalles,
+      totales: totals,
+    });
+  }
+);
+
 // Editar / Lock / Finalizar / Cancelar PREVENTA
 app.put(
   "/api/preventas/:id",
@@ -1394,13 +1638,16 @@ app.put(
     else if (raw.lock === true) accion = "lock";
   }
 
-  // normalizar ítems a {idProducto:number,cantidad:number}
+  // normalizar ítems a {idProducto:number,cantidad:number,precioUnit?:number,descuentoItem?:number,recargoItem?:number}
   // acepta alias: cant, qty, peso, gramos
   if (Array.isArray(items)) {
     items = items
       .map((i: any) => ({
         idProducto: Number(i.idProducto ?? i.productoId ?? i.id),
         cantidad: toNum(i.cantidad ?? i.cant ?? i.qty ?? i.peso ?? i.gramos),
+        precioUnit: toNum(i.precioUnit),
+        descuentoItem: toNum(i.descuentoItem),
+        recargoItem: toNum(i.recargoItem),
       }));
   }
 
@@ -1421,10 +1668,48 @@ app.put(
     // Lectura inicial fuera de la transacción (estado actual)
     const ventaAntes = await prisma.venta.findUnique({
       where: { idVenta: id },
-      include: { EstadoVenta: true },
+      include: { EstadoVenta: true, detalles: true },
     });
     if (!ventaAntes) throw new Error("NOT_FOUND");
     const estadoActualNombre = ventaAntes.EstadoVenta.nombreEstadoVenta;
+
+    // Normalizar campos de entrada no estructurados
+    const normalizeObs = (v: any): string | undefined => {
+      const s = String(v ?? "").trim();
+      // tratar placeholders comunes como vacío
+      if (!s || s === "-" || s === "—" || s.toLowerCase() === "n/a") return undefined;
+      return s;
+    };
+    observacion = normalizeObs(observacion);
+    const normalizeDateIn = (v: any): Date | undefined => {
+      if (v === undefined || v === null || String(v).trim() === "") return undefined;
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? undefined : d;
+    };
+    const fFactIn = normalizeDateIn(fechaFacturacion);
+    const fCobroIn = normalizeDateIn(fechaCobro);
+
+    // Determinar si hay cambios reales de encabezado respecto a valores actuales
+    const numEq = (a: any, b: any) => Number(a ?? 0) === Number(b ?? 0);
+    const dateEq = (a: any, b: any) => {
+      if (!a && !b) return true;
+      if (!a || !b) return false;
+      const da = new Date(a).getTime();
+      const db = new Date(b).getTime();
+      // tolerar pequeñas diferencias de milisegundos
+      return Math.abs(da - db) < 1000;
+    };
+    const headerChanged = (
+      (idCliente !== undefined && !numEq(idCliente, ventaAntes.idCliente)) ||
+      (idTipoPago !== undefined && !numEq(idTipoPago, ventaAntes.idTipoPago)) ||
+      (observacion !== undefined && String(observacion).trim() !== String(ventaAntes.observacion ?? "").trim()) ||
+      (fFactIn !== undefined && !dateEq(fFactIn, ventaAntes.fechaVenta)) ||
+      (fCobroIn !== undefined && !dateEq(fCobroIn, ventaAntes.fechaCobroVenta)) ||
+      (idMoneda !== undefined && !numEq(idMoneda, ventaAntes.idMoneda)) ||
+      (descuentoGeneral !== undefined && !numEq(descuentoGeneral, ventaAntes.descuentoGeneralVenta)) ||
+      (ajuste !== undefined && !numEq(ajuste, ventaAntes.ajusteVenta)) ||
+      (recargoPago !== undefined && !numEq(recargoPago, ventaAntes.recargoPagoVenta))
+    );
 
     // --- SOLO escrituras dentro de la transacción. Sin lecturas finales aquí.
     await prisma.$transaction(async (tx) => {
@@ -1441,57 +1726,103 @@ app.put(
 
         const antes = await tx.detalleVenta.findMany({
           where: { idVenta: id },
-          select: { idProducto: true, cantidad: true },
+          select: { idProducto: true, cantidad: true, precioUnit: true, descuentoItem: true, recargoItem: true },
         });
 
-        const dataToUpdate: any = {
-          ...(idCliente !== undefined && idCliente !== null && idCliente !== "" && { idCliente: Number(idCliente) }),
-          ...(idTipoPago !== undefined && idTipoPago !== null && idTipoPago !== "" && { idTipoPago: Number(idTipoPago) }),
-          ...(observacion !== undefined && { observacion: observacion ?? null }),
-          ...(fechaFacturacion && { fechaVenta: new Date(fechaFacturacion) }),
-          ...(fechaCobro && { fechaCobroVenta: new Date(fechaCobro) }),
-          ...(idMoneda !== undefined && idMoneda !== null && idMoneda !== "" && { idMoneda: Number(idMoneda) }),
-          ...(descuentoGeneral !== undefined && { descuentoGeneralVenta: new Prisma.Decimal(descuentoGeneral) }),
-          ...(ajuste !== undefined && { ajusteVenta: new Prisma.Decimal(ajuste) }),
-          ...(recargoPago !== undefined && { recargoPagoVenta: new Prisma.Decimal(recargoPago) }),
-        };
-        if (Object.keys(dataToUpdate).length) {
+        const dataToUpdate: any = headerChanged
+          ? {
+              ...(idCliente !== undefined && idCliente !== null && idCliente !== "" && { idCliente: Number(idCliente) }),
+              ...(idTipoPago !== undefined && idTipoPago !== null && idTipoPago !== "" && { idTipoPago: Number(idTipoPago) }),
+              ...(observacion !== undefined && { observacion }),
+              ...(fFactIn !== undefined && !dateEq(fFactIn, ventaAntes.fechaVenta) && { fechaVenta: fFactIn }),
+              ...(fCobroIn !== undefined && !dateEq(fCobroIn, ventaAntes.fechaCobroVenta) && { fechaCobroVenta: fCobroIn }),
+              ...(idMoneda !== undefined && idMoneda !== null && idMoneda !== "" && { idMoneda: Number(idMoneda) }),
+              ...(descuentoGeneral !== undefined && { descuentoGeneralVenta: new Prisma.Decimal(descuentoGeneral) }),
+              ...(ajuste !== undefined && { ajusteVenta: new Prisma.Decimal(ajuste) }),
+              ...(recargoPago !== undefined && { recargoPagoVenta: new Prisma.Decimal(recargoPago) }),
+            }
+          : undefined;
+        if (dataToUpdate && Object.keys(dataToUpdate).length) {
           await tx.venta.update({ where: { idVenta: id }, data: dataToUpdate });
         }
 
         // normalizar payload → lista compactada por producto
-        const comp = new Map<number, number>();
+        // compactar por producto, conservando últimos precio/porcentajes enviados
+        const comp = new Map<number, { cantidad: number; precioUnit?: number; descuentoItem?: number; recargoItem?: number }>();
         for (const raw of items as any[]) {
           const pid = Number(raw.idProducto);
           const cant = toNum(raw.cantidad ?? raw.cant ?? raw.qty ?? raw.peso ?? raw.gramos);
           if (!pid || cant <= 0) continue;
-          comp.set(pid, (comp.get(pid) ?? 0) + cant);
+          const prev = comp.get(pid) ?? { cantidad: 0 };
+          comp.set(pid, {
+            cantidad: (prev.cantidad ?? 0) + cant,
+            precioUnit: raw.precioUnit ?? prev.precioUnit,
+            descuentoItem: raw.descuentoItem ?? prev.descuentoItem,
+            recargoItem: raw.recargoItem ?? prev.recargoItem,
+          });
         }
-        const itemsOk = [...comp.entries()].map(([idProducto, cantidad]) => ({ idProducto, cantidad }));
+        const itemsOk = [...comp.entries()].map(([idProducto, v]) => ({ idProducto, ...v }));
 
         if (itemsOk.length === 0) throw new Error("SIN_ITEMS");
 
-        // reemplazar detalles
-        try {
-          await tx.detalleVenta.deleteMany({ where: { idVenta: id } });
-          await tx.detalleVenta.createMany({
-            data: itemsOk.map(i => ({
-              idVenta: id,
-              idProducto: Number(i.idProducto),
-              cantidad: toDec3(i.cantidad),
-            })),
+        // Resolver precios por defecto y evaluar si los detalles cambian
+        const ids = itemsOk.map(i => Number(i.idProducto)).filter((x: any) => Number(x));
+        const precios = await tx.producto.findMany({
+          where: { idProducto: { in: ids } },
+          select: { idProducto: true, precioVentaPublicoProducto: true },
+        });
+        const priceMap = new Map<number, number>(
+          precios.map((p) => [Number(p.idProducto), Number(p.precioVentaPublicoProducto ?? 0)])
+        );
+        const reqMap = new Map<number, { c: number; pu: number; d: number; r: number }>();
+        for (const i of itemsOk) {
+          reqMap.set(Number(i.idProducto), {
+            c: Number(i.cantidad),
+            pu: Number(i.precioUnit ?? priceMap.get(Number(i.idProducto)) ?? 0),
+            d: Number(i.descuentoItem ?? 0),
+            r: Number(i.recargoItem ?? 0),
           });
-          // fuerza error inmediato si la transacción quedó abortada
-          await tx.$executeRaw`SELECT 1`;
-        } catch (err) {
-          if (err instanceof Prisma.PrismaClientKnownRequestError) throw err;
-          throw new Error("DETALLES_CREATE_FAILED");
+        }
+        const beforeMap = new Map<number, { c: number; pu: number; d: number; r: number }>();
+        for (const a of antes) {
+          beforeMap.set(a.idProducto, {
+            c: Number(a.cantidad), pu: Number(a.precioUnit), d: Number(a.descuentoItem ?? 0), r: Number(a.recargoItem ?? 0)
+          });
+        }
+        const detailsChanged = (
+          beforeMap.size !== reqMap.size ||
+          [...reqMap.entries()].some(([idP, v]) => {
+            const b = beforeMap.get(idP);
+            return !b || b.c !== v.c || b.pu !== v.pu || b.d !== v.d || b.r !== v.r;
+          })
+        );
+
+        if (detailsChanged) {
+          // reemplazar detalles
+          try {
+            await tx.detalleVenta.deleteMany({ where: { idVenta: id } });
+            await tx.detalleVenta.createMany({
+              data: itemsOk.map(i => ({
+                idVenta: id,
+                idProducto: Number(i.idProducto),
+                cantidad: toDec3(i.cantidad),
+                precioUnit: toDec2(i.precioUnit ?? priceMap.get(Number(i.idProducto)) ?? 0),
+                descuentoItem: toDec2(i.descuentoItem ?? 0),
+                recargoItem: toDec2(i.recargoItem ?? 0),
+              })),
+            });
+            // fuerza error inmediato si la transacción quedó abortada
+            await tx.$executeRaw`SELECT 1`;
+          } catch (err) {
+            if (err instanceof Prisma.PrismaClientKnownRequestError) throw err;
+            throw new Error("DETALLES_CREATE_FAILED");
+          }
         }
 
         // recomputar después
         const despues = await tx.detalleVenta.findMany({
           where: { idVenta: id },
-          select: { idProducto: true, cantidad: true },
+          select: { idProducto: true, cantidad: true, precioUnit: true, descuentoItem: true, recargoItem: true },
         });
 
         // delta de comprometido = después - antes
@@ -1510,9 +1841,29 @@ app.put(
         if (incs.length) { await validarDisponible(tx, incs); await reservarComprometido(tx, incs); }
         if (decs.length) { await liberarComprometido(tx, decs); }
 
-        const desdeId = norm(estadoActualNombre) === norm(ESTADOS.PENDIENTE) ? idPend : idLC;
-        await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId, hastaId: desdeId, motivo: "edición" });
-        await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.EDITOR });
+        // Detectar cambios reales en detalles (cantidad/precio/descuento/recargo)
+        const mapA = new Map<number, { c: number; pu: number; d: number; r: number }>();
+        for (const a of antes) mapA.set(a.idProducto, {
+          c: Number(a.cantidad), pu: Number(a.precioUnit), d: Number(a.descuentoItem ?? 0), r: Number(a.recargoItem ?? 0)
+        });
+        const mapB = new Map<number, { c: number; pu: number; d: number; r: number }>();
+        for (const b of despues) mapB.set(b.idProducto, {
+          c: Number(b.cantidad), pu: Number(b.precioUnit), d: Number(b.descuentoItem ?? 0), r: Number(b.recargoItem ?? 0)
+        });
+        const itemsChanged = (
+          mapA.size !== mapB.size ||
+          [...mapA.entries()].some(([idP, va]) => {
+            const vb = mapB.get(idP);
+            return !vb || va.c !== vb.c || va.pu !== vb.pu || va.d !== vb.d || va.r !== vb.r;
+          })
+        );
+
+        // Registrar evento de edición SOLO si hubo cambios reales
+        if (headerChanged || itemsChanged || incs.length || decs.length) {
+          const desdeId = norm(estadoActualNombre) === norm(ESTADOS.PENDIENTE) ? idPend : idLC;
+          await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId, hastaId: desdeId, motivo: "edición" });
+          await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.EDITOR });
+        }
       }
       // --- LOCK ---
       else if (accion === "lock") {
@@ -1521,7 +1872,7 @@ app.put(
 
         await tx.venta.update({
           where: { idVenta: id },
-          data: { idEstadoVenta: idLC },
+          data: { idEstadoVenta: idLC, estadoPago: 'PENDIENTE' },
         });
 
         await registrarEventoIds(tx, {
@@ -1559,7 +1910,7 @@ app.put(
         await descontarRealYComprometido(tx, itemsAct);
         await tx.venta.update({
           where: { idVenta: id },
-          data: { idEstadoVenta: idFin },
+          data: { idEstadoVenta: idFin, estadoPago: 'PAGADO' },
         });
         await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: idLC, hastaId: idFin, motivo: "cobrada" });
         await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.CAJERO });
@@ -1706,12 +2057,8 @@ app.get("/api/ventas", async (req, res) => {
     take: 100,
   });
 
-  const out = rows.map((v) => {
-    const total = v.detalles.reduce((acc, d) => {
-      const cant = Number(d.cantidad ?? 0);
-      const pu = Number(d.Producto?.precioVentaPublicoProducto ?? 0);
-      return acc + cant * pu;
-    }, 0);
+  const out = await Promise.all(rows.map(async (v) => {
+    const total = await calcularTotal(v.idVenta);
 
     return {
       id: v.idVenta,
@@ -1723,7 +2070,7 @@ app.get("/api/ventas", async (req, res) => {
       estado: v.EstadoVenta?.nombreEstadoVenta ?? "",
       total,
     };
-  });
+  }));
 
   res.json(out);
 });
@@ -2185,3 +2532,13 @@ app.get(
 app.listen(4000, () =>
   console.log("✅ API corriendo en http://localhost:4000")
 );
+// Utilidad: parsear fechas de oferta con semántica local por día
+function parseLocalDate(raw: any, isEnd = false): Date | null {
+  if (!raw) return null;
+  if (typeof raw === "string" && raw.length === 10) {
+    // YYYY-MM-DD → interpretado como hora local (inicio 00:00, fin 23:59:59.999)
+    return new Date(`${raw}${isEnd ? "T23:59:59.999" : "T00:00:00"}`);
+  }
+  const d = new Date(raw);
+  return Number.isNaN(d.valueOf()) ? null : d;
+}

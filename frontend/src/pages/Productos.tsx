@@ -25,25 +25,47 @@ const todayISO = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
   .slice(0, 10);
 
 // esquema del form (sin código interno, proveedor ni campo de stock)
-const schema = z.object({
-  codigoBarras: z.string().optional(),
-  nombre: z.string().min(1, "Requerido"),
-  descripcion: z.string().optional(),
-  familia: z.string().min(1, "Requerido"),
-  subfamilia: z.string().min(1, "Requerido"),
-  precioCosto: z.coerce.number().nonnegative(">= 0"),
-  utilidad: z.coerce.number().nonnegative(">= 0"),
-  precioVenta: z.coerce.number().nonnegative(">= 0"),
-  bajoMinimoStock: z.coerce.number().int().nonnegative(">= 0"),
-  ultimaModificacionStock: z
-    .string()
-    .min(1, "Requerido")
-    .refine((v) => {
-      const d = new Date(v);
-      return !Number.isNaN(d.valueOf()) && v <= todayISO;
-    }, "No puede ser posterior a hoy"),
-  oferta: z.boolean().optional(),
-});
+const schema = z
+  .object({
+    codigoBarras: z.string().optional(),
+    nombre: z.string().min(1, "Requerido"),
+    descripcion: z.string().optional(),
+    familia: z.string().min(1, "Requerido"),
+    subfamilia: z.string().min(1, "Requerido"),
+    precioCosto: z.coerce.number().nonnegative(">= 0"),
+    utilidad: z.coerce.number().nonnegative(">= 0"),
+    precioVenta: z.coerce.number().nonnegative(">= 0"),
+    bajoMinimoStock: z.coerce.number().int().nonnegative(">= 0"),
+    ultimaModificacionStock: z
+      .string()
+      .min(1, "Requerido")
+      .refine((v) => {
+        const d = new Date(v);
+        return !Number.isNaN(d.valueOf()) && v <= todayISO;
+      }, "No puede ser posterior a hoy"),
+    oferta: z.boolean().optional(),
+    porcentajeOferta: z.string().optional(),
+    fechaInicioOferta: z.string().optional(),
+    fechaFinOferta: z.string().optional(),
+  })
+  .superRefine((val, ctx) => {
+    const start = val.fechaInicioOferta || "";
+    const end = val.fechaFinOferta || "";
+    if (start && start < todayISO) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["fechaInicioOferta"],
+        message: "La fecha de inicio no puede ser anterior a hoy",
+      });
+    }
+    if (start && end && end < start) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["fechaFinOferta"],
+        message: "La fecha de fin no puede ser anterior a la de inicio",
+      });
+    }
+  });
 type FormData = z.infer<typeof schema>;
 
 export default function Productos() {
@@ -463,6 +485,9 @@ function ProductoPopup({
       bajoMinimoStock: 0,
       ultimaModificacionStock: todayISO,
       oferta: false,
+      porcentajeOferta: "",
+      fechaInicioOferta: "",
+      fechaFinOferta: "",
     },
   });
 
@@ -496,6 +521,14 @@ function ProductoPopup({
         bajoMinimoStock: Number(data?.bajoMinimoStock ?? 0),
         ultimaModificacionStock: fechaClamp,
         oferta: !!data?.oferta,
+        porcentajeOferta:
+          data?.porcentajeOferta != null ? String(data.porcentajeOferta) : "",
+        fechaInicioOferta: data?.fechaInicioOferta
+          ? String(data.fechaInicioOferta).slice(0, 10)
+          : "",
+        fechaFinOferta: data?.fechaFinOferta
+          ? String(data.fechaFinOferta).slice(0, 10)
+          : "",
       });
     })();
   }, [initial, reset, subfamilias]);
@@ -515,6 +548,7 @@ function ProductoPopup({
   // dependencias de selects
   const familiaSelected = watch("familia");
   const subfamiliaSelected = watch("subfamilia");
+  const ofertaEnabled = watch("oferta");
 
   // constantes/ayudas
   const FAMILIA_VARIOS_SENTINEL = "-999"; // opción UI sintética para "Varios"
@@ -597,6 +631,7 @@ function ProductoPopup({
 
   const onSubmit: SubmitHandler<FormData> = async (v) => {
     setShowErrors(false);
+    const isOferta = !!v.oferta;
     const base = {
       nombre: String(v.nombre ?? "").trim(),
       precio: v.precioVenta,
@@ -604,7 +639,19 @@ function ProductoPopup({
       utilidad: v.utilidad,
       descripcion: v.descripcion?.trim() || null,
       codigoBarras: v.codigoBarras?.trim() || null,
-      oferta: !!v.oferta,
+      oferta: isOferta,
+      porcentajeOferta:
+        !isOferta || v.porcentajeOferta === "" || v.porcentajeOferta == null
+          ? null
+          : Number(v.porcentajeOferta),
+      fechaInicioOferta:
+        !isOferta || v.fechaInicioOferta === "" || v.fechaInicioOferta == null
+          ? null
+          : v.fechaInicioOferta,
+      fechaFinOferta:
+        !isOferta || v.fechaFinOferta === "" || v.fechaFinOferta == null
+          ? null
+          : v.fechaFinOferta,
       bajoMinimoStock: v.bajoMinimoStock,
       ultimaModificacionStock: v.ultimaModificacionStock,
       subFamiliaId: Number(v.subfamilia),
@@ -628,6 +675,11 @@ function ProductoPopup({
       }
       if (status === 409 && data?.error === "FK_CONSTRAINT_IN_USE") {
         await showAlert({ type: "error", message: "No se puede editar: tiene movimientos relacionados." });
+        return;
+      }
+      if (status === 422) {
+        const msg = data?.message || data?.error || "Datos inválidos";
+        await showAlert({ type: "error", message: msg });
         return;
       }
       await showAlert({ type: "error", message: "Operación fallida" });
@@ -777,6 +829,37 @@ function ProductoPopup({
                 </div>
               </div>
 
+              {/* Oferta */}
+              {ofertaEnabled && (
+                <div className="rounded-2xl border bg-white p-4 space-y-3">
+                  <h4 className="text-sm font-medium text-gray-700">Oferta</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <Label htmlFor="porcentajeOferta">Porcentaje de oferta (%)</Label>
+                      <Input
+                        id="porcentajeOferta"
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        placeholder="10"
+                        {...register("porcentajeOferta")}
+                      />
+                      <FieldError message={(errors as any)?.porcentajeOferta?.message} />
+                    </div>
+                    <div>
+                      <Label htmlFor="fechaInicioOferta">Fecha inicio</Label>
+                      <Input id="fechaInicioOferta" type="date" min={todayISO} {...register("fechaInicioOferta")} />
+                      <FieldError message={(errors as any)?.fechaInicioOferta?.message} />
+                    </div>
+                    <div>
+                      <Label htmlFor="fechaFinOferta">Fecha fin</Label>
+                      <Input id="fechaFinOferta" type="date" min={watch("fechaInicioOferta") || todayISO} {...register("fechaFinOferta")} />
+                      <FieldError message={(errors as any)?.fechaFinOferta?.message} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Stock */}
               <div className="rounded-2xl border bg-white p-4 space-y-3">
                 <h4 className="text-sm font-medium text-gray-700">Stock</h4>
@@ -873,6 +956,27 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
     })();
   }, [id, histPage, histLimit]);
 
+  async function cerrarOferta() {
+    try {
+      const ok = await askConfirm({
+        message: "¿Confirmás cerrar la oferta de este producto?",
+      });
+      if (!ok) return;
+      await api.put(`/products/${id}`, {
+        oferta: false,
+        porcentajeOferta: null,
+        fechaInicioOferta: null,
+        fechaFinOferta: null,
+      });
+      const { data } = await api.get(`/products/${id}`);
+      setData(data);
+      await showAlert({ type: "success", message: "Oferta cerrada" });
+    } catch (e) {
+      await showAlert({ type: "error", message: "No se pudo cerrar la oferta" });
+      console.error(e);
+    }
+  }
+
   const precioFmt = (n: any) =>
     typeof n === "number"
       ? new Intl.NumberFormat("es-AR", {
@@ -936,6 +1040,25 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
                   <p className="text-2xl font-semibold">
                     {precioFmt(data?.precio ?? data?.precioVentaPublicoProducto)}
                   </p>
+                  {(() => {
+                    const base = Number(data?.precio ?? data?.precioVentaPublicoProducto ?? 0);
+                    const pct = Number(data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0);
+                    const oferta = Boolean(data?.oferta ?? data?.ofertaProducto);
+                    const ini = data?.fechaInicioOferta ? new Date(data.fechaInicioOferta).getTime() : null;
+                    const fin = data?.fechaFinOferta ? new Date(data.fechaFinOferta).getTime() : null;
+                    const now = Date.now();
+                    const activo = oferta && pct > 0 && (!ini || ini <= now) && (!fin || fin >= now);
+                    if (!activo) return null;
+                    const precioDesc = Number((base * (1 - pct / 100)).toFixed(2));
+                    return (
+                      <div className="mt-2 text-sm">
+                        <p className="text-gray-500">Precio con oferta ({pct}%):</p>
+                        <p className="text-lg font-semibold text-green-700">
+                          {precioFmt(precioDesc)}
+                        </p>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Información agrupada y con mismo estilo de tarjetas */}
@@ -954,6 +1077,42 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
                     <p className="font-medium">
                       {data?.proveedor?.nombre ?? data?.nombreProveedor ?? "-"}
                     </p>
+                  </div>
+
+                  {/* Oferta */}
+                  <div className="rounded-xl border bg-white p-3">
+                    <p className="text-gray-500">Oferta</p>
+                    <div className="grid grid-cols-2 gap-3 mt-2">
+                      <div>
+                        <p className="text-gray-500 text-xs">Estado</p>
+                        <p className="font-medium">{data?.oferta ? "En oferta" : "Normal"}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs">Porcentaje</p>
+                        <p className="font-medium">{data?.porcentajeOferta != null ? `${data.porcentajeOferta}%` : "-"}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 mt-3">
+                      <div>
+                        <p className="text-gray-500 text-xs">Inicio</p>
+                        <p className="font-medium">{data?.fechaInicioOferta ? String(data.fechaInicioOferta).slice(0, 10) : "-"}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs">Fin</p>
+                        <p className="font-medium">{data?.fechaFinOferta ? String(data.fechaFinOferta).slice(0, 10) : "-"}</p>
+                      </div>
+                    </div>
+                    {data?.oferta && (
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={cerrarOferta}
+                          className="inline-flex items-center rounded border px-2 py-1 text-xs"
+                        >
+                          Cerrar oferta
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Familia + Subfamilia */}

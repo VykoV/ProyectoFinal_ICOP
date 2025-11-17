@@ -19,8 +19,8 @@ type PreRow = {
   estado: string; // "Pendiente" | "ListoCaja" | etc
 };
 
-type Opt = { id: number; label: string };
-type ProdOpt = Opt & { precio: number };
+ type Opt = { id: number; label: string };
+ type ProdOpt = Opt & { precio: number; ofertaPct?: number };
 type Item = {
   idProducto: number;
   nombre: string;
@@ -45,8 +45,12 @@ export default function PreVentas() {
   const [openFiltros, setOpenFiltros] = useState(false);
   const [soloVencidas, setSoloVencidas] = useState(false);
 
-  function normEstado(raw: string): "pendiente" | "listocaja" | "finalizada" | "cancelada" | "otro" {
-    const n = String(raw || "").toLowerCase().replace(/[\s_]+/g, "");
+  function normEstado(
+    raw: string
+  ): "pendiente" | "listocaja" | "finalizada" | "cancelada" | "otro" {
+    const n = String(raw || "")
+      .toLowerCase()
+      .replace(/[\s_]+/g, "");
     if (n.includes("pend")) return "pendiente";
     if (n.includes("listocaja")) return "listocaja";
     if (n.includes("finaliz") || n.includes("cerrad")) return "finalizada";
@@ -55,10 +59,17 @@ export default function PreVentas() {
   }
 
   // Coincidencia simple en múltiples campos; si q vacío retorna true
-  function matchesQuery(qv: string, ...fields: Array<string | null | undefined>): boolean {
+  function matchesQuery(
+    qv: string,
+    ...fields: Array<string | null | undefined>
+  ): boolean {
     const qn = (qv || "").trim().toLowerCase();
     if (!qn) return true;
-    return fields.some((f) => String(f || "").toLowerCase().includes(qn));
+    return fields.some((f) =>
+      String(f || "")
+        .toLowerCase()
+        .includes(qn)
+    );
   }
 
   function readParams() {
@@ -78,7 +89,16 @@ export default function PreVentas() {
     setPage(Math.max(1, Number(pageStr) || 1));
   }
 
-  function writeParams(next?: Partial<{ q: string; preEstados: string[]; prePage: number; preDesde: string; preHasta: string; preSort: "asc" | "desc" }>) {
+  function writeParams(
+    next?: Partial<{
+      q: string;
+      preEstados: string[];
+      prePage: number;
+      preDesde: string;
+      preHasta: string;
+      preSort: "asc" | "desc";
+    }>
+  ) {
     const sp = new URLSearchParams(window.location.search);
     const qv = next?.q ?? q;
     const estv = next?.preEstados ?? selectedEstados;
@@ -86,10 +106,14 @@ export default function PreVentas() {
     const dsd = next?.preDesde ?? preDesde;
     const hst = next?.preHasta ?? preHasta;
     const srt = next?.preSort ?? preSort;
-    if (qv) sp.set("q", qv); else sp.delete("q");
-    if (estv && estv.length > 0) sp.set("preEstados", estv.join(",")); else sp.delete("preEstados");
-    if (dsd) sp.set("preDesde", dsd); else sp.delete("preDesde");
-    if (hst) sp.set("preHasta", hst); else sp.delete("preHasta");
+    if (qv) sp.set("q", qv);
+    else sp.delete("q");
+    if (estv && estv.length > 0) sp.set("preEstados", estv.join(","));
+    else sp.delete("preEstados");
+    if (dsd) sp.set("preDesde", dsd);
+    else sp.delete("preDesde");
+    if (hst) sp.set("preHasta", hst);
+    else sp.delete("preHasta");
     sp.set("prePage", String(pv));
     sp.set("preSort", srt);
     window.history.replaceState(null, "", `?${sp.toString()}`);
@@ -100,27 +124,27 @@ export default function PreVentas() {
     try {
       const { data } = soloVencidas
         ? await api.get("/preventas/reservas-vencidas")
-        : await api.get("/preventas", { params: { ...(query ? { q: query } : {}) } });
+        : await api.get("/preventas", {
+            params: { ...(query ? { q: query } : {}) },
+          });
       setRows(
-        (data ?? [])
-          .map((v: any) => ({
-            id: v.id ?? v.idVenta,
-            cliente: v.cliente
-              ? v.cliente
-              : v.Cliente
-              ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
-              : "",
-            fecha: String(v.fecha ?? v.fechaVenta ?? "").slice(0, 10),
-            metodoPago: v.metodoPago ?? v.TipoPago?.tipoPago ?? null,
-            total: Number(v.total ?? 0),
-            estado:
-              v.estado ??
-              v.estadoVenta ??
-              v.EstadoVenta?.nombreEstadoVenta ??
-              "Pendiente",
-          }))
+        (data ?? []).map((v: any) => ({
+          id: v.id ?? v.idVenta,
+          cliente: v.cliente
+            ? v.cliente
+            : v.Cliente
+            ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
+            : "",
+          fecha: String(v.fecha ?? v.fechaVenta ?? "").slice(0, 10),
+          metodoPago: v.metodoPago ?? v.TipoPago?.tipoPago ?? null,
+          total: Number(v.total ?? 0),
+          estado:
+            v.estado ??
+            v.estadoVenta ??
+            v.EstadoVenta?.nombreEstadoVenta ??
+            "Pendiente",
+        }))
       );
-
     } finally {
       setLoading(false);
     }
@@ -156,7 +180,8 @@ export default function PreVentas() {
         let cls = "bg-gray-100 text-gray-800";
         if (norm.includes("pend")) cls = "bg-yellow-100 text-yellow-800";
         else if (norm.includes("listocaja")) cls = "bg-blue-100 text-blue-800";
-        else if (norm.includes("finaliz") || norm.includes("cerrad")) cls = "bg-green-100 text-green-800";
+        else if (norm.includes("finaliz") || norm.includes("cerrad"))
+          cls = "bg-green-100 text-green-800";
         else if (norm.includes("cancel")) cls = "bg-red-100 text-red-800";
         return (
           <span className={`rounded-full px-2 py-1 text-xs font-medium ${cls}`}>
@@ -168,68 +193,70 @@ export default function PreVentas() {
     {
       header: "Total",
       cell: ({ row }) => (
-        <span className="block text-right">${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}</span>
+        <span className="block text-right">
+          ${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}
+        </span>
       ),
     },
     {
-  header: "Acciones",
-  id: "acciones",
-  size: 220,
-  cell: ({ row }) => {
-    const estadoNorm = (row.original.estado || "")
-      .toLowerCase()
-      .replace(/[\s_]+/g, "");
-    const isEditable = estadoNorm === "pendiente";
+      header: "Acciones",
+      id: "acciones",
+      size: 220,
+      cell: ({ row }) => {
+        const estadoNorm = (row.original.estado || "")
+          .toLowerCase()
+          .replace(/[\s_]+/g, "");
+        const isEditable = estadoNorm === "pendiente";
 
-    return (
-      <div className="flex gap-2">
-        <button
-          className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
-          onClick={() => setOpenView(row.original.id)}
-          title="Ver"
-        >
-          <Eye className="h-3.5 w-3.5" /> Ver
-        </button>
+        return (
+          <div className="flex gap-2">
+            <button
+              className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+              onClick={() => setOpenView(row.original.id)}
+              title="Ver"
+            >
+              <Eye className="h-3.5 w-3.5" /> Ver
+            </button>
 
-        {isEditable && (
-          <button
-            className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
-            onClick={() => setOpenForm(row.original.id)}
-            title="Editar"
-          >
-            <Pencil className="h-3.5 w-3.5" /> Editar
-          </button>
-        )}
+            {isEditable && (
+              <button
+                className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+                onClick={() => setOpenForm(row.original.id)}
+                title="Editar"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Editar
+              </button>
+            )}
 
-        {isEditable && (
-          <button
-            className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
-            onClick={async () => {
-    const motivo = await askText({
-      title: "Cancelar presupuesto",
-      label: "Motivo de cancelación",
-      placeholder: "Ingresa un motivo (opcional)",
-      confirmText: "Cancelar presupuesto",
-      cancelText: "Volver",
-      required: false,
-    });
-    if (motivo === null) return; // cancelado por usuario
-              await api.put(`/preventas/${row.original.id}` , {
-                accion: "cancelar",
-    motivoCancelacion: (motivo && motivo.length > 0) ? motivo : null,
-              });
-              await load(q);
-            }}
-            title="Cancelar presupuesto"
-          >
-            <Trash2 className="h-3.5 w-3.5" /> Cancelar
-          </button>
-        )}
-      </div>
-    );
-  },
-},
-
+            {isEditable && (
+              <button
+                className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+                onClick={async () => {
+                  const motivo = await askText({
+                    title: "Cancelar presupuesto",
+                    label: "Motivo de cancelación",
+                    placeholder: "Ingresa un motivo (opcional)",
+                    confirmText: "Cancelar presupuesto",
+                    cancelText: "Volver",
+                    required: false,
+                  });
+                  if (motivo === null) return; // cancelado por usuario
+                  await api.put(`/preventas/${row.original.id}`, {
+                    accion: "cancelar",
+                    motivoCancelacion:
+                      motivo && motivo.length > 0 ? motivo : null,
+                  });
+                  await load(q);
+                }}
+                title="Cancelar presupuesto"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Cancelar
+              </button>
+            )}
+          </div>
+        );
+      },
+    },
   ];
 
   // filtering + pagination
@@ -286,7 +313,12 @@ export default function PreVentas() {
             }}
           />
         </div>
-        <button className="rounded border px-3 py-2" onClick={() => setOpenFiltros(true)}>Filtros</button>
+        <button
+          className="rounded border px-3 py-2"
+          onClick={() => setOpenFiltros(true)}
+        >
+          Filtros
+        </button>
         <span className="ml-auto text-xs text-gray-600">
           Mostrando {total === 0 ? 0 : startIdx + 1}–{endIdx} de {total}
         </span>
@@ -298,7 +330,10 @@ export default function PreVentas() {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg md:max-w-xl lg:max-w-2xl">
             <div className="flex items-center justify-between border-b px-4 py-2">
               <h2 className="text-sm font-medium">Filtros de Presupuestos</h2>
-              <button className="rounded border px-2 py-1 text-xs" onClick={() => setOpenFiltros(false)}>
+              <button
+                className="rounded border px-2 py-1 text-xs"
+                onClick={() => setOpenFiltros(false)}
+              >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -307,10 +342,15 @@ export default function PreVentas() {
                 <span className="text-gray-600">Estado</span>
                 <select
                   className="rounded border px-2 py-1"
-                  value={selectedEstados.length === 2 ? "todas" : selectedEstados[0] || "todas"}
+                  value={
+                    selectedEstados.length === 2
+                      ? "todas"
+                      : selectedEstados[0] || "todas"
+                  }
                   onChange={(e) => {
                     const v = e.target.value;
-                    const next = v === "todas" ? ["pendiente", "listocaja"] : [v];
+                    const next =
+                      v === "todas" ? ["pendiente", "listocaja"] : [v];
                     setSelectedEstados(next);
                     setPage(1);
                   }}
@@ -362,7 +402,6 @@ export default function PreVentas() {
                 />
                 Solo reservas vencidas
               </label>
-              
             </div>
             <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
               <button
@@ -378,7 +417,12 @@ export default function PreVentas() {
               >
                 <X className="h-3.5 w-3.5" /> Borrar filtros
               </button>
-              <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenFiltros(false)}>Cerrar</button>
+              <button
+                className="rounded border px-3 py-1 text-sm"
+                onClick={() => setOpenFiltros(false)}
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
@@ -416,7 +460,10 @@ export default function PreVentas() {
                 max={totalPages}
                 value={safePage}
                 onChange={(e) => {
-                  const v = Math.max(1, Math.min(totalPages, Number(e.target.value) || 1));
+                  const v = Math.max(
+                    1,
+                    Math.min(totalPages, Number(e.target.value) || 1)
+                  );
                   setPage(v);
                 }}
               />
@@ -596,14 +643,22 @@ function PreventaView({
                       N°: {venta?.idVenta ?? id}
                     </span>
                     <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
-                      Fecha: {String(venta?.fechaVenta ?? "").slice(0, 10) || "-"}
+                      Fecha:{" "}
+                      {String(venta?.fechaVenta ?? "").slice(0, 10) || "-"}
                     </span>
                     <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
                       Estado: {estadoStr}
                     </span>
                     {venta?.fechaReservaLimite ? (
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${reservaVencida ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"}`}>
-                        Reserva hasta: {new Date(venta.fechaReservaLimite).toLocaleString()}
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
+                          reservaVencida
+                            ? "bg-red-100 text-red-800"
+                            : "bg-green-100 text-green-800"
+                        }`}
+                      >
+                        Reserva hasta:{" "}
+                        {new Date(venta.fechaReservaLimite).toLocaleString()}
                       </span>
                     ) : (
                       <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-gray-100 text-gray-700">
@@ -622,13 +677,16 @@ function PreventaView({
                       currency: "ARS",
                       maximumFractionDigits: 2,
                     }).format(
-                      (lineItems ?? []).reduce((acc: number, d: any) => {
-                        const cant = Number(d.cantidad ?? 0);
-                        const pu = Number(
-                          d.Producto?.precioVentaPublicoProducto ?? 0
-                        );
-                        return acc + cant * pu;
-                      }, 0)
+                      Number(venta?.totales?.totalFinal ?? 0) ||
+                        (lineItems ?? []).reduce((acc: number, d: any) => {
+                          const cant = Number(d.cantidad ?? 0);
+                          const puBase = Number(
+                            d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
+                          );
+                          const descPct = Number(d.descuentoItem ?? 0) / 100;
+                          const puFinal = puBase * (1 - descPct);
+                          return acc + cant * puFinal;
+                        }, 0)
                     )}
                   </p>
                 </div>
@@ -684,6 +742,7 @@ function PreventaView({
                       <th className="px-2 py-2 text-left">Producto</th>
                       <th className="px-2 py-2 text-right">Cant.</th>
                       <th className="px-2 py-2 text-right">P.Unit.</th>
+                      <th className="px-2 py-2 text-right">Desc %</th>
                       <th className="px-2 py-2 text-right">Subtotal</th>
                     </tr>
                   </thead>
@@ -692,7 +751,7 @@ function PreventaView({
                       <tr>
                         <td
                           className="px-2 py-4 text-center text-gray-500"
-                          colSpan={4}
+                          colSpan={5}
                         >
                           Cargando productos...
                         </td>
@@ -700,10 +759,12 @@ function PreventaView({
                     ) : lineItems.length > 0 ? (
                       lineItems.map((d: any, idx: number) => {
                         const cant = Number(d.cantidad ?? 0);
-                        const pu = Number(
-                          d.Producto?.precioVentaPublicoProducto ?? 0
+                        const puBase = Number(
+                          d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
                         );
-                        const subtotal = cant * pu;
+                        const descPct = Number(d.descuentoItem ?? 0);
+                        const puFinal = puBase * (1 - (descPct || 0) / 100);
+                        const subtotal = cant * puFinal;
                         return (
                           <tr
                             key={`${d.idDetalleVenta ?? d.idProducto}-${idx}`}
@@ -715,10 +776,29 @@ function PreventaView({
                             </td>
                             <td className="px-2 py-2 text-right">{cant}</td>
                             <td className="px-2 py-2 text-right">
-                              ${fmtPrice(pu, { minFraction: 2, maxFraction: 2 })}
+                              {descPct > 0 ? (
+                                <div className="flex flex-col items-end">
+                                  <span className="line-through text-gray-400">
+                                    ${fmtPrice(puBase, { minFraction: 2, maxFraction: 2 })}
+                                  </span>
+                                  <span className="text-green-700 font-medium">
+                                    ${fmtPrice(puFinal, { minFraction: 2, maxFraction: 2 })}
+                                  </span>
+                                </div>
+                              ) : (
+                                <>
+                                  ${fmtPrice(puBase, { minFraction: 2, maxFraction: 2 })}
+                                </>
+                              )}
                             </td>
                             <td className="px-2 py-2 text-right">
-                              ${fmtPrice(subtotal, { minFraction: 2, maxFraction: 2 })}
+                              {descPct > 0 ? `-${descPct}%` : "-"}
+                            </td>
+                            <td className="px-2 py-2 text-right">
+                              ${fmtPrice(subtotal, {
+                                minFraction: 2,
+                                maxFraction: 2,
+                              })}
                             </td>
                           </tr>
                         );
@@ -727,7 +807,7 @@ function PreventaView({
                       <tr>
                         <td
                           className="px-2 py-4 text-center text-gray-500"
-                          colSpan={4}
+                          colSpan={5}
                         >
                           Sin items
                         </td>
@@ -745,15 +825,45 @@ function PreventaView({
                 <div className="text-sm text-gray-500">Cargando resumen…</div>
               ) : (
                 (() => {
+                  const tot = venta?.totales;
                   const IVA = 0.21;
-                  const bruto = (lineItems ?? []).reduce((acc: number, d: any) => {
-                    const cant = Number(d.cantidad ?? 0);
-                    const pu = Number(d.Producto?.precioVentaPublicoProducto ?? 0);
-                    return acc + cant * pu;
-                  }, 0);
-                  const subtotalSinIVA = bruto / (1 + IVA);
-                  const impuestos = bruto - subtotalSinIVA;
-                  const totalFinal = bruto;
+                  let subtotalSinIVA: number;
+                  let impuestos: number;
+                  let totalFinal: number;
+                  let baseArticulos: number; // total con descuentos por ítem, antes de descuento general y recargo
+                  let descuentoGeneralMonto = 0;
+                  let recargoPagoMonto = 0;
+                  const descGPercent = Number(venta?.descuentoGeneralVenta ?? venta?.descuentoGeneral ?? 0) / 100;
+                  const recargoPercent = Number(venta?.recargoPagoVenta ?? venta?.recargoPago ?? 0) / 100;
+
+                  if (tot) {
+                    subtotalSinIVA = Number(tot.importeNeto ?? 0);
+                    impuestos = Number(tot.impuesto ?? 0);
+                    totalFinal = Number(tot.totalFinal ?? 0);
+                    baseArticulos = Number(tot.importeArticulos ?? 0);
+                    descuentoGeneralMonto = baseArticulos * descGPercent;
+                    const trasDescuento = baseArticulos * (1 - descGPercent);
+                    recargoPagoMonto = trasDescuento * recargoPercent;
+                  } else {
+                    const bruto = (lineItems ?? []).reduce((acc: number, d: any) => {
+                      const cant = Number(d.cantidad ?? 0);
+                      const puBase = Number(
+                        d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
+                      );
+                      const descPct = Number(d.descuentoItem ?? 0) / 100;
+                      const puFinal = puBase * (1 - descPct);
+                      return acc + cant * puFinal;
+                    }, 0);
+                    baseArticulos = bruto;
+                    descuentoGeneralMonto = baseArticulos * descGPercent;
+                    const trasDescuento = baseArticulos * (1 - descGPercent);
+                    recargoPagoMonto = trasDescuento * recargoPercent;
+                    const finalFallback = trasDescuento * (1 + recargoPercent);
+                    subtotalSinIVA = finalFallback / (1 + IVA);
+                    impuestos = finalFallback - subtotalSinIVA;
+                    totalFinal = finalFallback;
+                  }
+
                   return (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
@@ -767,6 +877,26 @@ function PreventaView({
                       <div>
                         <p className="text-sm text-gray-500">Total</p>
                         <p className="text-xl font-semibold">${fmtPrice(totalFinal)}</p>
+                      </div>
+                      <div className="sm:col-span-3 border-t pt-2 mt-2">
+                        <div className="flex flex-wrap items-center justify-between text-xs">
+                          <span className="text-gray-600">
+                            Base artículos (con descuentos por ítem)
+                          </span>
+                          <span className="font-medium">${fmtPrice(baseArticulos)}</span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between text-xs mt-1">
+                          <span className="text-gray-600">
+                            Descuento general {descGPercent > 0 ? `(${Math.round(descGPercent*100)}%)` : ""}
+                          </span>
+                          <span className="font-medium text-green-700">−${fmtPrice(descuentoGeneralMonto)}</span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between text-xs mt-1">
+                          <span className="text-gray-600">
+                            Recargo método de pago {recargoPercent > 0 ? `(${Math.round(recargoPercent*100)}%)` : ""}
+                          </span>
+                          <span className="font-medium text-orange-700">+${fmtPrice(recargoPagoMonto)}</span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -790,19 +920,33 @@ function PreventaView({
                   <tbody>
                     {loadingHist ? (
                       <tr>
-                        <td className="px-2 py-3 text-gray-600" colSpan={4}>Cargando…</td>
+                        <td className="px-2 py-3 text-gray-600" colSpan={4}>
+                          Cargando…
+                        </td>
                       </tr>
                     ) : hist.length === 0 ? (
                       <tr>
-                        <td className="px-2 py-3 text-gray-600" colSpan={4}>Sin movimientos de estado.</td>
+                        <td className="px-2 py-3 text-gray-600" colSpan={4}>
+                          Sin movimientos de estado.
+                        </td>
                       </tr>
                     ) : (
                       hist.map((ev, idx) => (
-                        <tr key={ev.id} className={idx % 2 ? "bg-gray-50" : undefined}>
+                        <tr
+                          key={ev.id}
+                          className={idx % 2 ? "bg-gray-50" : undefined}
+                        >
                           <td className="px-2 py-2">{ev.fecha}</td>
-                          <td className="px-2 py-2">{ev.desde ? `${ev.desde} → ${ev.hasta}` : ev.hasta}</td>
+                          <td className="px-2 py-2">
+                            {ev.desde ? `${ev.desde} → ${ev.hasta}` : ev.hasta}
+                          </td>
                           <td className="px-2 py-2">{ev.motivo ?? "-"}</td>
-                          <td className="px-2 py-2">{ev.usuario ? (ev.usuario.nombreUsuario || ev.usuario.emailUsuario) : "-"}</td>
+                          <td className="px-2 py-2">
+                            {ev.usuario
+                              ? ev.usuario.nombreUsuario ||
+                                ev.usuario.emailUsuario
+                              : "-"}
+                          </td>
                         </tr>
                       ))
                     )}
@@ -850,14 +994,16 @@ function PreventaForm({
   const [openStock, setOpenStock] = useState(false);
   const [stockLoading, setStockLoading] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
-  const [stockData, setStockData] = useState<{
-    idProducto: number;
-    nombre: string;
-    real: number;
-    comprometido: number;
-    minimo: number;
-    actualizadoEn: string | null;
-  }[]>([]);
+  const [stockData, setStockData] = useState<
+    {
+      idProducto: number;
+      nombre: string;
+      real: number;
+      comprometido: number;
+      minimo: number;
+      actualizadoEn: string | null;
+    }[]
+  >([]);
 
   async function openStockForLoadedProducts() {
     setStockError(null);
@@ -879,7 +1025,9 @@ function PreventaForm({
       );
       setStockData(list);
     } catch (e: any) {
-      setStockError(e?.response?.data?.error || e?.message || "No se pudo leer stock");
+      setStockError(
+        e?.response?.data?.error || e?.message || "No se pudo leer stock"
+      );
     } finally {
       setStockLoading(false);
     }
@@ -933,7 +1081,9 @@ function PreventaForm({
   const [items, setItems] = useState<Item[]>([]);
 
   // Indicador de stock bajo (real - comprometido < minimo)
-  const [lowStock, setLowStock] = useState<Record<number, "none" | "orange" | "red">>({});
+  const [lowStock, setLowStock] = useState<
+    Record<number, "none" | "orange" | "red">
+  >({});
   useEffect(() => {
     let canceled = false;
     const ids = Array.from(new Set(items.map((i) => i.idProducto)));
@@ -946,7 +1096,8 @@ function PreventaForm({
         const list = await Promise.allSettled(
           ids.map(async (idP) => {
             const s = await getProductStock(idP);
-            const disponible = Number(s.real || 0) - Number(s.comprometido || 0);
+            const disponible =
+              Number(s.real || 0) - Number(s.comprometido || 0);
             // máximo solicitado para este producto entre las líneas cargadas
             const maxSolicitada = Math.max(
               0,
@@ -959,7 +1110,11 @@ function PreventaForm({
             const atOrBelowMin = disponible <= minimo;
             const belowRequested = disponible < maxSolicitada;
             const status: "none" | "orange" | "red" =
-              belowMin || belowRequested ? "red" : atOrBelowMin ? "orange" : "none";
+              belowMin || belowRequested
+                ? "red"
+                : atOrBelowMin
+                ? "orange"
+                : "none";
             return { id: idP, status };
           })
         );
@@ -1174,11 +1329,42 @@ function PreventaForm({
       const { data } = await api.get("/products", {
         params: prodQ ? { q: prodQ } : undefined,
       });
-      const opts: ProdOpt[] = (data ?? []).map((p: any) => ({
-        id: p.id ?? p.idProducto,
-        label: `${p.sku ?? p.codigoProducto} — ${p.nombre ?? p.nombreProducto}`,
-        precio: Number(p.precio ?? p.precioVentaPublicoProducto ?? 0),
-      }));
+
+      // Utilizar comparación por día local para incluir el día actual completo
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayTs = today.getTime();
+      const toTs = (raw: any, isEnd: boolean): number | null => {
+        if (!raw) return null;
+        if (typeof raw === "string" && raw.length === 10) {
+          // YYYY-MM-DD como hora local
+          return new Date(`${raw}${isEnd ? "T23:59:59.999" : "T00:00:00"}`).getTime();
+        }
+        const d = new Date(raw);
+        return Number.isNaN(d.valueOf()) ? null : d.getTime();
+      };
+
+      const opts: ProdOpt[] = (data ?? []).map((p: any) => {
+        const base = Number(p.precio ?? p.precioVentaPublicoProducto ?? 0);
+        const pct = Number(p.porcentajeOferta ?? p.porcentajeOfertaProducto ?? 0);
+        const ofertaFlag = p.oferta ?? p.ofertaProducto;
+        const iniRaw = p.fechaInicioOferta ?? p.fechaInicioOfertaProducto;
+        const finRaw = p.fechaFinOferta ?? p.fechaFinOfertaProducto;
+        const ini = toTs(iniRaw, false);
+        const fin = toTs(finRaw, true);
+        const dentroRango = (ini == null || todayTs >= ini) && (fin == null || todayTs <= fin);
+        const activo =
+          ofertaFlag === undefined
+            ? pct > 0 && dentroRango
+            : Boolean(ofertaFlag) && pct > 0 && dentroRango;
+        return {
+          id: p.id ?? p.idProducto,
+          label: `${p.sku ?? p.codigoProducto} — ${p.nombre ?? p.nombreProducto}`,
+          precio: base,
+          ofertaPct: activo ? pct : 0,
+        };
+      });
+
       setProdOpts(opts);
       if (prodSel) {
         const found = opts.find((o) => o.id === prodSel.id);
@@ -1195,7 +1381,7 @@ function PreventaForm({
     setPrecio(o.precio);
     setProdOpts([]);
     setCant(0);
-    setDesc(0);
+    setDesc(Number(o.ofertaPct || 0));
   }
 
   function addItem() {
@@ -1227,7 +1413,9 @@ function PreventaForm({
   function setItemCantidad(idProducto: number, cantidad: number) {
     setItems((prev) =>
       prev.map((i) =>
-        i.idProducto === idProducto ? { ...i, cantidad: Math.max(0, cantidad) } : i
+        i.idProducto === idProducto
+          ? { ...i, cantidad: Math.max(0, cantidad) }
+          : i
       )
     );
   }
@@ -1285,6 +1473,8 @@ function PreventaForm({
           items: items.map((i) => ({
             idProducto: Number(i.idProducto),
             cantidad: Number(i.cantidad),
+            precioUnit: Number(i.precio),
+            descuentoItem: Number(i.descuento) || 0,
           })),
           idCliente: Number(idCliente),
           idTipoPago: Number(idTipoPago),
@@ -1292,19 +1482,23 @@ function PreventaForm({
           fechaFacturacion: ventaDate.toISOString(),
           fechaCobro: today.toISOString(),
           descuentoGeneral: Number(descClientePct) || 0,
-          porcentajeMetodo: tieneRecargoMP ? Number(porcentajeMP) || 0 : 0,
+          recargoPago: tieneRecargoMP ? Number(porcentajeMP) || 0 : 0,
         }
       : {
           idCliente: Number(idCliente),
           idTipoPago: Number(idTipoPago),
           observacion: obs || null,
-          // en creación el backend espera "detalles"
+          // en creación el backend puede recibir "detalles" o "items"
           detalles: items.map((i) => ({
             idProducto: Number(i.idProducto),
             cantidad: Number(i.cantidad),
+            precioUnit: Number(i.precio),
+            descuentoItem: Number(i.descuento) || 0,
           })),
+          fechaFacturacion: ventaDate.toISOString(),
+          fechaCobro: today.toISOString(),
           descuentoGeneral: Number(descClientePct) || 0,
-          porcentajeMetodo: tieneRecargoMP ? Number(porcentajeMP) || 0 : 0,
+          recargoPago: tieneRecargoMP ? Number(porcentajeMP) || 0 : 0,
         };
 
     try {
@@ -1359,12 +1553,12 @@ function PreventaForm({
             className="p-4 overflow-auto flex-1 space-y-6"
           >
             {/* === Datos de la operación === */}
-          <div className="rounded-2xl border bg-white p-4 space-y-4">
-            <h4 className="text-sm font-medium text-gray-700">
-              Datos de la operación
-            </h4>
+            <div className="rounded-2xl border bg-white p-4 space-y-4">
+              <h4 className="text-sm font-medium text-gray-700">
+                Datos de la operación
+              </h4>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 {/* Cliente */}
                 <div className="lg:col-span-1">
                   <Label htmlFor="clienteSearch">Cliente</Label>
@@ -1493,41 +1687,52 @@ function PreventaForm({
                 Agregar producto
               </h4>
 
-            <div className="grid grid-cols-1 md:grid-cols-20 gap-3">
-              {/* Producto */}
-              <div className="md:col-span-10">
-                <Label htmlFor="productoSearch" className="mb-1 block">
-                  Producto
-                </Label>
-                <div className="relative">
-                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
-                  <input
-                    id="productoSearch"
-                    className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
-                    placeholder="Buscar producto"
-                    value={prodQ}
-                    onChange={(e) => setProdQ(e.target.value)}
-                  />
-                  {prodQ && prodOpts.length > 0 && (
-                    <div className="absolute z-10 mt-1 w-full max-h-64 overflow-auto rounded-md border bg-white shadow">
-                      {prodOpts.map((o) => (
-                        <button
-                          key={o.id}
-                          type="button"
-                          className="block w-full text-left px-2 py-1 hover:bg-gray-50 text-sm"
-                          onClick={() => {
-                            pickProduct(o);
-                            setProdQ(o.label);
-                          }}
-                        >
-                          {o.label} — ${fmtPrice(o.precio, { minFraction: 2, maxFraction: 2 })}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+              <div className="grid grid-cols-1 md:grid-cols-20 gap-3">
+                {/* Producto */}
+                <div className="md:col-span-10">
+                  <Label htmlFor="productoSearch" className="mb-1 block">
+                    Producto
+                  </Label>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
+                    <input
+                      id="productoSearch"
+                      className="w-full rounded-lg border bg-white pl-8 pr-3 py-2 text-sm"
+                      placeholder="Buscar producto"
+                      value={prodQ}
+                      onChange={(e) => setProdQ(e.target.value)}
+                    />
+                    {prodQ && prodOpts.length > 0 && (
+                      <div className="absolute z-10 mt-1 w-full max-h-64 overflow-auto rounded-md border bg-white shadow">
+                        {prodOpts.map((o) => (
+                          <button
+                            key={o.id}
+                            type="button"
+                            className="block w-full text-left px-2 py-1 hover:bg-gray-50 text-sm"
+                            onClick={() => {
+                              pickProduct(o);
+                              setProdQ(o.label);
+                            }}
+                          >
+                            <span>{o.label}</span>
+                            <span>
+                              {" "}— ${fmtPrice(o.precio, {
+                                minFraction: 2,
+                                maxFraction: 2,
+                              })}
+                            </span>
+                            {o.ofertaPct && o.ofertaPct > 0 ? (
+                              <span className="ml-1 inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] text-green-700 bg-green-50 border-green-200">
+                                En oferta ({o.ofertaPct}%)
+                              </span>
+                            ) : null}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {prodSel && null}
                 </div>
-                {prodSel && null}
-              </div>
 
                 {/* Cantidad */}
                 <div className="md:col-span-3">
@@ -1598,7 +1803,9 @@ function PreventaForm({
             {/* === Tabla productos === */}
             <div className="rounded-2xl border bg-white p-4">
               <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-medium text-gray-700">Productos cargados</h4>
+                <h4 className="text-sm font-medium text-gray-700">
+                  Productos cargados
+                </h4>
                 <button
                   type="button"
                   className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
@@ -1631,23 +1838,24 @@ function PreventaForm({
                     <tr key={`${i.idProducto}-${idx}`} className="border-t">
                       <td className="px-3 py-2">
                         {i.nombre}
-                        {lowStock[i.idProducto] && lowStock[i.idProducto] !== "none" && (
-                          <span
-                            title={
-                              lowStock[i.idProducto] === "red"
-                                ? "Stock crítico"
-                                : "Stock bajo (umbral mínimo)"
-                            }
-                            className={
-                              "ml-2 inline-flex items-center justify-center rounded-full text-xs font-bold w-4 h-4 align-middle " +
-                              (lowStock[i.idProducto] === "red"
-                                ? "bg-red-100 text-red-700"
-                                : "bg-orange-100 text-orange-700")
-                            }
-                          >
-                            !
-                          </span>
-                        )}
+                        {lowStock[i.idProducto] &&
+                          lowStock[i.idProducto] !== "none" && (
+                            <span
+                              title={
+                                lowStock[i.idProducto] === "red"
+                                  ? "Stock crítico"
+                                  : "Stock bajo (umbral mínimo)"
+                              }
+                              className={
+                                "ml-2 inline-flex items-center justify-center rounded-full text-xs font-bold w-4 h-4 align-middle " +
+                                (lowStock[i.idProducto] === "red"
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-orange-100 text-orange-700")
+                              }
+                            >
+                              !
+                            </span>
+                          )}
                       </td>
                       <td className="px-3 py-2 text-center">
                         {isEdit ? (
@@ -1667,7 +1875,22 @@ function PreventaForm({
                           i.cantidad
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right">${fmtPrice(i.precio, { minFraction: 2, maxFraction: 2 })}</td>
+                      <td className="px-3 py-2 text-right">
+                        {i.descuento > 0 ? (
+                          <div className="flex flex-col items-end">
+                            <span className="line-through text-gray-400">
+                              ${fmtPrice(i.precio, { minFraction: 2, maxFraction: 2 })}
+                            </span>
+                            <span className="text-green-700 font-medium">
+                              ${fmtPrice(i.precio * (1 - (i.descuento || 0) / 100), { minFraction: 2, maxFraction: 2 })}
+                            </span>
+                          </div>
+                        ) : (
+                          <>
+                            ${fmtPrice(i.precio, { minFraction: 2, maxFraction: 2 })}
+                          </>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-center">
                         {isEdit ? (
                           <Input
@@ -1688,7 +1911,13 @@ function PreventaForm({
                         )}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        ${fmtPrice(i.cantidad * i.precio * (1 - (i.descuento || 0) / 100), { minFraction: 2, maxFraction: 2 })}
+                        $
+                        {fmtPrice(
+                          i.cantidad *
+                            i.precio *
+                            (1 - (i.descuento || 0) / 100),
+                          { minFraction: 2, maxFraction: 2 }
+                        )}
                       </td>
                       <td className="px-3 py-2 text-center">
                         <button
@@ -1799,24 +2028,55 @@ function PreventaForm({
                     ) : stockData.length > 0 ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {stockData.map((s) => (
-                          <div key={s.idProducto} className="rounded-xl border bg-white p-3">
-                            <p className="text-gray-700 text-sm font-medium mb-2">{s.nombre}</p>
+                          <div
+                            key={s.idProducto}
+                            className="rounded-xl border bg-white p-3"
+                          >
+                            <p className="text-gray-700 text-sm font-medium mb-2">
+                              {s.nombre}
+                            </p>
                             <div className="grid grid-cols-2 gap-2">
                               <div>
                                 <p className="text-gray-500 text-xs">Real</p>
-                                <p className="font-medium">{fmtPrice(s.real, { minFraction: 2, maxFraction: 2 })} g</p>
+                                <p className="font-medium">
+                                  {fmtPrice(s.real, {
+                                    minFraction: 2,
+                                    maxFraction: 2,
+                                  })}{" "}
+                                  g
+                                </p>
                               </div>
                               <div>
-                                <p className="text-gray-500 text-xs">Comprometido</p>
-                                <p className="font-medium">{fmtPrice(s.comprometido, { minFraction: 2, maxFraction: 2 })} g</p>
+                                <p className="text-gray-500 text-xs">
+                                  Comprometido
+                                </p>
+                                <p className="font-medium">
+                                  {fmtPrice(s.comprometido, {
+                                    minFraction: 2,
+                                    maxFraction: 2,
+                                  })}{" "}
+                                  g
+                                </p>
                               </div>
                               <div>
                                 <p className="text-gray-500 text-xs">Mínimo</p>
-                                <p className="font-medium">{fmtPrice(s.minimo, { minFraction: 2, maxFraction: 2 })} g</p>
+                                <p className="font-medium">
+                                  {fmtPrice(s.minimo, {
+                                    minFraction: 2,
+                                    maxFraction: 2,
+                                  })}{" "}
+                                  g
+                                </p>
                               </div>
                               <div>
-                                <p className="text-gray-500 text-xs">Actualizado</p>
-                                <p className="font-medium">{s.actualizadoEn ? new Date(s.actualizadoEn).toLocaleString() : "-"}</p>
+                                <p className="text-gray-500 text-xs">
+                                  Actualizado
+                                </p>
+                                <p className="font-medium">
+                                  {s.actualizadoEn
+                                    ? new Date(s.actualizadoEn).toLocaleString()
+                                    : "-"}
+                                </p>
                               </div>
                             </div>
                           </div>

@@ -4,6 +4,7 @@ export const creaPreventaSchema = z.object({
   idCliente: z.number().int().positive(),
   idTipoPago: z.number().int().positive(),
   observacion: z.string().nullable().optional(),
+  // permitir tanto "detalles" como "items" en creación
   detalles: z
     .array(
       z.object({
@@ -12,8 +13,18 @@ export const creaPreventaSchema = z.object({
       })
     )
     .min(1),
+  items: z
+    .array(
+      z.object({
+        idProducto: z.number().int().positive(),
+        cantidad: z.number().positive(),
+      })
+    )
+    .optional(),
   descuentoGeneral: z.number().min(0).max(100).default(0),
-  porcentajeMetodo: z.number().min(0).max(100).default(0),
+  recargoPago: z.number().min(0).max(100).default(0).optional(),
+  fechaFacturacion: z.string().optional(),
+  fechaCobro: z.string().optional(),
 });
 
 export const editaPreventaSchema = z.object({
