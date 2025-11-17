@@ -55,9 +55,10 @@ export default function Ventas() {
   const [venSort, setVenSort] = useState<"asc" | "desc">("desc");
   const pageSize = 10;
 
-  function normEstado(raw: string): "pendiente" | "listocaja" | "finalizada" | "cancelada" | "otro" {
+  function normEstado(raw: string): "pendiente" | "reservado" | "listocaja" | "finalizada" | "cancelada" | "otro" {
     const n = String(raw || "").toLowerCase().replace(/[\s_]+/g, "");
     if (n.includes("pend")) return "pendiente";
+    if (n.includes("reserv")) return "reservado";
     if (n.includes("listocaja")) return "listocaja";
     if (n.includes("finaliz") || n.includes("cerrad")) return "finalizada";
     if (n.includes("cancel")) return "cancelada";
@@ -87,7 +88,7 @@ export default function Ventas() {
     const venS = sp.get("venSort") || "";
     if (tabQ === "ventas" || tabQ === "preventas") setTab(tabQ);
     setQ(q0);
-    setPreEstados(preE ? preE.split(",").filter(Boolean) : ["pendiente", "listocaja"]);
+    setPreEstados(preE ? preE.split(",").filter(Boolean) : ["pendiente", "reservado", "listocaja"]);
     setPreDesde(preD);
     setPreHasta(preH);
     setPrePage(Math.max(1, preP || 1));
@@ -135,7 +136,7 @@ export default function Ventas() {
       let ventasData: any[] = [];
       try {
         const resV = await api.get("/ventas", {
-          params: { ...(query ? { q: query } : {}) },
+          params: { ...(query ? { q: query } : {}), _: Date.now() },
         });
         ventasData = resV.data ?? [];
       } catch {
@@ -159,7 +160,7 @@ export default function Ventas() {
       let preData: any[] = [];
 try {
   const resP = await api.get("/preventas", {
-    params: { ...(query ? { q: query } : {}) },
+    params: { ...(query ? { q: query } : {}), _: Date.now() },
   });
   preData = resP.data ?? [];
 } catch {
@@ -1389,7 +1390,7 @@ function ValidarPreventaModal({
   // estado actual de la preventa (Pendiente, ListoCaja, Finalizada, Cancelada)
   const estadoActual = venta?.EstadoVenta?.nombreEstadoVenta ?? "Pendiente";
   const estadoNorm = estadoActual.toLowerCase().replace(/[\s_]+/g, "");
-  const isEditable = estadoNorm === "pendiente";
+  const isEditable = estadoNorm === "pendiente"; // edición bloqueada en Reservado, solo lock
   const isListoCaja = estadoNorm.includes("listocaja");
   const canSave = isEditable || isListoCaja;
 
@@ -1522,12 +1523,23 @@ function ValidarPreventaModal({
   }
 
   async function lock() {
-    if (!ventaId) return;
+    const targetId = ventaId ?? id;
+    if (!targetId) {
+      alert("ID de preventa no cargado");
+      return;
+    }
     setSaving(true);
     try {
-      await api.put(`/preventas/${ventaId}`, { accion: "lock" });
-      const res = await api.get(`/preventas/${ventaId}`); // estado ahora actualizado (ListoCaja)
-      setVenta(res.data);
+      console.log("LOCK click", { targetId, estadoNorm, estadoActual });
+      const putRes = await api.put(`/preventas/${targetId}`, { accion: "lock" });
+      const updated = putRes?.data;
+      console.log("LOCK put response", { status: (putRes as any)?.status, nuevoEstado: updated?.EstadoVenta?.nombreEstadoVenta });
+      // Usar respuesta directa del PUT, que ya incluye EstadoVenta actualizado
+      setVenta(updated);
+      // Como refuerzo, disparar una lectura sin cache para sincronizar padre si hiciera falta
+      await api.get(`/preventas/${targetId}`, { params: { _: Date.now() } });
+      // cerrar modal y refrescar listas en el padre para que el cambio se vea inmediatamente
+      onDone();
     } catch (err) {
       console.error(err);
       const msg =
@@ -2045,14 +2057,14 @@ function ValidarPreventaModal({
               </button>
             )}
 
-            {/* Cerrar y pasar a caja (lock) desde Pendiente */}
-            {isEditable && (
+            {/* Cerrar y pasar a caja (lock) desde Pendiente o quitar reserva */}
+            {(isEditable || estadoNorm === "reservado") && (
               <button
                 className="rounded-lg border border-blue-700 text-blue-700 px-3 py-2 text-sm disabled:opacity-50"
                 disabled={saving}
                 onClick={lock}
               >
-                Cerrar y pasar a caja
+                {estadoNorm === "reservado" ? "Quitar reserva y pasar a caja" : "Cerrar y pasar a caja"}
               </button>
             )}
 

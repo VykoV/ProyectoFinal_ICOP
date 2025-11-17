@@ -21,13 +21,15 @@ type PreRow = {
 
  type Opt = { id: number; label: string };
  type ProdOpt = Opt & { precio: number; ofertaPct?: number };
-type Item = {
-  idProducto: number;
-  nombre: string;
-  cantidad: number;
-  precio: number;
-  descuento: number;
-};
+ type Item = {
+   idProducto: number;
+   nombre: string;
+   cantidad: number;
+   precio: number;
+   descuento: number;
+   idDetalleVenta?: number;
+   recargo?: number;
+ };
 
 /* ===== Página listado ===== */
 export default function PreVentas() {
@@ -44,14 +46,18 @@ export default function PreVentas() {
   const [openView, setOpenView] = useState<null | number>(null);
   const [openFiltros, setOpenFiltros] = useState(false);
   const [soloVencidas, setSoloVencidas] = useState(false);
+  // Modal de reserva (con calendario)
+  const [openReservaId, setOpenReservaId] = useState<number | null>(null);
+  const [reservaFecha, setReservaFecha] = useState<string>("");
 
   function normEstado(
     raw: string
-  ): "pendiente" | "listocaja" | "finalizada" | "cancelada" | "otro" {
+  ): "pendiente" | "reservado" | "listocaja" | "finalizada" | "cancelada" | "otro" {
     const n = String(raw || "")
       .toLowerCase()
       .replace(/[\s_]+/g, "");
     if (n.includes("pend")) return "pendiente";
+    if (n.includes("reserv")) return "reservado";
     if (n.includes("listocaja")) return "listocaja";
     if (n.includes("finaliz") || n.includes("cerrad")) return "finalizada";
     if (n.includes("cancel")) return "cancelada";
@@ -82,7 +88,7 @@ export default function PreVentas() {
     const srt = sp.get("preSort") || "";
     setQ(q0);
     if (est) setSelectedEstados(est.split(",").filter(Boolean));
-    else setSelectedEstados(["pendiente", "listocaja"]);
+    else setSelectedEstados(["pendiente", "reservado", "listocaja"]);
     setPreDesde(dsd);
     setPreHasta(hst);
     setPreSort(srt === "asc" || srt === "desc" ? (srt as any) : "desc");
@@ -179,6 +185,7 @@ export default function PreVentas() {
         const norm = raw.toLowerCase().replace(/[\s_]+/g, "");
         let cls = "bg-gray-100 text-gray-800";
         if (norm.includes("pend")) cls = "bg-yellow-100 text-yellow-800";
+        else if (norm.includes("reserv")) cls = "bg-purple-100 text-purple-800";
         else if (norm.includes("listocaja")) cls = "bg-blue-100 text-blue-800";
         else if (norm.includes("finaliz") || norm.includes("cerrad"))
           cls = "bg-green-100 text-green-800";
@@ -206,7 +213,7 @@ export default function PreVentas() {
         const estadoNorm = (row.original.estado || "")
           .toLowerCase()
           .replace(/[\s_]+/g, "");
-        const isEditable = estadoNorm === "pendiente";
+  const isEditable = estadoNorm === "pendiente"; // en Reservado ya no se edita
 
         return (
           <div className="flex gap-2">
@@ -217,6 +224,19 @@ export default function PreVentas() {
             >
               <Eye className="h-3.5 w-3.5" /> Ver
             </button>
+
+            {estadoNorm === "pendiente" && (
+              <button
+                className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+                onClick={() => {
+                  setOpenReservaId(row.original.id);
+                  setReservaFecha("");
+                }}
+                title="Marcar como Reservado"
+              >
+                Reservar
+              </button>
+            )}
 
             {isEditable && (
               <button
@@ -343,20 +363,21 @@ export default function PreVentas() {
                 <select
                   className="rounded border px-2 py-1"
                   value={
-                    selectedEstados.length === 2
+                    selectedEstados.length === 3
                       ? "todas"
                       : selectedEstados[0] || "todas"
                   }
                   onChange={(e) => {
                     const v = e.target.value;
                     const next =
-                      v === "todas" ? ["pendiente", "listocaja"] : [v];
+                      v === "todas" ? ["pendiente", "reservado", "listocaja"] : [v];
                     setSelectedEstados(next);
                     setPage(1);
                   }}
                 >
-                  <option value="todas">Pendiente o ListoCaja</option>
+                  <option value="todas">Pendiente / Reservado / ListoCaja</option>
                   <option value="pendiente">Solo Pendiente</option>
+                  <option value="reservado">Solo Reservado</option>
                   <option value="listocaja">Solo ListoCaja</option>
                 </select>
                 <span className="text-gray-600 ml-auto">Orden</span>
@@ -407,7 +428,7 @@ export default function PreVentas() {
               <button
                 className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm"
                 onClick={() => {
-                  setSelectedEstados(["pendiente", "listocaja"]);
+                  setSelectedEstados(["pendiente", "reservado", "listocaja"]);
                   setPreDesde("");
                   setPreHasta("");
                   setPreSort("desc");
@@ -491,6 +512,67 @@ export default function PreVentas() {
             if (reload) await load(q);
           }}
         />
+      )}
+
+      {/* Modal de Reservar con calendario */}
+      {openReservaId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-sm">
+            <div className="flex items-center justify-between border-b px-4 py-2">
+              <h2 className="text-sm font-medium">Reservar preventa</h2>
+              <button
+                className="rounded border px-2 py-1 text-xs"
+                onClick={() => setOpenReservaId(null)}
+                title="Cerrar"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div>
+                <Label htmlFor="fechaReserva">Fecha límite (opcional)</Label>
+                <input
+                  id="fechaReserva"
+                  type="date"
+                  className="rounded border px-2 py-1 w-full"
+                  value={reservaFecha}
+                  onChange={(e) => setReservaFecha(e.target.value)}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Si no seleccionas fecha, queda reservado sin vencimiento.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+              <button
+                className="rounded border px-3 py-1 text-sm"
+                onClick={() => setOpenReservaId(null)}
+              >
+                Volver
+              </button>
+              <button
+                className="inline-flex items-center gap-1 rounded bg-black text-white px-3 py-1 text-sm"
+                onClick={async () => {
+                  try {
+                    const id = openReservaId!;
+                    await api.put(`/preventas/${id}`, { accion: "reservar" });
+                    if (reservaFecha && reservaFecha.trim().length > 0) {
+                      await api.put(`/preventas/${id}/reserva`, {
+                        fechaReservaLimite: reservaFecha.trim(),
+                      });
+                    }
+                    setOpenReservaId(null);
+                    await load(q);
+                  } catch (err) {
+                    console.error(err);
+                  }
+                }}
+              >
+                Reservar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );
@@ -1055,8 +1137,8 @@ function PreventaForm({
   // observaciones
   const [obs, setObs] = useState<string>("");
 
-  // reserva hasta (fecha/hora límite de reserva)
-  const [reservaHasta, setReservaHasta] = useState<string>("");
+  // reserva eliminada del formulario: se gestiona desde acción "Reservar"
+  const [reservaHasta] = useState<string>("");
 
   // fecha de facturación = hoy fija
   const todayStr = (() => {
@@ -1257,18 +1339,7 @@ function PreventaForm({
         setPorcentajeMP(Number(data.porcentajeMetodo) || 0);
       }
 
-      // fechaReservaLimite viene como ISO; normalizamos a input datetime-local (sin segundos)
-      if (data?.fechaReservaLimite) {
-        const dt = new Date(data.fechaReservaLimite);
-        const y = dt.getFullYear();
-        const m = String(dt.getMonth() + 1).padStart(2, "0");
-        const d = String(dt.getDate()).padStart(2, "0");
-        const hh = String(dt.getHours()).padStart(2, "0");
-        const mm = String(dt.getMinutes()).padStart(2, "0");
-        setReservaHasta(`${y}-${m}-${d}T${hh}:${mm}`);
-      } else {
-        setReservaHasta("");
-      }
+      // fechaReservaLimite ya no se edita en el formulario
 
       if (Array.isArray(data?.detalles)) {
         setItems(
@@ -1278,8 +1349,10 @@ function PreventaForm({
               d.Producto?.nombreProducto ?? ""
             }`,
             cantidad: Number(d.cantidad ?? 0),
-            precio: Number(d.Producto?.precioVentaPublicoProducto ?? 0),
-            descuento: 0,
+            precio: Number(d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0),
+            descuento: Number(d.descuentoItem ?? 0),
+            idDetalleVenta: Number(d.idDetalleVenta ?? d.idDetalle ?? d.id ?? undefined),
+            recargo: Number(d.recargoItem ?? 0),
           }))
         );
       }
@@ -1396,6 +1469,7 @@ function PreventaForm({
         cantidad: Number(cant),
         precio: Number(precio),
         descuento: Number(desc),
+        recargo: 0,
       },
     ]);
 
@@ -1475,6 +1549,9 @@ function PreventaForm({
             cantidad: Number(i.cantidad),
             precioUnit: Number(i.precio),
             descuentoItem: Number(i.descuento) || 0,
+            recargoItem: Number(i.recargo) || 0,
+            // incluir idDetalleVenta solo en edición para updates granulares futuros
+            idDetalleVenta: i.idDetalleVenta != null ? Number(i.idDetalleVenta) : undefined,
           })),
           idCliente: Number(idCliente),
           idTipoPago: Number(idTipoPago),
@@ -1494,6 +1571,7 @@ function PreventaForm({
             cantidad: Number(i.cantidad),
             precioUnit: Number(i.precio),
             descuentoItem: Number(i.descuento) || 0,
+            recargoItem: Number(i.recargo) || 0,
           })),
           fechaFacturacion: ventaDate.toISOString(),
           fechaCobro: today.toISOString(),
@@ -1504,18 +1582,8 @@ function PreventaForm({
     try {
       if (isEdit) {
         await api.put(`/preventas/${id}`, payload);
-        // actualizar reserva si corresponde (permite limpiar si vacío)
-        await api.put(`/preventas/${id}/reserva`, {
-          fechaReservaLimite: reservaHasta || null,
-        });
       } else {
-        const { data } = await api.post("/preventas", payload);
-        const newId = Number(data?.idVenta ?? data?.id ?? 0);
-        if (newId && reservaHasta) {
-          await api.put(`/preventas/${newId}/reserva`, {
-            fechaReservaLimite: reservaHasta,
-          });
-        }
+        await api.post("/preventas", payload);
       }
       onClose(true);
     } catch (err: any) {
@@ -1638,16 +1706,7 @@ function PreventaForm({
                   />
                 </div>
 
-                {/* Reserva hasta */}
-                <div className="lg:col-span-1">
-                  <Label htmlFor="fRes">Reserva hasta</Label>
-                  <Input
-                    id="fRes"
-                    type="datetime-local"
-                    value={reservaHasta}
-                    onChange={(e) => setReservaHasta(e.target.value)}
-                  />
-                </div>
+                {/* Reserva hasta eliminada del formulario. Usar acción "Reservar" en la lista. */}
 
                 {/* Recargo (QR o Crédito). Aparece debajo */}
                 {tieneRecargoMP && (

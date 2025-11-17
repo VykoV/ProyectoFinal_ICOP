@@ -13,7 +13,23 @@ import { authorize } from "./middleware/authorize";
 
 const DEV = process.env.NODE_ENV !== "production";
 const app = express();
-const prisma = new PrismaClient();
+// Prisma con logging para pruebas en desarrollo
+const prismaLogs: any = DEV
+  ? [{ level: "query", emit: "event" }, { level: "error", emit: "event" }]
+  : [];
+const prisma = new PrismaClient({ log: prismaLogs } as any);
+if (DEV) {
+  (prisma as any).$on("query", (e: any) => {
+    try {
+      console.log("[SQL]", e.query, e.params);
+    } catch {}
+  });
+  (prisma as any).$on("error", (e: any) => {
+    try {
+      console.error("[SQL ERROR]", e);
+    } catch {}
+  });
+}
 const PgSession = pgSession(session);
 
 // ==========================
@@ -39,6 +55,19 @@ app.set(
   (key: string, value: unknown): unknown =>
     typeof value === "bigint" ? value.toString() : value
 );
+
+// Desactivar ETag para evitar respuestas 304 en endpoints críticos
+app.set("etag", false);
+
+// Forzar no-cache en preventas y ventas para evitar datos desactualizados
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/preventas") || req.path.startsWith("/api/ventas")) {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+  }
+  next();
+});
 
 // ==========================
 // 3) SESIONES
@@ -1141,6 +1170,7 @@ app.get("/api/localidades", async (req, res) => {
 // — Estados de negocio:
 const ESTADOS = {
   PENDIENTE: "Pendiente",
+  RESERVADO: "Reservado",
   LISTO_CAJA: "ListoCaja",
   FINALIZADA: "Finalizada",
   CANCELADA: "Cancelada",
@@ -1149,6 +1179,7 @@ const ESTADOS = {
 // Estados requeridos al arrancar 
 const REQUIRED_ESTADOS = [
   "Pendiente",
+  "Reservado",
   "ListoCaja",
   "Finalizada",
   "Cancelada",
@@ -1194,7 +1225,8 @@ ensureEstadosBase().catch(err =>
 
 // — Usuario de la sesión o header para auditoría:
 function getUserId(req: any): number {
-  const sid = req?.session?.user?.idUsuario ?? req?.session?.idUsuario;
+  // La sesión escribe en req.session.userId desde /api/auth/login
+  const sid = req?.session?.userId ?? req?.session?.user?.idUsuario ?? req?.session?.idUsuario;
   if (sid) return Number(sid);
   const hdr = req.headers["x-user-id"];
   if (hdr) return Number(hdr);
@@ -1350,13 +1382,22 @@ async function registrarActor(
   tx: Prisma.TransactionClient,
   args: { idVenta: number; idUsuario: number; papel: PapelEnVenta }
 ) {
-  try {
-    await tx.ventaActor.create({
-      data: { idVenta: args.idVenta, idUsuario: args.idUsuario, papel: args.papel } as any,
-    });
-  } catch {
-    /* sin unique compuesto puede duplicar; aceptable */
-  }
+  // Evita duplicados y posibles errores por clave compuesta existente
+  await tx.ventaActor.upsert({
+    where: {
+      idVenta_idUsuario_papel: {
+        idVenta: args.idVenta,
+        idUsuario: args.idUsuario,
+        papel: args.papel,
+      },
+    },
+    update: {},
+    create: {
+      idVenta: args.idVenta,
+      idUsuario: args.idUsuario,
+      papel: args.papel,
+    } as any,
+  });
 }
 
 async function agregarComentario(
@@ -1753,6 +1794,7 @@ app.put(
     const accion = String(req.body?.accion || "guardar").toLowerCase();
     const allow: Record<string, string[]> = {
       guardar: ["Administrador", "Vendedor", "Cajero"],
+      reservar: ["Administrador", "Vendedor"],
       lock: ["Administrador", "Vendedor"],
       finalizar: ["Administrador", "Cajero"],
       cancelar: ["Administrador", "Cajero"],
@@ -1762,6 +1804,12 @@ app.put(
   async (req, res) => {
   const id = Number(req.params.id);
   const idUsuario = getUserId(req);
+  if (DEV) {
+    try {
+      const accionIn = String(req.body?.accion || "guardar").toLowerCase();
+      console.log("PUT /api/preventas/:id start", { id, accion: accionIn, userId: idUsuario });
+    } catch {}
+  }
 
   // normalización de payload
   const raw = req.body ?? {};
@@ -1868,12 +1916,13 @@ app.put(
     await prisma.$transaction(async (tx) => {
       
       const idPend = await getEstadoId(tx, ESTADOS.PENDIENTE);
+      const idRes = await getEstadoId(tx, ESTADOS.RESERVADO);
       const idLC = await getEstadoId(tx, ESTADOS.LISTO_CAJA);
       const idFin = await getEstadoId(tx, ESTADOS.FINALIZADA);
       const idCan = await getEstadoId(tx, ESTADOS.CANCELADA);
 
       if (accion === "guardar") {
-        const editable = [ESTADOS.PENDIENTE, ESTADOS.LISTO_CAJA].map(norm);
+        const editable = [ESTADOS.PENDIENTE, ESTADOS.RESERVADO, ESTADOS.LISTO_CAJA].map(norm);
         if (!editable.includes(norm(estadoActualNombre)))
           throw new Error("ESTADO_INVALIDO");
 
@@ -2043,27 +2092,53 @@ app.put(
 
         // Registrar evento de edición SOLO si hubo cambios reales
         if (headerChanged || itemsChanged || incs.length || decs.length) {
-          const desdeId = norm(estadoActualNombre) === norm(ESTADOS.PENDIENTE) ? idPend : idLC;
+          const estadoNorm = norm(estadoActualNombre);
+          const desdeId = estadoNorm === norm(ESTADOS.PENDIENTE)
+            ? idPend
+            : (estadoNorm === norm(ESTADOS.RESERVADO) ? idRes : idLC);
           await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId, hastaId: desdeId, motivo: "edición" });
           await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.EDITOR });
         }
       }
-      // --- LOCK ---
-      else if (accion === "lock") {
+      // --- RESERVAR ---
+      else if (accion === "reservar") {
         if (norm(estadoActualNombre) !== norm(ESTADOS.PENDIENTE))
           throw new Error("ESTADO_INVALIDO");
+
+        await tx.venta.update({
+          where: { idVenta: id },
+          data: { idEstadoVenta: idRes, estadoPago: 'PENDIENTE' },
+        });
+
+        await registrarEventoIds(tx, {
+          idVenta: id, idUsuario,
+          desdeId: idPend, hastaId: idRes,
+          motivo: "reservada",
+        });
+        await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.EDITOR });
+      }
+      // --- LOCK ---
+      else if (accion === "lock") {
+        const estadoNorm = norm(estadoActualNombre);
+        if (![norm(ESTADOS.PENDIENTE), norm(ESTADOS.RESERVADO)].includes(estadoNorm))
+          throw new Error("ESTADO_INVALIDO");
+
+        console.log("LOCK preventa", { id, estadoAntes: estadoActualNombre });
 
         await tx.venta.update({
           where: { idVenta: id },
           data: { idEstadoVenta: idLC, estadoPago: 'PENDIENTE' },
         });
 
+        const desdeId = estadoNorm === norm(ESTADOS.RESERVADO) ? idRes : idPend;
         await registrarEventoIds(tx, {
           idVenta: id, idUsuario,
-          desdeId: idPend, hastaId: idLC,
-          motivo: "cerrada por vendedor"
+          desdeId, hastaId: idLC,
+          motivo: estadoNorm === norm(ESTADOS.RESERVADO) ? "quitada de reserva y cerrada" : "cerrada por vendedor"
         });
         await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.EDITOR });
+
+        console.log("LOCK preventa DONE", { id, estadoDespues: ESTADOS.LISTO_CAJA });
       }
 
       else if (accion === "cancelar") {
@@ -2107,6 +2182,18 @@ app.put(
     where: { idVenta: id },
     include: { EstadoVenta: true, detalles: { include: { Producto: true } } },
   });
+    try {
+      const estadoResp = out?.EstadoVenta?.nombreEstadoVenta ?? null;
+      const accionResp = String(accion || "").toLowerCase();
+      if (estadoResp && DEV) {
+        console.log("PUT /api/preventas/:id done", { id, accion: accionResp, estado: estadoResp });
+      }
+      // Superficie un aviso en el frontend si se cerró o cambió de estado
+      if (estadoResp && accionResp === "lock") {
+        res.set("x-notification", `Estado actualizado: ${estadoResp}`);
+        res.set("x-notification-type", "success");
+      }
+    } catch {}
     return res.json(out);
   } catch (err: any) {
     if (err.message === "NOT_FOUND") return res.status(404).json({ error: "NOT_FOUND" });
@@ -2173,18 +2260,18 @@ app.put("/api/preventas/:id/reserva", requireAuth, async (req, res) => {
 // Listado de PREVENTAS con reserva vencida
 app.get("/api/preventas/reservas-vencidas", requireAuth, async (_req, res) => {
   try {
-    // obtener id del estado 'Pendiente'
+    // obtener id del estado 'Reservado'
     const estados = await prisma.estadoVenta.findMany({
       select: { idEstadoVenta: true, nombreEstadoVenta: true },
     });
-    const pendiente = estados.find(
-      e => e.nombreEstadoVenta.toLowerCase() === "pendiente"
+    const reservado = estados.find(
+      e => e.nombreEstadoVenta.toLowerCase() === "reservado"
     )?.idEstadoVenta;
-    if (!pendiente) return res.json([]);
+    if (!reservado) return res.json([]);
 
     const rows = await prisma.venta.findMany({
       where: {
-        idEstadoVenta: pendiente,
+        idEstadoVenta: reservado,
         fechaReservaLimite: { not: null, lt: new Date() },
       },
       orderBy: { fechaVenta: "asc" },
@@ -2423,6 +2510,25 @@ app.get("/api/_meta/product-columns", async (_req, res) => {
   `);
   res.json(cols.map(c => c.column_name));
 });
+
+// Endpoint de debug para pruebas: devuelve IDs de estados (solo en DEV)
+if (DEV) {
+  app.get("/api/_debug/estado-ids", async (_req, res) => {
+    try {
+      const estados = await prisma.estadoVenta.findMany({
+        select: { idEstadoVenta: true, nombreEstadoVenta: true },
+        orderBy: { idEstadoVenta: "asc" },
+      });
+      const map = Object.fromEntries(
+        estados.map((e) => [e.nombreEstadoVenta, e.idEstadoVenta])
+      );
+      res.json({ estados: map });
+    } catch (err) {
+      console.error("_debug/estado-ids error", err);
+      res.status(500).json({ error: "SERVER_ERROR" });
+    }
+  });
+}
 
 /* ========================
    STATS (Productos, Clientes, Meses)
