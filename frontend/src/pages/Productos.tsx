@@ -24,6 +24,17 @@ const todayISO = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
   .toISOString()
   .slice(0, 10);
 
+// Formatea una fecha (ISO/Date) a YYYY-MM-DD en horario local
+const fmtLocalDate = (v: any) => {
+  if (!v) return "-";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return "-";
+  const y = d.getFullYear();
+  const m = pad2(d.getMonth() + 1);
+  const dd = pad2(d.getDate());
+  return `${y}-${m}-${dd}`;
+};
+
 // esquema del form (sin código interno, proveedor ni campo de stock)
 const schema = z
   .object({
@@ -70,6 +81,7 @@ type FormData = z.infer<typeof schema>;
 
 export default function Productos() {
   const { hasRole } = useAuth();
+  const isAdmin = hasRole("Administrador");
   const isVendedor = hasRole("Vendedor");
   const isCajero = hasRole("Cajero");
   const [rows, setRows] = useState<Producto[]>([]);
@@ -83,6 +95,9 @@ export default function Productos() {
   const [openView, setOpenView] = useState(false);
   const [viewId, setViewId] = useState<number | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  // Alertas de ofertas por vencer
+  const [expiringOffers, setExpiringOffers] = useState<Array<{ id: number; nombre: string; porcentajeOferta: number; fechaFinOferta: string }>>([]);
+  const [showExpiring, setShowExpiring] = useState(true);
 
   // Filtros
   const [q, setQ] = useState("");
@@ -134,6 +149,22 @@ export default function Productos() {
   useEffect(() => {
     loadProducts();
     loadTaxonomies();
+    // Cargar ofertas por vencer (próximos 2 días)
+    (async () => {
+      try {
+        const { data } = await api.get("/products/ofertas-por-vencer", { params: { days: 2 } });
+        const list = (data as any[]).map((x) => ({
+          id: Number(x.id ?? x.idProducto),
+          nombre: String(x.nombre ?? x.nombreProducto ?? ""),
+          porcentajeOferta: Number(x.porcentajeOferta ?? x.porcentajeOfertaProducto ?? 0),
+          fechaFinOferta: x.fechaFinOferta ? fmtLocalDate(x.fechaFinOferta) : "-",
+        }));
+        setExpiringOffers(list);
+      } catch (err) {
+        // silencio: es un extra opcional
+        console.warn("No se pudo cargar ofertas por vencer", err);
+      }
+    })();
   }, []);
 
   function onNew() {
@@ -307,6 +338,31 @@ export default function Productos() {
           </button>
         )}
       </div>
+
+      {/* Banner de ofertas por vencer */}
+      {showExpiring && expiringOffers.length > 0 && (
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <strong className="text-yellow-800">Ofertas por vencer:</strong>
+              <span className="ml-1 text-yellow-900">
+                {expiringOffers.length} producto{expiringOffers.length > 1 ? "s" : ""} con fin entre hoy y 2 días.
+              </span>
+              <div className="mt-1 text-yellow-900">
+                {expiringOffers.slice(0, 4).map((o) => (
+                  <span key={o.id} className="mr-3 inline-block">
+                    {o.nombre} (fin {o.fechaFinOferta})
+                  </span>
+                ))}
+                {expiringOffers.length > 4 && (
+                  <span className="inline-block">… y {expiringOffers.length - 4} más</span>
+                )}
+              </div>
+            </div>
+            <button className="text-xs text-yellow-800" onClick={() => setShowExpiring(false)}>Ocultar</button>
+          </div>
+        </div>
+      )}
 
       {/* Buscador + botón Filtros + contador */}
       <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -910,6 +966,8 @@ function ProductoPopup({
 
 /* MODAL "VER" */
 function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole("Administrador");
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [stockDet, setStockDet] = useState<any | null>(null);
@@ -918,6 +976,10 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
   const [loadingHist, setLoadingHist] = useState(true);
   const [histPage, setHistPage] = useState(1);
   const [histLimit, setHistLimit] = useState(10);
+  const [offerRows, setOfferRows] = useState<any[]>([]);
+  const [loadingOffer, setLoadingOffer] = useState(true);
+  const [offerPage, setOfferPage] = useState(1);
+  const [offerLimit, setOfferLimit] = useState(10);
 
   useEffect(() => {
     (async () => {
@@ -956,9 +1018,23 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
     })();
   }, [id, histPage, histLimit]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get(`/products/${id}/historico-oferta?limit=${offerLimit}&page=${offerPage}`);
+        setOfferRows(Array.isArray(data) ? data : []);
+      } catch (e) {
+        setOfferRows([]);
+      } finally {
+        setLoadingOffer(false);
+      }
+    })();
+  }, [id, offerPage, offerLimit]);
+
   async function cerrarOferta() {
     try {
       const ok = await askConfirm({
+        title: "Confirmar",
         message: "¿Confirmás cerrar la oferta de este producto?",
       });
       if (!ok) return;
@@ -970,9 +1046,9 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
       });
       const { data } = await api.get(`/products/${id}`);
       setData(data);
-      await showAlert({ type: "success", message: "Oferta cerrada" });
+      await showAlert({ title: "Éxito", type: "success", message: "Oferta cerrada" });
     } catch (e) {
-      await showAlert({ type: "error", message: "No se pudo cerrar la oferta" });
+      await showAlert({ title: "Error", type: "error", message: "No se pudo cerrar la oferta" });
       console.error(e);
     }
   }
@@ -1095,14 +1171,14 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
                     <div className="grid grid-cols-2 gap-3 mt-3">
                       <div>
                         <p className="text-gray-500 text-xs">Inicio</p>
-                        <p className="font-medium">{data?.fechaInicioOferta ? String(data.fechaInicioOferta).slice(0, 10) : "-"}</p>
+                        <p className="font-medium">{fmtLocalDate(data?.fechaInicioOferta)}</p>
                       </div>
                       <div>
                         <p className="text-gray-500 text-xs">Fin</p>
-                        <p className="font-medium">{data?.fechaFinOferta ? String(data.fechaFinOferta).slice(0, 10) : "-"}</p>
+                        <p className="font-medium">{fmtLocalDate(data?.fechaFinOferta)}</p>
                       </div>
                     </div>
-                    {data?.oferta && (
+                    {data?.oferta && isAdmin && (
                       <div className="mt-3">
                         <button
                           type="button"
@@ -1234,6 +1310,64 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
                                   : "-"}
                               </td>
                               <td className="px-2 py-2">{h.codigoArticuloProveedor ?? ""}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Historial de ofertas */}
+                <div className="rounded-xl border bg-white p-3 mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-gray-500">Historial de ofertas</p>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-600">Pág.</label>
+                      <input
+                        className="w-12 border rounded px-2 py-1 text-xs"
+                        type="number"
+                        min={1}
+                        value={offerPage}
+                        onChange={(e) => setOfferPage(Number(e.target.value) || 1)}
+                      />
+                      <label className="text-xs text-gray-600">Limite</label>
+                      <input
+                        className="w-14 border rounded px-2 py-1 text-xs"
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={offerLimit}
+                        onChange={(e) => setOfferLimit(Number(e.target.value) || 10)}
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-xl border overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 text-gray-500">
+                        <tr>
+                          <th className="px-2 py-2 text-left">Inicio</th>
+                          <th className="px-2 py-2 text-left">Fin</th>
+                          <th className="px-2 py-2 text-left">Estado</th>
+                          <th className="px-2 py-2 text-right">Porcentaje</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loadingOffer ? (
+                          <tr>
+                            <td className="px-2 py-3 text-gray-600" colSpan={4}>Cargando…</td>
+                          </tr>
+                        ) : offerRows.length === 0 ? (
+                          <tr>
+                            <td className="px-2 py-3 text-gray-600" colSpan={4}>Sin registros</td>
+                          </tr>
+                        ) : (
+                          offerRows.map((h: any, idx: number) => (
+                            <tr key={idx} className={idx % 2 ? "bg-gray-50" : undefined}>
+                              <td className="px-2 py-2">{fmtLocalDate(h?.inicio)}</td>
+                              <td className="px-2 py-2">{fmtLocalDate(h?.fin)}</td>
+                              <td className="px-2 py-2">{h.oferta ? "En oferta" : "Normal"}</td>
+                              <td className="px-2 py-2 text-right">{typeof h.porcentaje === "number" ? `${h.porcentaje}%` : "-"}</td>
                             </tr>
                           ))
                         )}

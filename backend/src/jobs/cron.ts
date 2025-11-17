@@ -3,6 +3,29 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// Obtiene o crea un usuario "Sistema" para auditoría
+async function getSystemUserId(): Promise<number | null> {
+  try {
+    const email = process.env.SYSTEM_USER_EMAIL || "system@local";
+    const nombre = process.env.SYSTEM_USER_NAME || "Sistema";
+    const u = await prisma.usuario.upsert({
+      where: { emailUsuario: email },
+      update: {},
+      create: {
+        nombreUsuario: nombre,
+        emailUsuario: email,
+        // contraseña no utilizada para login
+        contrasenaUsuario: "!",
+      },
+      select: { idUsuario: true },
+    });
+    return u.idUsuario;
+  } catch (err) {
+    console.error("cron:getSystemUserId error", err);
+    return null;
+  }
+}
+
 async function getEstadoPendienteId(): Promise<number | null> {
   try {
     const e = await prisma.estadoVenta.findFirst({
@@ -57,5 +80,72 @@ cron.schedule("30 8 * * *", async () => {
     }
   } catch (err) {
     console.error("cron 08:30 reservas vencidas error", err);
+  }
+});
+
+// Cierre automático de ofertas vencidas (00:05)
+cron.schedule("5 0 * * *", async () => {
+  try {
+    const ahora = new Date();
+    const vencidos = await prisma.producto.findMany({
+      where: {
+        ofertaProducto: true,
+        fechaFinOferta: { not: null, lt: ahora },
+      },
+      select: {
+        idProducto: true,
+        porcentajeOfertaProducto: true,
+        fechaInicioOferta: true,
+        fechaFinOferta: true,
+      },
+    });
+
+    if (vencidos.length === 0) return;
+    const ids = vencidos.map((p) => p.idProducto);
+
+    await prisma.producto.updateMany({
+      where: { idProducto: { in: ids } },
+      data: { ofertaProducto: false },
+    });
+
+  for (const p of vencidos) {
+      // Evitar duplicados: si el último registro coincide exactamente, no crear otro
+      const last = await prisma.ofertaProductoHistorial.findFirst({
+        where: { idProducto: p.idProducto },
+        orderBy: { idOfertaProductoHistorial: "desc" },
+        select: {
+          ofertaProducto: true,
+          porcentajeOfertaProducto: true,
+          fechaInicio: true,
+          fechaFin: true,
+        },
+      });
+      const lastFi = last?.fechaInicio ? new Date(last.fechaInicio).getTime() : null;
+      const lastFf = last?.fechaFin ? new Date(last.fechaFin).getTime() : null;
+      const nextFi = p.fechaInicioOferta ? new Date(p.fechaInicioOferta).getTime() : null;
+      const nextFf = p.fechaFinOferta ? new Date(p.fechaFinOferta).getTime() : null;
+      const isSame = !!last &&
+        last.ofertaProducto === false &&
+        Number(last.porcentajeOfertaProducto ?? 0) === Number(p.porcentajeOfertaProducto ?? 0) &&
+        lastFi === nextFi &&
+        lastFf === nextFf;
+      if (!isSame) {
+        const systemUserId = await getSystemUserId();
+        await prisma.ofertaProductoHistorial.create({
+          data: {
+            idProducto: p.idProducto,
+            ofertaProducto: false,
+            porcentajeOfertaProducto: Number(p.porcentajeOfertaProducto ?? 0),
+            ...(p.fechaInicioOferta ? { fechaInicio: p.fechaInicioOferta } : {}),
+            ...(p.fechaFinOferta ? { fechaFin: p.fechaFinOferta } : {}),
+            creadoPor: systemUserId ?? null,
+          },
+        });
+      }
+    }
+
+    console.log(`[INFO] Ofertas vencidas desactivadas: ${ids.join(", ")}`);
+  } catch (err) {
+    console.error("cron 00:05 cierre ofertas vencidas error", err);
   }
 });

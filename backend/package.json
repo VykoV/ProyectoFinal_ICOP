@@ -10,7 +10,8 @@
     "start": "node dist/server.js",
     "postinstall": "prisma generate",
     "migrate": "prisma migrate dev",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "dedupe:ofertas": "tsx src/scripts/dedupeOfertaHistorial.ts"
   },
   "keywords": [],
   "author": "",

@@ -1437,20 +1437,7 @@ function ValidarPreventaModal({
       if (accion === "guardar") {
         console.log("CLICK GUARDAR", { estado: estadoActual, ventaId: id });
       }
-      // Recalcular precio/descuento por línea considerando ofertas vigentes por día local.
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayTs = today.getTime();
-      const toTs = (raw: any, isEnd: boolean): number | null => {
-        if (!raw) return null;
-        if (typeof raw === "string" && raw.length === 10) {
-          // YYYY-MM-DD como día local completo
-          return new Date(`${raw}${isEnd ? "T23:59:59.999" : "T00:00:00"}`).getTime();
-        }
-        const d = new Date(raw);
-        return Number.isNaN(d.valueOf()) ? null : d.getTime();
-      };
-
+      // Congelar descuentos: enviar el descuento ya guardado por línea, sin recalcular ofertas
       const items = (venta?.detalles ?? [])
         .map((d: any) => {
           const idProducto = Number(d.idProducto ?? d.Producto?.idProducto);
@@ -1459,16 +1446,7 @@ function ValidarPreventaModal({
           const precioUnit = Number(
             d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
           );
-          const descOriginal = Number(d.descuentoItem ?? 0);
-          // Datos de oferta desde Producto (si está incluido en la preventa)
-          const p = d.Producto ?? {};
-          const pct = Number(p.porcentajeOfertaProducto ?? p.porcentajeOferta ?? 0);
-          const ofertaFlag = p.ofertaProducto ?? p.oferta;
-          const ini = toTs(p.fechaInicioOfertaProducto ?? p.fechaInicioOferta, false);
-          const fin = toTs(p.fechaFinOfertaProducto ?? p.fechaFinOferta, true);
-          const dentroRango = (ini == null || todayTs >= ini) && (fin == null || todayTs <= fin);
-          const ofertaActiva = (ofertaFlag === undefined ? pct > 0 : Boolean(ofertaFlag)) && pct > 0 && dentroRango;
-          const descuentoItem = descOriginal > 0 ? descOriginal : ofertaActiva ? pct : 0;
+          const descuentoItem = Number(d.descuentoItem ?? 0);
           return { idProducto, cantidad, precioUnit, descuentoItem };
         })
         .filter(Boolean) as { idProducto: number; cantidad: number; precioUnit: number; descuentoItem: number }[];

@@ -178,9 +178,12 @@ app.get(
   );
 });
 
-// OBTENER UNO
-app.get("/api/products/:id", async (req, res) => {
+// OBTENER UNO (sólo IDs numéricos para evitar colisiones con rutas específicas)
+app.get("/api/products/:id(\\d+)", async (req, res) => {
   const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ error: "BAD_PRODUCT_ID" });
+  }
 
   const r = await prisma.producto.findUnique({
     where: { idProducto: id },
@@ -334,6 +337,88 @@ app.get("/api/products/:id/historico-precio", async (req, res) => {
   }
 });
 
+// HISTÓRICO DE OFERTA POR PRODUCTO
+app.get("/api/products/:id/historico-oferta", async (req, res) => {
+  const id = Number(req.params.id);
+  const { page = "1", limit = "20" } = req.query as any;
+  const skip = Math.max(0, (Number(page) - 1) * Number(limit));
+  const take = Math.max(1, Number(limit));
+
+  try {
+    const rows = await prisma.ofertaProductoHistorial.findMany({
+      where: { idProducto: id },
+      orderBy: { fechaInicio: "desc" },
+      skip,
+      take,
+      select: {
+        idOfertaProductoHistorial: true,
+        ofertaProducto: true,
+        porcentajeOfertaProducto: true,
+        fechaInicio: true,
+        fechaFin: true,
+        creadoPor: true,
+      },
+    });
+
+    res.json(
+      rows.map(r => ({
+        id: r.idOfertaProductoHistorial,
+        oferta: r.ofertaProducto,
+        porcentaje: Number(r.porcentajeOfertaProducto),
+        inicio: r.fechaInicio,
+        fin: r.fechaFin ?? null,
+        creadoPor: r.creadoPor ?? null,
+      }))
+    );
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: "HISTORICO_OFERTA_FAILED" });
+  }
+});
+
+// Ofertas por vencer en próximos N días
+app.get(
+  "/api/products/ofertas-por-vencer",
+  requireAuth,
+  authorize(["Administrador", "Vendedor", "Cajero"]),
+  async (req, res) => {
+    try {
+      const days = Math.max(1, Math.min(30, Number(req.query.days ?? 2)));
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start.getTime() + days * 24 * 60 * 60 * 1000);
+      end.setHours(23, 59, 59, 999);
+
+      const rows = await prisma.producto.findMany({
+        where: {
+          ofertaProducto: true,
+          // Filtrar por fecha de fin dentro del rango. Los valores null no coinciden con gte/lte.
+          fechaFinOferta: { gte: start, lte: end },
+        },
+        select: {
+          idProducto: true,
+          nombreProducto: true,
+          porcentajeOfertaProducto: true,
+          fechaFinOferta: true,
+        },
+        orderBy: { fechaFinOferta: "asc" },
+      });
+
+      res.json(
+        rows.map(r => ({
+          id: r.idProducto,
+          nombre: r.nombreProducto,
+          porcentajeOferta: Number(r.porcentajeOfertaProducto ?? 0),
+          fechaFinOferta: r.fechaFinOferta,
+        }))
+      );
+    } catch (e) {
+      console.error(e);
+      res.status(400).json({ error: "OFERTAS_POR_VENCER_FAILED" });
+    }
+  }
+);
+
 // CREAR con código FF-SS-000X
 app.post(
   "/api/products",
@@ -433,17 +518,41 @@ app.post(
       },
     });
 
-    // Registrar historial de oferta al crear
-    await prisma.ofertaProductoHistorial.create({
-      data: {
-        idProducto: row.idProducto,
-        ofertaProducto: !!oferta,
-        porcentajeOfertaProducto: Number(porcentajeOferta ?? 0),
-        ...(fechaInicioOferta ? { fechaInicio: new Date(fechaInicioOferta) } : {}),
-        ...(fechaFinOferta ? { fechaFin: new Date(fechaFinOferta) } : {}),
-        creadoPor: getUserId(req),
+    // Registrar historial de oferta al crear (fechas con semántica local por día)
+    const fi = fechaInicioOferta ? parseLocalDate(fechaInicioOferta, false) : null;
+    const ff = fechaFinOferta ? parseLocalDate(fechaFinOferta, true) : null;
+    // Evitar duplicados: no crear si el último registro es idéntico
+    const lastCreate = await prisma.ofertaProductoHistorial.findFirst({
+      where: { idProducto: row.idProducto },
+      orderBy: { idOfertaProductoHistorial: "desc" },
+      select: {
+        ofertaProducto: true,
+        porcentajeOfertaProducto: true,
+        fechaInicio: true,
+        fechaFin: true,
       },
     });
+    const lastFi = lastCreate?.fechaInicio ? new Date(lastCreate.fechaInicio).getTime() : null;
+    const lastFf = lastCreate?.fechaFin ? new Date(lastCreate.fechaFin).getTime() : null;
+    const nextFi = fi ? new Date(fi).getTime() : null;
+    const nextFf = ff ? new Date(ff).getTime() : null;
+    const isSameAsLast = !!lastCreate &&
+      lastCreate.ofertaProducto === !!oferta &&
+      Number(lastCreate.porcentajeOfertaProducto ?? 0) === Number(porcentajeOferta ?? 0) &&
+      lastFi === nextFi &&
+      lastFf === nextFf;
+    if (!isSameAsLast) {
+      await prisma.ofertaProductoHistorial.create({
+        data: {
+          idProducto: row.idProducto,
+          ofertaProducto: !!oferta,
+          porcentajeOfertaProducto: Number(porcentajeOferta ?? 0),
+          ...(fi ? { fechaInicio: fi } : {}),
+          ...(ff ? { fechaFin: ff } : {}),
+          creadoPor: getUserId(req),
+        },
+      });
+    }
 
     if (proveedorId) {
       await prisma.proveedorProducto.create({
@@ -660,16 +769,38 @@ app.put("/api/products/:id", async (req, res) => {
     const ofertaCambios = oferta !== undefined && (!!oferta !== actual.ofertaProducto);
 
     if (porcentajeCambios || fechaInicioCambios || fechaFinCambios || ofertaCambios) {
-      await prisma.ofertaProductoHistorial.create({
-        data: {
-          idProducto: row.idProducto,
-          ofertaProducto: row.ofertaProducto,
-          porcentajeOfertaProducto: Number(row.porcentajeOfertaProducto ?? 0),
-          ...(row.fechaInicioOferta ? { fechaInicio: row.fechaInicioOferta } : {}),
-          ...(row.fechaFinOferta ? { fechaFin: row.fechaFinOferta } : {}),
-          creadoPor: getUserId(req),
+      // Evitar duplicados por cambios redundantes o doble envío
+      const last = await prisma.ofertaProductoHistorial.findFirst({
+        where: { idProducto: row.idProducto },
+        orderBy: { idOfertaProductoHistorial: "desc" },
+        select: {
+          ofertaProducto: true,
+          porcentajeOfertaProducto: true,
+          fechaInicio: true,
+          fechaFin: true,
         },
       });
+      const lastFi = last?.fechaInicio ? new Date(last.fechaInicio).getTime() : null;
+      const lastFf = last?.fechaFin ? new Date(last.fechaFin).getTime() : null;
+      const nextFi = row.fechaInicioOferta ? new Date(row.fechaInicioOferta).getTime() : null;
+      const nextFf = row.fechaFinOferta ? new Date(row.fechaFinOferta).getTime() : null;
+      const isSame = !!last &&
+        last.ofertaProducto === row.ofertaProducto &&
+        Number(last.porcentajeOfertaProducto ?? 0) === Number(row.porcentajeOfertaProducto ?? 0) &&
+        lastFi === nextFi &&
+        lastFf === nextFf;
+      if (!isSame) {
+        await prisma.ofertaProductoHistorial.create({
+          data: {
+            idProducto: row.idProducto,
+            ofertaProducto: row.ofertaProducto,
+            porcentajeOfertaProducto: Number(row.porcentajeOfertaProducto ?? 0),
+            ...(row.fechaInicioOferta ? { fechaInicio: row.fechaInicioOferta } : {}),
+            ...(row.fechaFinOferta ? { fechaFin: row.fechaFinOferta } : {}),
+            creadoPor: getUserId(req),
+          },
+        });
+      }
     }
 
     res.json({
@@ -1343,15 +1474,37 @@ app.post(
       const m = await tx.moneda.findFirst({ select: { idMoneda: true } });
       const idMoneda = m?.idMoneda ?? 1;
 
-      // precios por defecto para cada producto (si no viene precioUnit)
+      // precios y ofertas por defecto para cada producto (si no vienen en payload)
       const ids = detallesIn.map((d: any) => Number(d.idProducto)).filter((x: any) => Number(x));
-      const precios = await tx.producto.findMany({
+      const productos = await tx.producto.findMany({
         where: { idProducto: { in: ids } },
-        select: { idProducto: true, precioVentaPublicoProducto: true },
+        select: {
+          idProducto: true,
+          precioVentaPublicoProducto: true,
+          ofertaProducto: true,
+          porcentajeOfertaProducto: true,
+          fechaInicioOferta: true,
+          fechaFinOferta: true,
+        },
       });
       const priceMap = new Map<number, number>(
-        precios.map((p) => [Number(p.idProducto), Number(p.precioVentaPublicoProducto ?? 0)])
+        productos.map((p) => [Number(p.idProducto), Number(p.precioVentaPublicoProducto ?? 0)])
       );
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayTs = today.getTime();
+      const offerPctMap = new Map<number, number>();
+      for (const p of productos) {
+        const pct = Number(p.porcentajeOfertaProducto ?? 0);
+        const flag = p.ofertaProducto;
+        const ini = parseLocalDate(p.fechaInicioOferta, false);
+        const fin = parseLocalDate(p.fechaFinOferta, true);
+        const iniTs = ini ? ini.getTime() : null;
+        const finTs = fin ? fin.getTime() : null;
+        const dentro = (iniTs == null || todayTs >= iniTs) && (finTs == null || todayTs <= finTs);
+        const activo = (flag === undefined ? pct > 0 : Boolean(flag)) && pct > 0 && dentro;
+        offerPctMap.set(Number(p.idProducto), activo ? pct : 0);
+      }
 
       // normalización de fechas si vienen en el payload
       const fFactIn = (() => {
@@ -1382,7 +1535,7 @@ app.post(
               const idP = Number(d.idProducto);
               const cant = toDec3(d.cantidad);
               const pu = toDec2(d.precioUnit ?? priceMap.get(idP) ?? 0);
-              const descItem = toDec2(d.descuentoItem ?? 0);
+              const descItem = toDec2(d.descuentoItem ?? offerPctMap.get(idP) ?? 0);
               const recItem = toDec2(d.recargoItem ?? 0);
               return {
                 idProducto: idP,
@@ -1767,13 +1920,35 @@ app.put(
 
         // Resolver precios por defecto y evaluar si los detalles cambian
         const ids = itemsOk.map(i => Number(i.idProducto)).filter((x: any) => Number(x));
-        const precios = await tx.producto.findMany({
+        const productos = await tx.producto.findMany({
           where: { idProducto: { in: ids } },
-          select: { idProducto: true, precioVentaPublicoProducto: true },
+          select: {
+            idProducto: true,
+            precioVentaPublicoProducto: true,
+            ofertaProducto: true,
+            porcentajeOfertaProducto: true,
+            fechaInicioOferta: true,
+            fechaFinOferta: true,
+          },
         });
         const priceMap = new Map<number, number>(
-          precios.map((p) => [Number(p.idProducto), Number(p.precioVentaPublicoProducto ?? 0)])
+          productos.map((p) => [Number(p.idProducto), Number(p.precioVentaPublicoProducto ?? 0)])
         );
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayTs = today.getTime();
+        const offerPctMap = new Map<number, number>();
+        for (const p of productos) {
+          const pct = Number(p.porcentajeOfertaProducto ?? 0);
+          const flag = p.ofertaProducto;
+          const ini = parseLocalDate(p.fechaInicioOferta, false);
+          const fin = parseLocalDate(p.fechaFinOferta, true);
+          const iniTs = ini ? ini.getTime() : null;
+          const finTs = fin ? fin.getTime() : null;
+          const dentro = (iniTs == null || todayTs >= iniTs) && (finTs == null || todayTs <= finTs);
+          const activo = (flag === undefined ? pct > 0 : Boolean(flag)) && pct > 0 && dentro;
+          offerPctMap.set(Number(p.idProducto), activo ? pct : 0);
+        }
         const reqMap = new Map<number, { c: number; pu: number; d: number; r: number }>();
         for (const i of itemsOk) {
           reqMap.set(Number(i.idProducto), {
@@ -1801,16 +1976,24 @@ app.put(
           // reemplazar detalles
           try {
             await tx.detalleVenta.deleteMany({ where: { idVenta: id } });
-            await tx.detalleVenta.createMany({
-              data: itemsOk.map(i => ({
+            const dataDetalles = itemsOk.map(i => {
+              const idProd = Number(i.idProducto);
+              const prev = beforeMap.get(idProd);
+              const precio = toDec2(i.precioUnit ?? priceMap.get(idProd) ?? 0);
+              const desc = toDec2(
+                i.descuentoItem ?? (prev ? prev.d : (offerPctMap.get(idProd) ?? 0))
+              );
+              const rec = toDec2(i.recargoItem ?? 0);
+              return {
                 idVenta: id,
-                idProducto: Number(i.idProducto),
+                idProducto: idProd,
                 cantidad: toDec3(i.cantidad),
-                precioUnit: toDec2(i.precioUnit ?? priceMap.get(Number(i.idProducto)) ?? 0),
-                descuentoItem: toDec2(i.descuentoItem ?? 0),
-                recargoItem: toDec2(i.recargoItem ?? 0),
-              })),
+                precioUnit: precio,
+                descuentoItem: desc,
+                recargoItem: rec,
+              };
             });
+            await tx.detalleVenta.createMany({ data: dataDetalles });
             // fuerza error inmediato si la transacción quedó abortada
             await tx.$executeRaw`SELECT 1`;
           } catch (err) {
