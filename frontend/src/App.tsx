@@ -12,6 +12,7 @@ import PreVentas from "./pages/PreVentas";
 import Monedas from "./pages/Monedas";
 import Usuarios from "./pages/Usuarios";
 import Compras from "./pages/Compras";
+import CierreCaja from "./pages/CierreCaja";
 import Estadisticas from "./pages/Estadisticas";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import AdminRoute from "./routes/AdminRoute";
@@ -37,18 +38,19 @@ export default function App() {
             <Route path="/login" element={<Login />} />
 
             {/* rutas protegidas */}
-            <Route element={<ProtectedRoute />}>
-                <Route element={<Layout />}>
-                    <Route path="/dashboard" element={<Dashboard />} />
-                    <Route path="/productos" element={<Productos />} />
-                    <Route path="/clientes" element={<Clientes />} />
-                    <Route path="/ventas" element={<Ventas />} />
-                    <Route path="/pre-ventas" element={<PreVentas />} />
-                    {/* rutas solo administrador */}
-                    <Route element={<AdminRoute />}>
-                      <Route path="/monedas" element={<Monedas />} />
-                    </Route>
-                    <Route path="/usuarios" element={<Usuarios />} />
+  <Route element={<ProtectedRoute />}>
+    <Route element={<Layout />}>
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/productos" element={<Productos />} />
+      <Route path="/clientes" element={<Clientes />} />
+      <Route path="/ventas" element={<Ventas />} />
+      <Route path="/pre-ventas" element={<PreVentas />} />
+      {/* rutas solo administrador */}
+      <Route element={<AdminRoute />}> 
+        <Route path="/cierres-caja" element={<CierreCaja />} />
+        <Route path="/monedas" element={<Monedas />} />
+      </Route>
+      <Route path="/usuarios" element={<Usuarios />} />
 
                     {/* estadísticas solo administrador */}
                     <Route element={<AdminRoute />}>

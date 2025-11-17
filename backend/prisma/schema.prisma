@@ -34,6 +34,7 @@ model Usuario {
   comentarios   VentaComentario[]
 
   cierresCaja    CierreCaja[]
+  egresosCaja    EgresoCaja[]
   notificaciones Notificacion[]
 
   @@map("Usuario")
@@ -414,6 +415,7 @@ model CierreCaja {
   totalVentas  Decimal  @default(0) @db.Decimal(12, 2)
   totalCobros  Decimal  @default(0) @db.Decimal(12, 2)
   totalCompras Decimal  @default(0) @db.Decimal(12, 2)
+  totalEgresos Decimal  @default(0) @db.Decimal(12, 2)
   saldoInicial Decimal  @default(0) @db.Decimal(12, 2)
   saldoFinal   Decimal  @default(0) @db.Decimal(12, 2)
   idUsuario    Int
@@ -421,6 +423,21 @@ model CierreCaja {
   createdAt    DateTime @default(now())
 
   @@map("CierreCaja")
+}
+
+/**
+ * ===== Egreso de Caja =====
+ */
+model EgresoCaja {
+  idEgreso   Int      @id @default(autoincrement()) @db.Integer
+  fecha      DateTime @db.Date
+  monto      Decimal  @db.Decimal(12, 2)
+  comentario String?  @db.Text
+  idUsuario  Int
+  Usuario    Usuario  @relation(fields: [idUsuario], references: [idUsuario])
+  createdAt  DateTime @default(now())
+
+  @@map("EgresoCaja")
 }
 
 /**

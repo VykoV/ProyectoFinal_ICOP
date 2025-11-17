@@ -2093,7 +2093,7 @@ app.put(
         await descontarRealYComprometido(tx, itemsAct);
         await tx.venta.update({
           where: { idVenta: id },
-          data: { idEstadoVenta: idFin, estadoPago: 'PAGADO' },
+          data: { idEstadoVenta: idFin, estadoPago: 'PAGADO', fechaCobroVenta: new Date() },
         });
         await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: idLC, hastaId: idFin, motivo: "cobrada" });
         await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.CAJERO });
@@ -2711,6 +2711,265 @@ app.get(
 
   res.json({ series, bestMonth: best.month, bestAmount: best.monto });
 });
+
+/* ========================
+   CIERRE DE CAJA (básico)
+   ======================== */
+
+// Rango de un día calendario [00:00, siguiente 00:00)
+function rangoDia(dateStr: string) {
+  const d = parseLocalDate(dateStr) ?? new Date();
+  const desde = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0);
+  const hasta = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0);
+  return { desde, hasta };
+}
+
+// Calcula totales del día para cierre
+async function calcularTotalesCierre(fechaStr: string) {
+  const { desde, hasta } = rangoDia(fechaStr);
+
+  // Tipo intermedio para evitar problemas de tipos en la unión
+  type VentaParaCierre = {
+    idVenta: number;
+    idTipoPago: number | null;
+    TipoPago?: { tipoPago: string } | null;
+    Cliente?: { nombreCliente: string; apellidoCliente: string } | null;
+  };
+
+  // Ventas cobradas ese día por fechaCobroVenta
+  const ventasPorCobro = (await prisma.venta.findMany({
+    where: {
+      fechaCobroVenta: { gte: desde, lt: hasta },
+      estadoPago: "PAGADO",
+    },
+    select: {
+      idVenta: true,
+      idTipoPago: true,
+      TipoPago: { select: { tipoPago: true } },
+      Cliente: { select: { nombreCliente: true, apellidoCliente: true } },
+    },
+  })) as unknown as VentaParaCierre[];
+  // Regla clara: el cierre usa exclusivamente fechaCobroVenta.
+  // Evitamos confusión con eventos "cobrada" que podrían tener timestamps distintos.
+  const ventas = ventasPorCobro;
+
+  let totalVentas = 0;
+  const porMetodo = new Map<string, number>();
+  const ventasDelDia: Array<{ idVenta: number; cliente: string; metodoPago: string; total: number }> = [];
+  for (const v of ventas) {
+    const totalV = Number(await calcularTotal(Number(v.idVenta)));
+    totalVentas += totalV;
+    const metodo = v.TipoPago?.tipoPago ?? String(v.idTipoPago);
+    const prev = porMetodo.get(metodo) ?? 0;
+    porMetodo.set(metodo, prev + totalV);
+    const cliente = [v.Cliente?.nombreCliente, v.Cliente?.apellidoCliente].filter(Boolean).join(" ") || "-";
+    ventasDelDia.push({ idVenta: Number(v.idVenta), cliente, metodoPago: metodo, total: totalV });
+  }
+
+  const ventasPorMetodo = Array.from(porMetodo.entries()).map(([metodo, total]) => ({ metodo, total }));
+
+  // Compras finalizadas ese día
+  const compras = await prisma.compra.findMany({
+    where: {
+      fechaComprobanteCompra: { gte: desde, lt: hasta },
+      estado: "Finalizado",
+    },
+    select: { id: true, total: true, Proveedor: { select: { nombreProveedor: true } } },
+  });
+
+  const totalCompras = compras.reduce((acc, c) => acc + Number(c.total ?? 0), 0);
+  const comprasDelDia = compras.map((c) => ({ idCompra: Number(c.id), proveedor: c.Proveedor?.nombreProveedor ?? "-", total: Number(c.total ?? 0) }));
+  const totalCobros = totalVentas; // si no hay otros cobros
+
+  // Egresos del día
+  const egresos = (await (prisma as any).egresoCaja.findMany({
+    where: { fecha: { gte: desde, lt: hasta } },
+    select: { monto: true, comentario: true },
+    orderBy: { createdAt: "asc" },
+  })) as Array<{ monto: number | string; comentario: string | null }>;
+  const totalEgresos = egresos.reduce((acc: number, e) => acc + Number((e as any).monto ?? 0), 0);
+
+  return { totalVentas, totalCobros, totalCompras, totalEgresos, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia };
+}
+
+// POST: generar cierre de caja
+app.post(
+  "/api/cierres-caja",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
+    try {
+      const { fecha, saldoInicial } = req.body ?? {};
+      if (!fecha) {
+        return res.status(400).json({ error: "Fecha requerida" });
+      }
+
+      const { desde, hasta } = rangoDia(String(fecha));
+
+      // evitar duplicados del mismo día
+      const cierreExistente = await prisma.cierreCaja.findFirst({
+        where: { fecha: { gte: desde, lt: hasta } },
+      });
+      if (cierreExistente) {
+        return res.status(409).json({ error: "Ya existe un cierre para ese día" });
+      }
+
+      // calcular totales del día
+      const { totalVentas, totalCobros, totalCompras, totalEgresos } = await calcularTotalesCierre(String(fecha));
+
+      // saldo inicial (si no viene, tomar último cierre anterior)
+      let saldoIni = Number(saldoInicial ?? 0);
+      if (saldoInicial == null) {
+        const ultimo = await prisma.cierreCaja.findFirst({
+          where: { fecha: { lt: desde } },
+          orderBy: { fecha: "desc" },
+        });
+        if (ultimo) {
+          saldoIni = Number(ultimo.saldoFinal);
+        }
+      }
+
+      const saldoFinal = saldoIni + totalCobros - totalCompras - totalEgresos;
+
+      const cierre = await (prisma as any).cierreCaja.create({
+        data: {
+          fecha: desde,
+          totalVentas: toDec2(totalVentas),
+          totalCobros: toDec2(totalCobros),
+          totalCompras: toDec2(totalCompras),
+          totalEgresos: toDec2(totalEgresos),
+          saldoInicial: toDec2(saldoIni),
+          saldoFinal: toDec2(saldoFinal),
+          idUsuario: getUserId(req),
+        },
+      });
+
+      res.json(cierre);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Error al generar el cierre de caja" });
+    }
+  }
+);
+
+// GET: listado de cierres (rango opcional)
+app.get(
+  "/api/cierres-caja",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
+    const { desde, hasta } = req.query as any;
+    const where: any = {};
+    if (desde || hasta) {
+      where.fecha = {};
+      if (desde) where.fecha.gte = new Date(String(desde));
+      if (hasta) {
+        const dHasta = new Date(String(hasta));
+        dHasta.setDate(dHasta.getDate() + 1);
+        where.fecha.lt = dHasta;
+      }
+    }
+
+    const cierres = await prisma.cierreCaja.findMany({
+      where,
+      orderBy: { fecha: "desc" },
+      include: { Usuario: true },
+    });
+    res.json(cierres);
+  }
+);
+
+// GET: preview de cierre (sin persistir)
+app.get(
+  "/api/cierres-caja/preview",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
+    try {
+      const fecha = String((req.query as any)?.fecha ?? "");
+      if (!fecha) return res.status(400).json({ error: "Fecha requerida" });
+
+      const { desde } = rangoDia(fecha);
+      const { totalVentas, totalCobros, totalCompras, totalEgresos, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia } = await calcularTotalesCierre(fecha);
+
+      let saldoInicial = Number((req.query as any)?.saldoInicial ?? 0);
+      const saldoInicialProvided = (req.query as any)?.saldoInicial != null;
+      if (!saldoInicialProvided) {
+        const ultimo = await prisma.cierreCaja.findFirst({
+          where: { fecha: { lt: desde } },
+          orderBy: { fecha: "desc" },
+        });
+        if (ultimo) saldoInicial = Number(ultimo.saldoFinal);
+      }
+
+      const saldoFinal = saldoInicial + totalCobros - totalCompras - totalEgresos;
+      res.json({ fecha: desde, totalVentas, totalCobros, totalCompras, totalEgresos, saldoInicial, saldoFinal, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Error en preview de cierre" });
+    }
+  }
+);
+
+// Egresos de caja
+app.post(
+  "/api/egresos-caja",
+  requireAuth,
+  authorize(["Administrador", "Cajero"]),
+  async (req, res) => {
+    try {
+      const { fecha, monto, comentario } = req.body ?? {};
+      if (!fecha || monto == null) return res.status(400).json({ error: "Fecha y monto requeridos" });
+      const parsed = parseLocalDate(String(fecha));
+      if (!parsed) return res.status(400).json({ error: "Fecha inválida" });
+      const egreso = await (prisma as any).egresoCaja.create({
+        data: {
+          fecha: parsed,
+          monto: toDec2(Number(monto)),
+          comentario: comentario ?? null,
+          idUsuario: getUserId(req),
+        },
+      });
+      res.json(egreso);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Error al registrar egreso" });
+    }
+  }
+);
+
+app.get(
+  "/api/egresos-caja",
+  requireAuth,
+  authorize(["Administrador", "Cajero"]),
+  async (req, res) => {
+    const fecha = String((req.query as any)?.fecha ?? "");
+    const { desde, hasta } = fecha ? rangoDia(fecha) : { desde: undefined as any, hasta: undefined as any };
+    const where: any = fecha ? { fecha: { gte: desde, lt: hasta } } : {};
+    const rows = await (prisma as any).egresoCaja.findMany({
+      where,
+      orderBy: { fecha: "desc" },
+      include: { Usuario: true },
+    });
+    res.json(rows);
+  }
+);
+
+// GET: detalle de un cierre
+app.get(
+  "/api/cierres-caja/:id",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    const cierre = await prisma.cierreCaja.findUnique({
+      where: { idCierre: id },
+      include: { Usuario: true },
+    });
+    if (!cierre) return res.status(404).json({ error: "Cierre no encontrado" });
+    res.json(cierre);
+  }
+);
 
 app.listen(4000, () =>
   console.log("✅ API corriendo en http://localhost:4000")

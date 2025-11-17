@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   CheckCircle,
   Info,
+  Wallet,
 } from "lucide-react";
 import { useUI } from "../store/ui";
 import { useAuth } from "../context/AuthContext";
@@ -31,6 +32,7 @@ const items = [
   { to: "/proveedores", icon: Factory, label: "Proveedores" },
   { to: "/usuarios", icon: Users, label: "Usuarios" },
   { to: "/estadisticas", icon: BarChart3, label: "Estadísticas" },
+  { to: "/cierres-caja", icon: Wallet, label: "Cierre de caja" },
 ] as const;
 
 export default function Sidebar() {
@@ -48,6 +50,7 @@ export default function Sidebar() {
       "/ventas",
       "/dashboard",
       "/estadisticas",
+      "/cierres-caja",
     ].forEach((r) => blocked.add(r));
   }
   if (hasRole("Cajero")) {
@@ -58,6 +61,7 @@ export default function Sidebar() {
       "/monedas",
       "/pre-ventas",
       "/estadisticas",
+      "/cierres-caja",
     ].forEach((r) => blocked.add(r));
   }
 

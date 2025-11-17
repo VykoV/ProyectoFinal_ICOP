@@ -17,6 +17,8 @@ type VentaRow = {
   metodoPago?: string | null;
   estado: string;
   total: number;
+  estadoPago?: string | null;
+  fechaCobro?: string | null;
 };
 
 export default function Ventas() {
@@ -148,6 +150,8 @@ export default function Ventas() {
           metodoPago: v.metodoPago,
           estado: v.estado,
           total: Number(v.total ?? 0),
+          estadoPago: v.estadoPago ?? null,
+          fechaCobro: v.fechaCobroVenta ? String(v.fechaCobroVenta).slice(0,10) : null,
         }))
       );
 
@@ -1099,6 +1103,18 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                         <p className="text-gray-500 text-xs">Método de pago</p>
                         <p className="font-medium">
                           {venta?.TipoPago?.tipoPago ?? "-"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs">Estado de pago</p>
+                        <p className="font-medium">
+                          {venta?.estadoPago ?? "-"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 text-xs">Fecha de cobro</p>
+                        <p className="font-medium">
+                          {String(venta?.fechaCobroVenta ?? "").slice(0, 10) || "-"}
                         </p>
                       </div>
                     </div>
