@@ -795,8 +795,9 @@ function VentaPopup({ onClose }: { onClose: () => void }) {
     "Pendiente"
   );
   const [moneda, setMoneda] = useState("ARS");
-  const [ajuste, setAjuste] = useState<number>(0);
-  const [descGeneral, setDescGeneral] = useState<number>(0);
+  // setters no utilizados en este popup: solo usamos valores por defecto
+  const [ajuste] = useState<number>(0);
+  const [descGeneral] = useState<number>(0);
   const [obs, setObs] = useState("");
 
   const rawIncl = items.reduce((a, i) => a + i.cantidad * i.precio, 0);
@@ -1059,7 +1060,6 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                       (() => {
                         const tot = venta?.totales;
                         if (tot) return Number(tot.totalFinal ?? 0);
-                        const IVA = 0.21;
                         const bruto = (lineItems ?? []).reduce((acc: number, d: any) => {
                           const cant = Number(d.cantidad ?? 0);
                           const puBase = Number(

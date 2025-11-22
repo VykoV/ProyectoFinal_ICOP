@@ -1158,8 +1158,7 @@ function PreventaForm({
   // observaciones
   const [obs, setObs] = useState<string>("");
 
-  // reserva eliminada del formulario: se gestiona desde acción "Reservar"
-  const [reservaHasta] = useState<string>("");
+  // reserva eliminada del formulario: se gestiona desde acción "Reservar" (variable removida por no uso)
 
   // fecha de facturación = hoy fija
   const todayStr = (() => {

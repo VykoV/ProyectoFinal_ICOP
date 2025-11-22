@@ -3029,11 +3029,26 @@ app.get(
    CIERRE DE CAJA (básico)
    ======================== */
 
-// Rango de un día calendario [00:00, siguiente 00:00)
+// Rango de un día calendario en Buenos Aires (UTC-3) [00:00 BA, siguiente 00:00 BA)
 function rangoDia(dateStr: string) {
-  const d = parseLocalDate(dateStr) ?? new Date();
-  const desde = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0);
-  const hasta = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0);
+  // Si viene en formato YYYY-MM-DD, usar esa fecha tal cual en zona BA
+  const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(String(dateStr || ""));
+  let y: number, mon: number, day: number;
+  if (m) {
+    y = Number(m[1]);
+    mon = Number(m[2]) - 1;
+    day = Number(m[3]);
+  } else {
+    // Fallback: tomar "hoy" en zona BA a partir de la hora actual
+    const nowUtc = new Date();
+    const ba = new Date(nowUtc.getTime() - 3 * 3600 * 1000);
+    y = ba.getUTCFullYear();
+    mon = ba.getUTCMonth();
+    day = ba.getUTCDate();
+  }
+  // 00:00 BA ≡ 03:00 UTC
+  const desde = new Date(Date.UTC(y, mon, day, 3, 0, 0, 0));
+  const hasta = new Date(Date.UTC(y, mon, day + 1, 3, 0, 0, 0));
   return { desde, hasta };
 }
 
@@ -3105,9 +3120,19 @@ async function calcularTotalesCierre(fechaStr: string) {
     select: { monto: true, comentario: true },
     orderBy: { createdAt: "asc" },
   })) as Array<{ monto: number | string; comentario: string | null }>;
-  const totalEgresos = egresos.reduce((acc: number, e) => acc + Number((e as any).monto ?? 0), 0);
+  // Los egresos deben considerar solo montos negativos (salidas de efectivo).
+  // Si hay ajustes positivos, no deben descontar egresos.
+  const totalEgresos = egresos.reduce((acc: number, e) => {
+    const n = Number((e as any).monto ?? 0);
+    return acc + (n < 0 ? Math.abs(n) : 0);
+  }, 0);
+  // Ingresos de caja (ajustes/entradas en efectivo fuera de ventas)
+  const ingresosCaja = egresos.reduce((acc: number, e) => {
+    const n = Number((e as any).monto ?? 0);
+    return acc + (n > 0 ? n : 0);
+  }, 0);
 
-  return { totalVentas, totalCobros, totalCompras, totalEgresos, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia };
+  return { totalVentas, totalCobros, totalCompras, totalEgresos, ingresosCaja, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia };
 }
 
 // POST: generar cierre de caja
@@ -3133,7 +3158,7 @@ app.post(
       }
 
       // calcular totales del día
-      const { totalVentas, totalCobros, totalCompras, totalEgresos } = await calcularTotalesCierre(String(fecha));
+      const { totalVentas, totalCobros, totalCompras, totalEgresos, ingresosCaja } = await calcularTotalesCierre(String(fecha));
 
       // saldo inicial (si no viene, tomar último cierre anterior)
       let saldoIni = Number(saldoInicial ?? 0);
@@ -3157,7 +3182,7 @@ app.post(
       }
 
       // Saldo teórico de caja (efectivo): saldoInicial + ingresosEfectivo - egresosEfectivo
-      const saldoFinal = saldoIni + totalCobros - totalEgresos;
+      const saldoFinal = saldoIni + totalCobros + ingresosCaja - totalEgresos;
 
       const cierre = await (prisma as any).cierreCaja.create({
         data: {
@@ -3191,12 +3216,8 @@ app.get(
     const where: any = {};
     if (desde || hasta) {
       where.fecha = {};
-      if (desde) where.fecha.gte = new Date(String(desde));
-      if (hasta) {
-        const dHasta = new Date(String(hasta));
-        dHasta.setDate(dHasta.getDate() + 1);
-        where.fecha.lt = dHasta;
-      }
+      if (desde) where.fecha.gte = parseLocalDate(String(desde)) ?? undefined;
+      if (hasta) where.fecha.lt = parseLocalDate(String(hasta), true) ?? undefined;
     }
 
     const cierres = await prisma.cierreCaja.findMany({
@@ -3219,7 +3240,7 @@ app.get(
       if (!fecha) return res.status(400).json({ error: "Fecha requerida" });
 
       const { desde } = rangoDia(fecha);
-      const { totalVentas, totalCobros, totalCompras, totalEgresos, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia } = await calcularTotalesCierre(fecha);
+      const { totalVentas, totalCobros, totalCompras, totalEgresos, ingresosCaja, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia } = await calcularTotalesCierre(fecha);
 
       let saldoInicial = Number((req.query as any)?.saldoInicial ?? 0);
       const saldoInicialProvided = (req.query as any)?.saldoInicial != null;
@@ -3241,12 +3262,12 @@ app.get(
       }
 
       // Saldo final teórico (efectivo): saldoInicial + ingresosEfectivo - egresosEfectivo
-      const saldoFinal = saldoInicial + totalCobros - totalEgresos;
+      const saldoFinal = saldoInicial + totalCobros + ingresosCaja - totalEgresos;
       // Saldo real contado y diferencia (opcional, informativo en preview)
       const saldoRealParam = (req.query as any)?.saldoReal;
       const saldoReal = saldoRealParam != null ? Number(saldoRealParam) : undefined;
       const diferencia = saldoReal != null && isFinite(saldoReal) ? saldoReal - saldoFinal : undefined;
-      res.json({ fecha: desde, totalVentas, totalCobros, totalCompras, totalEgresos, saldoInicial, saldoFinal, motivoSaldoInicial, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia, saldoReal, diferencia });
+      res.json({ fecha: desde, totalVentas, totalCobros, totalCompras, totalEgresos, ingresosCaja, saldoInicial, saldoFinal, motivoSaldoInicial, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia, saldoReal, diferencia });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Error en preview de cierre" });
@@ -3362,8 +3383,15 @@ app.listen(4000, () =>
 function parseLocalDate(raw: any, isEnd = false): Date | null {
   if (!raw) return null;
   if (typeof raw === "string" && raw.length === 10) {
-    // YYYY-MM-DD → interpretado como hora local (inicio 00:00, fin 23:59:59.999)
-    return new Date(`${raw}${isEnd ? "T23:59:59.999" : "T00:00:00"}`);
+    // Interpretar YYYY-MM-DD en zona Buenos Aires (UTC-3)
+    const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(raw);
+    if (!m) return null;
+    const y = Number(m[1]);
+    const mon = Number(m[2]) - 1;
+    const day = Number(m[3]);
+    // 00:00 BA ≡ 03:00 UTC. Para fin de día, usar inicio del día siguiente 00:00 BA.
+    if (!isEnd) return new Date(Date.UTC(y, mon, day, 3, 0, 0, 0));
+    return new Date(Date.UTC(y, mon, day + 1, 3, 0, 0, 0));
   }
   const d = new Date(raw);
   return Number.isNaN(d.valueOf()) ? null : d;
