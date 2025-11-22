@@ -8,6 +8,7 @@ import { askText } from "../lib/alerts";
 import { fmtPrice } from "../lib/format";
 import Modal from "../components/Modal";
 import { getProductStock } from "../lib/api/products";
+import { useAuth } from "../context/AuthContext";
 
 /* Tipos base */
 type VentaRow = {
@@ -1355,6 +1356,7 @@ function ValidarPreventaModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { hasRole } = useAuth();
   const [ventaId, setVentaId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1386,13 +1388,16 @@ function ValidarPreventaModal({
   const [descuentoGeneral, setDescuentoGeneral] = useState<number>(0);
   const [ajuste, setAjuste] = useState<number>(0);
   const [recargoPago, setRecargoPago] = useState<number>(0);
+  const [comentarioCajero, setComentarioCajero] = useState<string>("");
 
   // estado actual de la preventa (Pendiente, ListoCaja, Finalizada, Cancelada)
   const estadoActual = venta?.EstadoVenta?.nombreEstadoVenta ?? "Pendiente";
   const estadoNorm = estadoActual.toLowerCase().replace(/[\s_]+/g, "");
-  const isEditable = estadoNorm === "pendiente"; // edición bloqueada en Reservado, solo lock
+  const isPendiente = estadoNorm === "pendiente";
+  const isReservado = estadoNorm === "reservado";
   const isListoCaja = estadoNorm.includes("listocaja");
-  const canSave = isEditable || isListoCaja;
+  const puedeEditarListoCaja = isListoCaja && (hasRole("Administrador") || hasRole("Cajero"));
+  const canSave = puedeEditarListoCaja;
 
   // sincronizar ventaId local con prop
   useEffect(() => {
@@ -1422,7 +1427,11 @@ function ValidarPreventaModal({
         // inicializar form con los valores de la preventa
         setIdCliente(v.idCliente ?? v.Cliente?.idCliente ?? "");
         setIdTipoPago(v.idTipoPago ?? v.TipoPago?.idTipoPago ?? "");
-        setIdMoneda(v.idMoneda ?? v.Moneda?.idMoneda ?? "");
+        // Forzar ARS
+        const mons = (resMonedas.data ?? []) as { idMoneda: number; moneda: string }[];
+        const ars = mons.find((m) => String(m.moneda).toUpperCase() === "ARS");
+        const idArs = ars?.idMoneda ?? (v.idMoneda ?? v.Moneda?.idMoneda ?? "");
+        setIdMoneda(idArs);
 
         setFechaFacturacion(
           v.fechaVenta ? String(v.fechaVenta).slice(0, 10) : hoy
@@ -1478,6 +1487,7 @@ function ValidarPreventaModal({
         fechaFacturacion,
         fechaCobro,
         observacion,
+        ...(accion !== "cancelar" && comentarioCajero.trim().length > 0 && { comentarioCajero }),
       };
 
       if (accion === "cancelar") {
@@ -1531,7 +1541,19 @@ function ValidarPreventaModal({
     setSaving(true);
     try {
       console.log("LOCK click", { targetId, estadoNorm, estadoActual });
-      const putRes = await api.put(`/preventas/${targetId}`, { accion: "lock" });
+      const motivo = await askText({
+        title: isReservado ? "Quitar reserva y pasar a caja" : "Pasar a caja",
+        label: "Motivo",
+        placeholder: "Ingresa un motivo (obligatorio)",
+        confirmText: isReservado ? "Quitar reserva y pasar a caja" : "Pasar a caja",
+        cancelText: "Volver",
+        required: true,
+      });
+      if (motivo === null) {
+        setSaving(false);
+        return;
+      }
+      const putRes = await api.put(`/preventas/${targetId}`, { accion: "lock", motivoLock: motivo });
       const updated = putRes?.data;
       console.log("LOCK put response", { status: (putRes as any)?.status, nuevoEstado: updated?.EstadoVenta?.nombreEstadoVenta });
       // Usar respuesta directa del PUT, que ya incluye EstadoVenta actualizado
@@ -1741,6 +1763,7 @@ function ValidarPreventaModal({
                         const v = e.target.value;
                         setIdMoneda(v === "" ? "" : Number(v));
                       }}
+                      disabled
                     >
                       <option key="m-none" value="">
                         Seleccionar...
@@ -1768,6 +1791,17 @@ function ValidarPreventaModal({
                   <p className="text-[10px] text-gray-500">Solo lectura</p>
                 </div>
 
+                {/* Comentario del cajero */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium">Comentario del cajero (opcional)</label>
+                  <textarea
+                    className="w-full rounded border px-2 py-2 text-sm"
+                    placeholder="Agrega un comentario si es necesario"
+                    value={comentarioCajero}
+                    onChange={(e) => setComentarioCajero(e.target.value)}
+                  />
+                </div>
+
                 {/* Ajustes de caja */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="flex flex-col gap-1">
@@ -1781,6 +1815,7 @@ function ValidarPreventaModal({
                       onChange={(e) =>
                         setDescuentoGeneral(Number(e.target.value || 0))
                       }
+                      disabled={!puedeEditarListoCaja}
                     />
                   </div>
 
@@ -1793,6 +1828,7 @@ function ValidarPreventaModal({
                       type="number"
                       value={ajuste}
                       onChange={(e) => setAjuste(Number(e.target.value || 0))}
+                      disabled={!puedeEditarListoCaja}
                     />
                     <p className="text-[10px] text-gray-500">
                       Positivo suma. Negativo resta.
@@ -1808,6 +1844,7 @@ function ValidarPreventaModal({
                       type="number"
                       value={recargoPago}
                       onChange={(e) => setRecargoPago(Number(e.target.value || 0))}
+                      disabled={!puedeEditarListoCaja}
                     />
                   </div>
                 </div>
@@ -1860,14 +1897,58 @@ function ValidarPreventaModal({
                 <div className="rounded border">
                   <div className="border-b bg-gray-50 px-3 py-2 text-sm font-medium flex items-center justify-between">
                     <span>Productos cargados</span>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-                      onClick={openStockForLoadedProducts}
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                      <span>Ver stock</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                        onClick={openStockForLoadedProducts}
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        <span>Ver stock</span>
+                      </button>
+                      {puedeEditarListoCaja && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                          onClick={async () => {
+                            const q = await askText({
+                              title: "Agregar producto",
+                              label: "Código/Nombre/ID",
+                              placeholder: "Escribe para buscar (mín. 2 caracteres)",
+                              confirmText: "Agregar",
+                              cancelText: "Cancelar",
+                              required: true,
+                            });
+                            if (!q) return;
+                            try {
+                              const res = await api.get(`/products/search`, { params: { q } });
+                              const list = Array.isArray(res.data) ? res.data : [];
+                              const p = list[0];
+                              if (!p) {
+                                alert("No se encontró producto");
+                                return;
+                              }
+                              setVenta((prev: any) => {
+                                const detalles = Array.isArray(prev?.detalles) ? [...prev.detalles] : [];
+                                detalles.push({
+                                  idProducto: Number(p.idProducto),
+                                  cantidad: 1,
+                                  precioUnit: Number(p.precioVentaPublicoProducto ?? 0),
+                                  descuentoItem: Number(p.porcentajeOfertaProducto ?? 0) || 0,
+                                  Producto: p,
+                                });
+                                return { ...prev, detalles };
+                              });
+                            } catch (e: any) {
+                              alert(e?.response?.data?.error || e?.message || "Error buscando producto");
+                            }
+                          }}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>Agregar producto</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="overflow-x-auto">
@@ -2058,7 +2139,7 @@ function ValidarPreventaModal({
             )}
 
             {/* Cerrar y pasar a caja (lock) desde Pendiente o quitar reserva */}
-            {(isEditable || estadoNorm === "reservado") && (
+            {(isPendiente || isReservado) && (
               <button
                 className="rounded-lg border border-blue-700 text-blue-700 px-3 py-2 text-sm disabled:opacity-50"
                 disabled={saving}
@@ -2080,7 +2161,7 @@ function ValidarPreventaModal({
             )}
 
             {/* Marcar Cancelada. En Pendiente o ListoCaja */}
-            {(isEditable || isListoCaja) && (
+            {(isPendiente || isReservado || isListoCaja) && (
               <button
                 className="rounded-lg border border-red-700 text-red-700 px-3 py-2 text-sm disabled:opacity-50"
                 disabled={saving}

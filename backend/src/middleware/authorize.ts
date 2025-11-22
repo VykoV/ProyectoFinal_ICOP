@@ -1,6 +1,9 @@
 import { Request, Response, NextFunction } from "express";
-import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
+import { PrismaClient, Prisma } from "@prisma/client";
+import { Pool } from "pg";
+import { PrismaPg } from "@prisma/adapter-pg";
+const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 /**
  * Uso:

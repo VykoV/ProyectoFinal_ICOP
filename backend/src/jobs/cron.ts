@@ -1,7 +1,10 @@
 import cron from "node-cron";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma, PapelEnVenta } from "@prisma/client";
+import { Pool } from "pg";
+import { PrismaPg } from "@prisma/adapter-pg";
 
-const prisma = new PrismaClient();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 // Obtiene o crea un usuario "Sistema" para auditoría
 async function getSystemUserId(): Promise<number | null> {
@@ -36,6 +39,46 @@ async function getEstadoPendienteId(): Promise<number | null> {
   } catch (err) {
     console.error("cron:getEstadoPendienteId error", err);
     return null;
+  }
+}
+
+async function getEstadoIds(): Promise<Record<string, number | null>> {
+  try {
+    const estados = await prisma.estadoVenta.findMany({
+      where: { nombreEstadoVenta: { in: ["Pendiente", "Reservado", "ListoCaja", "Vencido"] } },
+      select: { idEstadoVenta: true, nombreEstadoVenta: true },
+    });
+    const map: Record<string, number | null> = {
+      Pendiente: null,
+      Reservado: null,
+      ListoCaja: null,
+      Vencido: null,
+    };
+    for (const e of estados) map[e.nombreEstadoVenta] = e.idEstadoVenta;
+    return map;
+  } catch (err) {
+    console.error("cron:getEstadoIds error", err);
+    return { Pendiente: null, Reservado: null, ListoCaja: null, Vencido: null };
+  }
+}
+
+async function liberarComprometidoVenta(idVenta: number): Promise<void> {
+  const detalles = await prisma.detalleVenta.findMany({
+    where: { idVenta },
+    select: { idProducto: true, cantidad: true },
+  });
+  for (const d of detalles) {
+    const stock = await prisma.stock.findUnique({
+      where: { idProducto: d.idProducto },
+      select: { stockComprometido: true },
+    });
+    const actual = Number(stock?.stockComprometido ?? 0);
+    const cant = Number(d.cantidad ?? 0);
+    const nuevo = Math.max(0, actual - cant);
+    await prisma.stock.update({
+      where: { idProducto: d.idProducto },
+      data: { stockComprometido: nuevo },
+    });
   }
 }
 
@@ -147,5 +190,51 @@ cron.schedule("5 0 * * *", async () => {
     console.log(`[INFO] Ofertas vencidas desactivadas: ${ids.join(", ")}`);
   } catch (err) {
     console.error("cron 00:05 cierre ofertas vencidas error", err);
+  }
+});
+
+// Expira preventas y libera stock comprometido (cada 15 minutos)
+cron.schedule("*/15 * * * *", async () => {
+  try {
+    const { Pendiente, Reservado, ListoCaja, Vencido } = await getEstadoIds();
+    if (Pendiente == null || Reservado == null || ListoCaja == null || Vencido == null) return;
+
+    const now = new Date();
+    const vencidas = await prisma.venta.findMany({
+      where: {
+        fechaVencimiento: { not: null, lt: now },
+        idEstadoVenta: { in: [Pendiente, Reservado, ListoCaja] },
+      },
+      select: { idVenta: true, idEstadoVenta: true },
+    });
+
+    if (vencidas.length === 0) return;
+
+    const systemUserId = await getSystemUserId();
+    for (const v of vencidas) {
+      await liberarComprometidoVenta(v.idVenta);
+      await prisma.venta.update({
+        where: { idVenta: v.idVenta },
+        data: { idEstadoVenta: Vencido, estadoPago: 'PENDIENTE' },
+      });
+      if (systemUserId) {
+        await prisma.ventaEvento.create({
+          data: {
+            idVenta: v.idVenta,
+            idUsuario: systemUserId,
+            estadoDesde: v.idEstadoVenta,
+            estadoHasta: Vencido,
+            motivo: 'vencida automáticamente',
+          },
+        });
+        await prisma.ventaActor.create({
+          data: { idVenta: v.idVenta, idUsuario: systemUserId, papel: PapelEnVenta.ANULADOR },
+        });
+      }
+    }
+
+    console.log(`[INFO] Preventas vencidas marcadas y stock liberado: ${vencidas.map(x => x.idVenta).join(', ')}`);
+  } catch (err) {
+    console.error("cron expirar preventas error", err);
   }
 });

@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import toast from "react-hot-toast";
+import { askConfirm, askText } from "../lib/alerts";
+
+const numberFormatter = new Intl.NumberFormat("es", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function fmt(n: number | string) {
+  const num = Number(n);
+  if (!isFinite(num)) return String(n);
+  return numberFormatter.format(num);
+}
 
 type CierrePreview = {
   fecha: string;
@@ -35,22 +43,40 @@ function todayStr() {
   return `${y}-${m}-${day}`;
 }
 
+// Formatea fechas preservando el día original (evita desfase por zona horaria)
+function toYmd(dateInput: string | Date) {
+  if (typeof dateInput === "string") {
+    const m = dateInput.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  }
+  const d = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export default function CierreCajaPage() {
   const [tab, setTab] = useState<"generar" | "listado">("generar");
 
   // Generar / Preview
   const [fecha, setFecha] = useState<string>(todayStr());
-  const [saldoInicialInput, setSaldoInicialInput] = useState<string>("");
+  // Saldo inicial se obtiene del día anterior (sin input manual)
   const [preview, setPreview] = useState<CierrePreview | null>(null);
   const [loadingPrev, setLoadingPrev] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [movimientosBloqueados, setMovimientosBloqueados] = useState(false);
+  const [ventasMetodoExpanded, setVentasMetodoExpanded] = useState(false);
+  const [ventasDiaExpanded, setVentasDiaExpanded] = useState<boolean>(true);
+  
 
   async function calcular() {
+    // Al recalcular, desbloquear acciones de movimientos
+    setMovimientosBloqueados(false);
     setLoadingPrev(true);
     try {
       const params = new URLSearchParams();
       params.set("fecha", fecha);
-      if (saldoInicialInput.trim() !== "") params.set("saldoInicial", saldoInicialInput.trim());
       const res = await api.get(`/cierres-caja/preview?${params.toString()}`, { withCredentials: true });
       setPreview(res.data);
     } catch (err) {
@@ -64,11 +90,19 @@ export default function CierreCajaPage() {
 
   async function confirmar() {
     if (!fecha) return;
+    const ok = await askConfirm({
+      title: "Confirmar cierre de caja",
+      message: "¿Seguro que quiere cerrar la caja del día?",
+      confirmText: "Aceptar",
+      cancelText: "Cancelar",
+      type: "warning",
+    });
+    if (!ok) return;
+    // Bloquear ingresos/egresos tras aceptar
+    setMovimientosBloqueados(true);
     setSaving(true);
     try {
-      const body: any = { fecha };
-      if (saldoInicialInput.trim() !== "") body.saldoInicial = Number(saldoInicialInput);
-      await api.post(`/cierres-caja`, body, { withCredentials: true });
+      await api.post(`/cierres-caja`, { fecha }, { withCredentials: true });
       toast.success("Cierre generado");
       setPreview(null);
       // refrescar listado
@@ -87,10 +121,26 @@ export default function CierreCajaPage() {
   const [cierres, setCierres] = useState<CierreCaja[]>([]);
   const [egresosDia, setEgresosDia] = useState<Array<{ idEgreso: number; fecha: string; monto: string | number; comentario?: string; Usuario?: { nombre?: string } }>>([]);
   const [loadingList, setLoadingList] = useState(false);
+  // Bloqueo automático si ya existe un cierre para la fecha seleccionada
+  const yaCerrada = useMemo(() => {
+    try {
+      return cierres.some((c) => toYmd((c as any).fecha) === fecha);
+    } catch {
+      return false;
+    }
+  }, [cierres, fecha]);
+  const bloqueado = movimientosBloqueados || yaCerrada;
+  // Totales locales de ingresos/egresos del día (efectivo)
+  const totalIngresosEfectivo = useMemo(() => {
+    return egresosDia.reduce((acc, e) => {
+      const n = Number(e.monto);
+      const isIngreso = n > 0 || String(e.comentario || "").toLowerCase().includes("ajuste saldo inicial");
+      return acc + (isIngreso ? n : 0);
+    }, 0);
+  }, [egresosDia]);
   // paginación locales
   const pageSize = 5;
   const [ventasPage, setVentasPage] = useState<number>(1);
-  const [comprasPage, setComprasPage] = useState<number>(1);
   const [cierresPage, setCierresPage] = useState<number>(1);
   async function cargarListado() {
     setLoadingList(true);
@@ -117,22 +167,96 @@ export default function CierreCajaPage() {
     }
   }
 
+  // Acciones rápidas: Ingresos y Egresos mediante notificación
+  async function agregarIngreso() {
+    if (bloqueado || saving) {
+      return toast.error("Caja bloqueada: ya existe cierre o en confirmación");
+    }
+    try {
+      const valorStr = await askText({
+        title: "Agregar ingreso",
+        label: "Monto",
+        placeholder: "0.00",
+        // validación manual de monto
+      });
+      if (!valorStr) return;
+      const motivo = await askText({
+        title: "Motivo del ingreso",
+        label: "Motivo",
+        placeholder: "Ej: ajuste por conteo",
+        required: true,
+      });
+      if (!motivo) return;
+      const montoNum = Number(valorStr);
+      if (Number.isNaN(montoNum) || montoNum <= 0) {
+        return toast.error("Ingresa un monto válido y positivo");
+      }
+      await api.post(`/egresos-caja`, { fecha, monto: montoNum, comentario: `ajuste saldo inicial: ${motivo}` }, { withCredentials: true });
+      toast.success("Ingreso registrado");
+      await cargarEgresosDelDia();
+      await calcular();
+    } catch (err) {
+      console.error(err);
+      const msg = (err as any)?.response?.data?.error || (err as any)?.message || "Error al registrar ingreso";
+      toast.error(msg);
+    }
+  }
+
+  async function agregarEgreso() {
+    if (bloqueado || saving) {
+      return toast.error("Caja bloqueada: ya existe cierre o en confirmación");
+    }
+    try {
+      const valorStr = await askText({
+        title: "Agregar egreso",
+        label: "Monto (usar negativo)",
+        placeholder: "-0.00",
+      });
+      if (!valorStr) return;
+      const motivo = await askText({
+        title: "Motivo del egreso",
+        label: "Motivo",
+        placeholder: "Ej: compra de insumos",
+        required: true,
+      });
+      if (!motivo) return;
+      let montoNum = Number(valorStr);
+      if (Number.isNaN(montoNum)) {
+        return toast.error("Ingresa un monto válido");
+      }
+      // Asegurar que sea negativo como solicitaste
+      if (montoNum > 0) montoNum = -montoNum;
+      await api.post(`/egresos-caja`, { fecha, monto: montoNum, comentario: motivo }, { withCredentials: true });
+      toast.success("Egreso registrado");
+      await cargarEgresosDelDia();
+      await calcular();
+    } catch (err) {
+      console.error(err);
+      const msg = (err as any)?.response?.data?.error || (err as any)?.message || "Error al registrar egreso";
+      toast.error(msg);
+    }
+  }
+
   useEffect(() => { cargarListado(); }, []);
   useEffect(() => { cargarEgresosDelDia(); }, [fecha]);
   // resetear páginas cuando cambia la fecha o se recalcula preview
-  useEffect(() => { setVentasPage(1); setComprasPage(1); }, [fecha, preview]);
+  useEffect(() => { setVentasPage(1); }, [fecha, preview]);
+
+  
+
+  
 
   const previewRows = useMemo(() => {
     if (!preview) return [] as Array<[string, string]>;
-    return [
-      ["Total Ventas", preview.totalVentas.toFixed(2)],
-      ["Total Cobros", preview.totalCobros.toFixed(2)],
-      ["Total Compras", preview.totalCompras.toFixed(2)],
-      ["Total Egresos", preview.totalEgresos.toFixed(2)],
-      ["Saldo Inicial", preview.saldoInicial.toFixed(2)],
-      ["Saldo Final", preview.saldoFinal.toFixed(2)],
+    const rows: Array<[string, string]> = [
+      ["Saldo Inicial", fmt(preview.saldoInicial)],
+      ["Total Ventas", fmt(preview.totalVentas)],
+      ["Total Egresos Efectivo", fmt(preview.totalEgresos)],
+      ["Total Ingresos Efectivo", fmt(totalIngresosEfectivo)],
+      ["Saldo Final Efectivo", fmt(preview.saldoFinal)],
     ];
-  }, [preview]);
+    return rows;
+  }, [preview, totalIngresosEfectivo]);
 
   return (
     <section className="space-y-4">
@@ -155,259 +279,239 @@ export default function CierreCajaPage() {
       </div>
 
       {tab === "generar" ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-3">
-            <div className="rounded-xl border bg-white p-4 space-y-3">
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs text-gray-600 block">Fecha</label>
-                  <input type="date" className="rounded border px-2 py-1 w-40"
-                    value={fecha}
-                    onChange={(e)=> setFecha(e.target.value)} />
+        <div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <div className="rounded-xl border bg-white p-4">
+                <div className="flex flex-wrap items-end gap-3 mb-3">
+                  <div className="space-y-1">
+                    <label className="text-xs text-gray-600 block">Fecha</label>
+                    <input type="date" className="rounded border px-2 py-1 w-40"
+                      value={fecha}
+                      onChange={(e)=> setFecha(e.target.value)} />
+                  </div>
+                  <button
+                    onClick={calcular}
+                    className="rounded border px-3 py-2 text-sm"
+                    disabled={loadingPrev}
+                  >
+                    {loadingPrev ? "Calculando…" : "Calcular"}
+                  </button>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-gray-600 block">Saldo inicial (opcional)</label>
-                  <input type="number" step="0.01" className="rounded border px-2 py-1 w-40"
-                    value={saldoInicialInput}
-                    onChange={(e)=> setSaldoInicialInput(e.target.value)} />
-                </div>
-                <button
-                  onClick={calcular}
-                  className="rounded border px-3 py-2 text-sm"
-                  disabled={loadingPrev}
-                >
-                  {loadingPrev ? "Calculando…" : "Calcular"}
-                </button>
-              </div>
-            </div>
+                <h3 className="text-sm font-medium mb-2">Resultado</h3>
+                {preview ? (
+                  <div className="space-y-1 text-sm">
+                  {(() => {
+                    const rawByKey: Record<string, number> = {
+                      "Saldo Inicial": preview.saldoInicial,
+                      "Total Ventas": preview.totalVentas,
+                      "Total Egresos Efectivo": preview.totalEgresos,
+                      "Total Ingresos Efectivo": totalIngresosEfectivo,
+                      "Saldo Final Efectivo": preview.saldoFinal,
+                    };
+                    return previewRows.map(([k, v]) => {
+                      const numeric = rawByKey[k] ?? 0;
+                      const conceptNegative = k === "Total Egresos Efectivo";
+                      const isNegative = conceptNegative || numeric < 0;
+                      const hasVentasMetodo = k === "Total Ventas" && !!preview.ventasPorMetodo?.length;
+                      return (
+                        <div key={k} className="space-y-1">
+                          <div className={`flex items-center justify-between`}>
+                            <span className="text-gray-600 flex items-center gap-2">
+                              {k}
+                              {hasVentasMetodo && (
+                                <button
+                                  type="button"
+                                  className="text-xs leading-none px-1"
+                                  aria-label="Mostrar ventas por método"
+                                  onClick={() => setVentasMetodoExpanded((v2) => !v2)}
+                                >
+                                  {ventasMetodoExpanded ? "▾" : "▸"}
+                                </button>
+                              )}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`font-medium ${k === "Total Ingresos Efectivo" ? "text-green-600" : isNegative ? "text-red-600" : ""}`}>{v}</span>
+                            </div>
+                          </div>
+                          {hasVentasMetodo && ventasMetodoExpanded && (
+                            <div className="pl-6 text-xs">
+                              {preview.ventasPorMetodo!.map((r) => (
+                                <div key={r.metodo} className="flex items-center justify-between">
+                                  <span className="text-gray-600">{r.metodo}</span>
+                                  <span className="font-medium">{fmt(r.total)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
 
-            <div className="rounded-xl border bg-white p-4">
-              <h3 className="text-sm font-medium mb-2">Resultado</h3>
-              {preview ? (
-                <div className="space-y-1 text-sm">
-                  {previewRows.map(([k, v]) => {
-                    const numeric = parseFloat(v);
-                    const conceptNegative = k === "Total Compras" || k === "Total Egresos";
-                    const isNegative = conceptNegative || numeric < 0;
-                    return (
-                      <div key={k} className="flex items-center justify-between">
-                        <span className="text-gray-600">{k}</span>
-                        <span className={`font-medium ${isNegative ? "text-red-600" : ""}`}>{v}</span>
-                      </div>
-                    );
-                  })}
-                  {!!preview.ventasPorMetodo?.length && (
-                    <div className="mt-3">
-                      <p className="text-sm font-medium">Ventas por método de pago</p>
-                      <div className="space-y-1 mt-1">
-                        {preview.ventasPorMetodo!.map((r) => (
-                          <div key={r.metodo} className="flex items-center justify-between">
-                            <span className="text-gray-600">{r.metodo}</span>
-                            <span className="font-medium">{r.total.toFixed(2)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {!!preview.ventasDelDia?.length && (
-                    <div className="mt-4">
-                      <p className="text-sm font-medium">Ventas del día</p>
-                      {(() => {
-                        const total = preview.ventasDelDia!.length;
-                        const totalPages = Math.max(1, Math.ceil(total / pageSize));
-                        const safePage = Math.min(Math.max(1, ventasPage), totalPages);
-                        const start = (safePage - 1) * pageSize;
-                        const end = Math.min(start + pageSize, total);
-                        const pageRows = preview.ventasDelDia!.slice(start, end);
-                        return (
-                      <div className="overflow-auto mt-1">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="text-left">
-                              <th className="py-1 border-b">#</th>
-                              <th className="py-1 border-b">Cliente</th>
-                              <th className="py-1 border-b">Método</th>
-                              <th className="py-1 border-b">Total</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {pageRows.map((v) => (
-                              <tr key={v.idVenta}>
-                                <td className="py-1 border-b">{v.idVenta}</td>
-                                <td className="py-1 border-b">{v.cliente}</td>
-                                <td className="py-1 border-b">{v.metodoPago}</td>
-                                <td className="py-1 border-b">{v.total.toFixed(2)}</td>
-                              </tr>
-                            ))}
-                            {total === 0 && (
-                              <tr>
-                                <td className="py-1 border-b text-gray-600" colSpan={4}>Sin ventas.</td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                        {/* Controles de paginación */}
-                        {total > pageSize && (
-                          <div className="flex items-center justify-between mt-2 text-xs">
-                            <div className="flex items-center gap-2">
-                              <button
-                                className="border px-2 py-1 rounded disabled:opacity-50"
-                                onClick={() => setVentasPage((p) => Math.max(1, p - 1))}
-                                disabled={safePage <= 1}
-                              >
-                                Anterior
-                              </button>
-                              <button
-                                className="border px-2 py-1 rounded disabled:opacity-50"
-                                onClick={() => setVentasPage((p) => Math.min(totalPages, p + 1))}
-                                disabled={safePage >= totalPages}
-                              >
-                                Siguiente
-                              </button>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span>Página</span>
-                              <input
-                                className="w-14 rounded border px-2 py-1"
-                                type="number"
-                                min={1}
-                                max={totalPages}
-                                value={safePage}
-                                onChange={(e) => {
-                                  const v = Math.max(1, Math.min(totalPages, Number(e.target.value) || 1));
-                                  setVentasPage(v);
-                                }}
-                              />
-                              <span>de {totalPages}</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                        );
-                      })()}
-                    </div>
-                  )}
-                  {!!preview.comprasDelDia?.length && (
-                    <div className="mt-4">
-                      <p className="text-sm font-medium">Compras del día</p>
-                      {(() => {
-                        const total = preview.comprasDelDia!.length;
-                        const totalPages = Math.max(1, Math.ceil(total / pageSize));
-                        const safePage = Math.min(Math.max(1, comprasPage), totalPages);
-                        const start = (safePage - 1) * pageSize;
-                        const end = Math.min(start + pageSize, total);
-                        const pageRows = preview.comprasDelDia!.slice(start, end);
-                        return (
-                      <div className="overflow-auto mt-1">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="text-left">
-                              <th className="py-1 border-b">#</th>
-                              <th className="py-1 border-b">Proveedor</th>
-                              <th className="py-1 border-b">Total</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {pageRows.map((c) => (
-                              <tr key={c.idCompra}>
-                                <td className="py-1 border-b">{c.idCompra}</td>
-                                <td className="py-1 border-b">{c.proveedor}</td>
-                                <td className="py-1 border-b">{c.total.toFixed(2)}</td>
-                              </tr>
-                            ))}
-                            {total === 0 && (
-                              <tr>
-                                <td className="py-1 border-b text-gray-600" colSpan={3}>Sin compras.</td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                        {/* Controles de paginación */}
-                        {total > pageSize && (
-                          <div className="flex items-center justify-between mt-2 text-xs">
-                            <div className="flex items-center gap-2">
-                              <button
-                                className="border px-2 py-1 rounded disabled:opacity-50"
-                                onClick={() => setComprasPage((p) => Math.max(1, p - 1))}
-                                disabled={safePage <= 1}
-                              >
-                                Anterior
-                              </button>
-                              <button
-                                className="border px-2 py-1 rounded disabled:opacity-50"
-                                onClick={() => setComprasPage((p) => Math.min(totalPages, p + 1))}
-                                disabled={safePage >= totalPages}
-                              >
-                                Siguiente
-                              </button>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span>Página</span>
-                              <input
-                                className="w-14 rounded border px-2 py-1"
-                                type="number"
-                                min={1}
-                                max={totalPages}
-                                value={safePage}
-                                onChange={(e) => {
-                                  const v = Math.max(1, Math.min(totalPages, Number(e.target.value) || 1));
-                                  setComprasPage(v);
-                                }}
-                              />
-                              <span>de {totalPages}</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                        );
-                      })()}
-                    </div>
-                  )}
                 </div>
               ) : (
                 <p className="text-sm text-gray-600">Sin cálculo. Seleccione fecha y presione Calcular.</p>
               )}
-            </div>
+              </div>
 
-            <div className="flex items-center gap-2">
+              {/* Ventas del día */}
+              <div className="rounded-xl border bg-white p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium">Ventas del día</h3>
+                  <button
+                    type="button"
+                    className="text-xs border px-2 py-1 rounded"
+                    onClick={() => setVentasDiaExpanded((b) => !b)}
+                    aria-label="Mostrar/Ocultar ventas del día"
+                  >
+                    {ventasDiaExpanded ? "Ocultar" : "Mostrar"}
+                  </button>
+                </div>
+                {preview ? (
+                  ventasDiaExpanded ? (
+                    (() => {
+                      const total = preview.ventasDelDia?.length ?? 0;
+                      if (total === 0) {
+                        return <p className="text-sm text-gray-600">Sin ventas.</p>;
+                      }
+                      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+                      const safePage = Math.min(Math.max(1, ventasPage), totalPages);
+                      const start = (safePage - 1) * pageSize;
+                      const end = Math.min(start + pageSize, total);
+                      const pageRows = preview.ventasDelDia!.slice(start, end);
+                      return (
+                        <div className="overflow-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="text-left">
+                                <th className="py-2 border-b">#</th>
+                                <th className="py-2 border-b">Cliente</th>
+                                <th className="py-2 border-b">Método</th>
+                                <th className="py-2 border-b">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {pageRows.map((v) => (
+                                <tr key={v.idVenta}>
+                                  <td className="py-2 border-b">{v.idVenta}</td>
+                                  <td className="py-2 border-b">{v.cliente}</td>
+                                  <td className="py-2 border-b">{v.metodoPago}</td>
+                                  <td className="py-2 border-b">{fmt(v.total)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {/* Controles de paginación */}
+                          {total > pageSize && (
+                            <div className="flex items-center justify-between mt-2 text-sm">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  className="border px-2 py-1 rounded disabled:opacity-50"
+                                  onClick={() => setVentasPage((p) => Math.max(1, p - 1))}
+                                  disabled={safePage <= 1}
+                                >
+                                  Anterior
+                                </button>
+                                <button
+                                  className="border px-2 py-1 rounded disabled:opacity-50"
+                                  onClick={() => setVentasPage((p) => Math.min(totalPages, p + 1))}
+                                  disabled={safePage >= totalPages}
+                                >
+                                  Siguiente
+                                </button>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span>Página</span>
+                                <input
+                                  className="w-14 rounded border px-2 py-1"
+                                  type="number"
+                                  min={1}
+                                  max={totalPages}
+                                  value={safePage}
+                                  onChange={(e) => {
+                                    const v = Math.max(1, Math.min(totalPages, Number(e.target.value) || 1));
+                                    setVentasPage(v);
+                                  }}
+                                />
+                                <span>de {totalPages}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()
+                  ) : null
+                ) : (
+                  <p className="text-sm text-gray-600">Sin cálculo. Seleccione fecha y presione Calcular.</p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
               <button
                 onClick={confirmar}
-                disabled={saving || !preview}
+                disabled={saving || !preview || bloqueado}
                 className="rounded-lg bg-black text-white px-3 py-2 text-sm"
               >
                 {saving ? "Confirmando…" : "Confirmar cierre"}
               </button>
+              </div>
             </div>
-          </div>
 
-          <div className="space-y-3">
-            {/* Egresos del día */}
-            <div className="rounded-xl border bg-white p-4 space-y-3">
-              <h3 className="text-sm font-medium">Egresos del día</h3>
-              <EgresosForm fecha={fecha} onSaved={async()=>{ await cargarEgresosDelDia(); await calcular(); }} />
-              <div className="overflow-auto">
-                <table className="w-full text-sm">
+            <div className="space-y-3">
+              {/* Ingreso/Egresos */}
+              <div className="rounded-xl border bg-white p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-medium">Ingreso/Egresos</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="border px-2 py-1 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={bloqueado || saving}
+                      onClick={agregarIngreso}
+                    >
+                      Ingresos
+                    </button>
+                    <button
+                      className="border px-2 py-1 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={bloqueado || saving}
+                      onClick={agregarEgreso}
+                    >
+                      Egresos
+                    </button>
+                  </div>
+                </div>
+                <div className="overflow-auto">
+                  <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left">
                       <th className="py-2 border-b">Monto</th>
                       <th className="py-2 border-b">Comentario</th>
+                      <th className="py-2 border-b">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {egresosDia.map((e) => (
-                      <tr key={e.idEgreso}>
-                        <td className="py-2 border-b text-red-600">{Number(e.monto).toFixed(2)}</td>
-                        <td className="py-2 border-b">{e.comentario ?? "-"}</td>
-                      </tr>
+                      <EgresoRow
+                        key={e.idEgreso}
+                        egreso={e}
+                        movimientosBloqueados={bloqueado}
+                        onChanged={async () => {
+                          await cargarEgresosDelDia();
+                          await calcular();
+                        }}
+                      />
                     ))}
                     {egresosDia.length === 0 && (
                       <tr>
-                        <td className="py-2 border-b text-gray-600" colSpan={2}>Sin egresos.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                         <td className="py-2 border-b text-gray-600" colSpan={3}>Sin movimientos.</td>
+                       </tr>
+                     )}
+                   </tbody>
+                 </table>
+               </div>
+               </div>
             </div>
           </div>
         </div>
@@ -430,26 +534,22 @@ export default function CierreCajaPage() {
                       <tr className="text-left">
                         <th className="py-2 border-b">Fecha</th>
                         <th className="py-2 border-b">Total Ventas</th>
-                        <th className="py-2 border-b">Total Cobros</th>
-                        <th className="py-2 border-b">Total Compras</th>
-                        <th className="py-2 border-b">Saldo Final</th>
+                        <th className="py-2 border-b">Saldo final efectivo</th>
                         <th className="py-2 border-b">Usuario</th>
                       </tr>
                     </thead>
                     <tbody>
                       {pageRows.map((c) => (
                         <tr key={c.idCierre}>
-                          <td className="py-2 border-b">{new Date(c.fecha).toLocaleDateString()}</td>
-                          <td className="py-2 border-b">{Number(c.totalVentas).toFixed(2)}</td>
-                          <td className="py-2 border-b">{Number(c.totalCobros).toFixed(2)}</td>
-                          <td className="py-2 border-b">{Number(c.totalCompras).toFixed(2)}</td>
-                          <td className={`py-2 border-b ${Number(c.saldoFinal) < 0 ? "text-red-600" : ""}`}>{Number(c.saldoFinal).toFixed(2)}</td>
+                          <td className="py-2 border-b">{toYmd((c as any).fecha)}</td>
+                          <td className="py-2 border-b">{fmt(c.totalVentas)}</td>
+                          <td className={`py-2 border-b ${Number(c.saldoFinal) < 0 ? "text-red-600" : ""}`}>{fmt(c.saldoFinal)}</td>
                           <td className="py-2 border-b">{c.Usuario?.nombre ?? "-"}</td>
                         </tr>
                       ))}
                       {total === 0 && (
                         <tr>
-                          <td className="py-2 border-b text-gray-600" colSpan={6}>No hay cierres.</td>
+                          <td className="py-2 border-b text-gray-600" colSpan={4}>No hay cierres.</td>
                         </tr>
                       )}
                     </tbody>
@@ -500,48 +600,99 @@ export default function CierreCajaPage() {
   );
 }
 
-function EgresosForm({ fecha, onSaved }: { fecha: string; onSaved: () => void }) {
-  const [monto, setMonto] = useState<string>("");
-  const [comentario, setComentario] = useState<string>("");
-  const [saving, setSaving] = useState(false);
+ 
 
-  async function guardar() {
-    if (!monto.trim()) return toast.error("Monto requerido");
-    setSaving(true);
+function EgresoRow({ egreso, onChanged, movimientosBloqueados }: { egreso: { idEgreso: number; monto: number | string; comentario?: string | null }; onChanged: () => void; movimientosBloqueados: boolean }) {
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const comentarioLc = (egreso.comentario ?? "").toLowerCase();
+  const esRetiro = comentarioLc.includes("retiro en efectivo caja");
+  const esAjusteSaldoInicial = comentarioLc.includes("ajuste saldo inicial");
+
+  async function editarPorNotificacion() {
     try {
-      await api.post(`/egresos-caja`, { fecha, monto: Number(monto), comentario }, { withCredentials: true });
-      toast.success("Egreso registrado");
-      setMonto("");
-      setComentario("");
-      onSaved();
+      const montoStr = await askText({
+        title: "Editar egreso",
+        label: "Monto",
+        placeholder: String(egreso.monto),
+        // validación manual
+      });
+      if (!montoStr) return;
+      const motivo = await askText({
+        title: "Editar egreso",
+        label: "Motivo",
+        placeholder: egreso.comentario ?? "",
+        required: true,
+      });
+      if (!motivo) return;
+      const montoNum = Number(montoStr);
+      if (Number.isNaN(montoNum)) return toast.error("Ingresa un monto válido");
+      setSaving(true);
+      await api.put(`/egresos-caja/${egreso.idEgreso}`, { monto: montoNum, comentario: motivo }, { withCredentials: true });
+      toast.success("Egreso actualizado");
+      onChanged();
     } catch (err) {
       console.error(err);
-      const msg = (err as any)?.response?.data?.error || (err as any)?.message || "Error al registrar egreso";
+      const msg = (err as any)?.response?.data?.error || (err as any)?.message || "Error al actualizar egreso";
       toast.error(msg);
     } finally {
       setSaving(false);
     }
   }
 
+  async function eliminar() {
+    const ok = await askConfirm({
+      title: "Eliminar egreso",
+      message: "¿Confirmas eliminar este egreso?",
+      confirmText: "Eliminar",
+      cancelText: "Cancelar",
+      type: "warning",
+    });
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/egresos-caja/${egreso.idEgreso}`, { withCredentials: true });
+      toast.success("Egreso eliminado");
+      onChanged();
+    } catch (err) {
+      console.error(err);
+      const msg = (err as any)?.response?.data?.error || (err as any)?.message || "Error al eliminar egreso";
+      toast.error(msg);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
-    <div className="flex items-end gap-3">
-      <div className="space-y-1">
-        <label className="text-xs text-gray-600 block">Monto</label>
-        <input type="number" step="0.01" className="rounded border px-2 py-1 w-32"
-          value={monto} onChange={(e)=> setMonto(e.target.value)} />
-      </div>
-      <div className="space-y-1 flex-1">
-        <label className="text-xs text-gray-600">Comentario</label>
-        <input type="text" className="rounded border px-2 py-1 w-full"
-          value={comentario} onChange={(e)=> setComentario(e.target.value)} />
-      </div>
-      <button
-        onClick={guardar}
-        disabled={saving}
-        className="rounded border px-3 py-2 text-sm"
-      >
-        {saving ? "Guardando…" : "Agregar egreso"}
-      </button>
-    </div>
+    <tr>
+      <td className={`py-2 border-b ${Number(egreso.monto) < 0 ? "text-red-600" : "text-green-600"}`}>
+        {fmt(egreso.monto)}
+      </td>
+      <td className="py-2 border-b">
+        <span className="flex items-center gap-1 text-gray-700">
+          {esRetiro && <span title="Retiro en efectivo caja">★</span>}
+          {esAjusteSaldoInicial && <span title="Ajuste saldo inicial">★</span>}
+          {egreso.comentario ?? "-"}
+        </span>
+      </td>
+      <td className="py-2 border-b">
+        <div className="flex items-center gap-2">
+          <button
+            className="border px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={editarPorNotificacion}
+            disabled={saving || movimientosBloqueados}
+          >
+            {saving ? "Guardando…" : "Editar"}
+          </button>
+          <button
+            className="border px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={eliminar}
+            disabled={deleting || movimientosBloqueados}
+          >
+            {deleting ? "Eliminando…" : "Eliminar"}
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 }

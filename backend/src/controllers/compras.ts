@@ -1,8 +1,11 @@
 import { Request, Response } from "express";
 import { PrismaClient, EstadoCompra, Prisma } from "@prisma/client";
+import { Pool } from "pg";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { compraCreate, compraUpdate, comprasQuery } from "../validators/compras";
 
-const prisma = new PrismaClient();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 const calcTotal = (items: { cantidad: number; precioUnit: number }[]) =>
   items.reduce((acc, i) => acc + i.cantidad * i.precioUnit, 0);
@@ -89,7 +92,7 @@ export async function update(req: Request, res: Response) {
     body.items ?? c.detalles.map((d) => ({ idProducto: d.idProducto, cantidad: Number(d.cantidad), precioUnit: Number(d.precioUnit) }));
   const total = calcTotal(items);
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx: any) => {
     if (body.items) {
       await tx.detalleCompra.deleteMany({ where: { idCompra: id } });
       await tx.detalleCompra.createMany({ data: items.map((i) => ({ ...i, idCompra: id })) });
@@ -143,7 +146,7 @@ export async function aplicarStock(req: Request, res: Response) {
   if (!c) return res.sendStatus(404);
   if (c.estado !== EstadoCompra.PendientePago)
     return res.status(409).json({ error: "Solo se aplica stock en Pendiente de pago" });
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     // 1) Actualizar stock
     for (const d of c.detalles) {
       await tx.stock.upsert({

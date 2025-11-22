@@ -10,14 +10,16 @@ import { getProductStock } from "../lib/api/products";
 import { askText } from "../lib/alerts";
 
 /* ===== Tipos ===== */
-type PreRow = {
-  id: number;
-  cliente: string;
-  fecha: string;
-  metodoPago?: string | null;
-  total: number;
-  estado: string; // "Pendiente" | "ListoCaja" | etc
-};
+  type PreRow = {
+    id: number;
+    cliente: string;
+    fecha: string;
+    metodoPago?: string | null;
+    total: number;
+    estado: string; // "Pendiente" | "ListoCaja" | etc
+    fechaVencimiento?: string | null;
+    fechaReservaLimite?: string | null;
+  };
 
  type Opt = { id: number; label: string };
  type ProdOpt = Opt & { precio: number; ofertaPct?: number };
@@ -142,6 +144,8 @@ export default function PreVentas() {
             ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
             : "",
           fecha: String(v.fecha ?? v.fechaVenta ?? "").slice(0, 10),
+          fechaVencimiento: v.fechaVencimiento ?? v.fechaVencimientoVenta ?? null,
+          fechaReservaLimite: v.fechaReservaLimite ?? null,
           metodoPago: v.metodoPago ?? v.TipoPago?.tipoPago ?? null,
           total: Number(v.total ?? 0),
           estado:
@@ -190,9 +194,26 @@ export default function PreVentas() {
         else if (norm.includes("finaliz") || norm.includes("cerrad"))
           cls = "bg-green-100 text-green-800";
         else if (norm.includes("cancel")) cls = "bg-red-100 text-red-800";
+        // Indicar si la reserva está vencida
+        let extra: string | null = null;
+        if (norm.includes("reserv")) {
+          const lim = row.original.fechaReservaLimite
+            ? new Date(row.original.fechaReservaLimite)
+            : null;
+          const hoy = new Date();
+          hoy.setHours(0, 0, 0, 0);
+          if (lim && lim < hoy) {
+            extra = "Reserva vencida";
+          }
+        }
         return (
-          <span className={`rounded-full px-2 py-1 text-xs font-medium ${cls}`}>
-            {raw}
+          <span className={`inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs font-medium ${cls}`}>
+            <span>{raw}</span>
+            {extra && (
+              <span className="rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[10px]">
+                {extra}
+              </span>
+            )}
           </span>
         );
       },

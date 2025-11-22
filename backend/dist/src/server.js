@@ -10,6 +10,8 @@ const express_session_1 = __importDefault(require("express-session"));
 const connect_pg_simple_1 = __importDefault(require("connect-pg-simple"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const client_1 = require("@prisma/client");
+const pg_1 = require("pg");
+const adapter_pg_1 = require("@prisma/adapter-pg");
 const auth_1 = __importDefault(require("./auth"));
 const proveedores_1 = __importDefault(require("./routes/proveedores"));
 const compras_1 = __importDefault(require("./routes/compras"));
@@ -17,7 +19,29 @@ const requireAuth_1 = require("./middleware/requireAuth");
 const authorize_1 = require("./middleware/authorize");
 const DEV = process.env.NODE_ENV !== "production";
 const app = (0, express_1.default)();
-const prisma = new client_1.PrismaClient();
+// Prisma con logging para pruebas en desarrollo
+const prismaLogs = DEV
+    ? [{ level: "query", emit: "event" }, { level: "error", emit: "event" }]
+    : [];
+const pool = new pg_1.Pool({ connectionString: process.env.DATABASE_URL });
+const prisma = new client_1.PrismaClient({
+    log: prismaLogs,
+    adapter: new adapter_pg_1.PrismaPg(pool),
+});
+if (DEV) {
+    prisma.$on("query", (e) => {
+        try {
+            console.log("[SQL]", e.query, e.params);
+        }
+        catch { }
+    });
+    prisma.$on("error", (e) => {
+        try {
+            console.error("[SQL ERROR]", e);
+        }
+        catch { }
+    });
+}
 const PgSession = (0, connect_pg_simple_1.default)(express_session_1.default);
 // ==========================
 // 1) CONFIGURACIÓN DE CORS
@@ -34,6 +58,17 @@ app.options("*", (0, cors_1.default)({ origin: ["http://localhost:5173", "http:/
 // ==========================
 app.use(express_1.default.json());
 app.set("json replacer", (key, value) => typeof value === "bigint" ? value.toString() : value);
+// Desactivar ETag para evitar respuestas 304 en endpoints críticos
+app.set("etag", false);
+// Forzar no-cache en preventas y ventas para evitar datos desactualizados
+app.use((req, res, next) => {
+    if (req.path.startsWith("/api/preventas") || req.path.startsWith("/api/ventas")) {
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+    }
+    next();
+});
 // ==========================
 // 3) SESIONES
 // ==========================
@@ -147,9 +182,12 @@ app.get("/api/products", requireAuth_1.requireAuth, (0, authorize_1.authorize)([
         nombreFamilia: r.SubFamilia?.Familia?.tipoFamilia ?? null,
     })));
 });
-// OBTENER UNO
-app.get("/api/products/:id", async (req, res) => {
+// OBTENER UNO (sólo IDs numéricos para evitar colisiones con rutas específicas)
+app.get("/api/products/:id(\\d+)", async (req, res) => {
     const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: "BAD_PRODUCT_ID" });
+    }
     const r = await prisma.producto.findUnique({
         where: { idProducto: id },
         select: {
@@ -292,10 +330,97 @@ app.get("/api/products/:id/historico-precio", async (req, res) => {
         res.status(400).json({ error: "HISTORICO_READ_FAILED" });
     }
 });
+// HISTÓRICO DE OFERTA POR PRODUCTO
+app.get("/api/products/:id/historico-oferta", async (req, res) => {
+    const id = Number(req.params.id);
+    const { page = "1", limit = "20" } = req.query;
+    const skip = Math.max(0, (Number(page) - 1) * Number(limit));
+    const take = Math.max(1, Number(limit));
+    try {
+        const rows = await prisma.ofertaProductoHistorial.findMany({
+            where: { idProducto: id },
+            orderBy: { fechaInicio: "desc" },
+            skip,
+            take,
+            select: {
+                idOfertaProductoHistorial: true,
+                ofertaProducto: true,
+                porcentajeOfertaProducto: true,
+                fechaInicio: true,
+                fechaFin: true,
+                creadoPor: true,
+            },
+        });
+        res.json(rows.map(r => ({
+            id: r.idOfertaProductoHistorial,
+            oferta: r.ofertaProducto,
+            porcentaje: Number(r.porcentajeOfertaProducto),
+            inicio: r.fechaInicio,
+            fin: r.fechaFin ?? null,
+            creadoPor: r.creadoPor ?? null,
+        })));
+    }
+    catch (e) {
+        console.error(e);
+        res.status(400).json({ error: "HISTORICO_OFERTA_FAILED" });
+    }
+});
+// Ofertas por vencer en próximos N días
+app.get("/api/products/ofertas-por-vencer", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Vendedor", "Cajero"]), async (req, res) => {
+    try {
+        const days = Math.max(1, Math.min(30, Number(req.query.days ?? 2)));
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start.getTime() + days * 24 * 60 * 60 * 1000);
+        end.setHours(23, 59, 59, 999);
+        const rows = await prisma.producto.findMany({
+            where: {
+                ofertaProducto: true,
+                // Filtrar por fecha de fin dentro del rango. Los valores null no coinciden con gte/lte.
+                fechaFinOferta: { gte: start, lte: end },
+            },
+            select: {
+                idProducto: true,
+                nombreProducto: true,
+                porcentajeOfertaProducto: true,
+                fechaFinOferta: true,
+            },
+            orderBy: { fechaFinOferta: "asc" },
+        });
+        res.json(rows.map(r => ({
+            id: r.idProducto,
+            nombre: r.nombreProducto,
+            porcentajeOferta: Number(r.porcentajeOfertaProducto ?? 0),
+            fechaFinOferta: r.fechaFinOferta,
+        })));
+    }
+    catch (e) {
+        console.error(e);
+        res.status(400).json({ error: "OFERTAS_POR_VENCER_FAILED" });
+    }
+});
 // CREAR con código FF-SS-000X
 app.post("/api/products", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (req, res) => {
     try {
         const { nombre, precio, precioCosto, utilidad, descripcion, codigoBarras, oferta, porcentajeOferta, fechaInicioOferta, fechaFinOferta, subFamiliaId, stock = 0, bajoMinimoStock = 0, ultimaModificacionStock, proveedorId, codigoArticuloProveedor, fechaIngreso, precioHistorico, } = req.body;
+        // Validaciones de fechas de oferta
+        try {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const start = parseLocalDate(fechaInicioOferta, false);
+            const end = parseLocalDate(fechaFinOferta, true);
+            if (start)
+                start.setHours(0, 0, 0, 0);
+            if (end)
+                end.setHours(0, 0, 0, 0);
+            if (start && start < today) {
+                return res.status(422).json({ error: "OFERTA_INICIO_PASADO", message: "La fecha de inicio de oferta no puede ser anterior a hoy." });
+            }
+            if (start && end && end < start) {
+                return res.status(422).json({ error: "OFERTA_FIN_ANTES_INICIO", message: "La fecha de fin de oferta no puede ser anterior a la fecha de inicio." });
+            }
+        }
+        catch { }
         const sf = await prisma.subFamilia.findUnique({
             where: { idSubFamilia: Number(subFamiliaId) },
             include: { Familia: true },
@@ -315,8 +440,8 @@ app.post("/api/products", requireAuth_1.requireAuth, (0, authorize_1.authorize)(
                 ...(porcentajeOferta !== undefined && {
                     porcentajeOfertaProducto: Number(porcentajeOferta ?? 0),
                 }),
-                fechaInicioOferta: fechaInicioOferta !== undefined ? (fechaInicioOferta ? new Date(fechaInicioOferta) : null) : undefined,
-                fechaFinOferta: fechaFinOferta !== undefined ? (fechaFinOferta ? new Date(fechaFinOferta) : null) : undefined,
+                fechaInicioOferta: fechaInicioOferta !== undefined ? (fechaInicioOferta ? parseLocalDate(fechaInicioOferta, false) : null) : undefined,
+                fechaFinOferta: fechaFinOferta !== undefined ? (fechaFinOferta ? parseLocalDate(fechaFinOferta, true) : null) : undefined,
                 idSubFamilia: Number(subFamiliaId),
             },
             select: { idProducto: true },
@@ -346,17 +471,41 @@ app.post("/api/products", requireAuth_1.requireAuth, (0, authorize_1.authorize)(
                     : new Date(),
             },
         });
-        // Registrar historial de oferta al crear
-        await prisma.ofertaProductoHistorial.create({
-            data: {
-                idProducto: row.idProducto,
-                ofertaProducto: !!oferta,
-                porcentajeOfertaProducto: Number(porcentajeOferta ?? 0),
-                ...(fechaInicioOferta ? { fechaInicio: new Date(fechaInicioOferta) } : {}),
-                ...(fechaFinOferta ? { fechaFin: new Date(fechaFinOferta) } : {}),
-                creadoPor: getUserId(req),
+        // Registrar historial de oferta al crear (fechas con semántica local por día)
+        const fi = fechaInicioOferta ? parseLocalDate(fechaInicioOferta, false) : null;
+        const ff = fechaFinOferta ? parseLocalDate(fechaFinOferta, true) : null;
+        // Evitar duplicados: no crear si el último registro es idéntico
+        const lastCreate = await prisma.ofertaProductoHistorial.findFirst({
+            where: { idProducto: row.idProducto },
+            orderBy: { idOfertaProductoHistorial: "desc" },
+            select: {
+                ofertaProducto: true,
+                porcentajeOfertaProducto: true,
+                fechaInicio: true,
+                fechaFin: true,
             },
         });
+        const lastFi = lastCreate?.fechaInicio ? new Date(lastCreate.fechaInicio).getTime() : null;
+        const lastFf = lastCreate?.fechaFin ? new Date(lastCreate.fechaFin).getTime() : null;
+        const nextFi = fi ? new Date(fi).getTime() : null;
+        const nextFf = ff ? new Date(ff).getTime() : null;
+        const isSameAsLast = !!lastCreate &&
+            lastCreate.ofertaProducto === !!oferta &&
+            Number(lastCreate.porcentajeOfertaProducto ?? 0) === Number(porcentajeOferta ?? 0) &&
+            lastFi === nextFi &&
+            lastFf === nextFf;
+        if (!isSameAsLast) {
+            await prisma.ofertaProductoHistorial.create({
+                data: {
+                    idProducto: row.idProducto,
+                    ofertaProducto: !!oferta,
+                    porcentajeOfertaProducto: Number(porcentajeOferta ?? 0),
+                    ...(fi ? { fechaInicio: fi } : {}),
+                    ...(ff ? { fechaFin: ff } : {}),
+                    creadoPor: getUserId(req),
+                },
+            });
+        }
         if (proveedorId) {
             await prisma.proveedorProducto.create({
                 data: {
@@ -400,6 +549,24 @@ app.put("/api/products/:id", async (req, res) => {
     const id = Number(req.params.id);
     const { nombre, precio, precioCosto, utilidad, descripcion, codigoBarras, oferta, porcentajeOferta, fechaInicioOferta, fechaFinOferta, subFamiliaId, stock, bajoMinimoStock, ultimaModificacionStock, proveedorId, codigoArticuloProveedor, fechaIngreso, precioHistorico, } = req.body;
     try {
+        // Validaciones de fechas de oferta
+        try {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const start = parseLocalDate(fechaInicioOferta, false);
+            const end = parseLocalDate(fechaFinOferta, true);
+            if (start)
+                start.setHours(0, 0, 0, 0);
+            if (end)
+                end.setHours(0, 0, 0, 0);
+            if (start && start < today) {
+                return res.status(422).json({ error: "OFERTA_INICIO_PASADO", message: "La fecha de inicio de oferta no puede ser anterior a hoy." });
+            }
+            if (start && end && end < start) {
+                return res.status(422).json({ error: "OFERTA_FIN_ANTES_INICIO", message: "La fecha de fin de oferta no puede ser anterior a la fecha de inicio." });
+            }
+        }
+        catch { }
         // Leer actual para comparar precio
         const actual = await prisma.producto.findUnique({
             where: { idProducto: id },
@@ -434,10 +601,10 @@ app.put("/api/products/:id", async (req, res) => {
                     porcentajeOfertaProducto: Number(porcentajeOferta ?? 0),
                 }),
                 ...(fechaInicioOferta !== undefined && {
-                    fechaInicioOferta: fechaInicioOferta ? new Date(fechaInicioOferta) : null,
+                    fechaInicioOferta: fechaInicioOferta ? parseLocalDate(fechaInicioOferta, false) : null,
                 }),
                 ...(fechaFinOferta !== undefined && {
-                    fechaFinOferta: fechaFinOferta ? new Date(fechaFinOferta) : null,
+                    fechaFinOferta: fechaFinOferta ? parseLocalDate(fechaFinOferta, true) : null,
                 }),
                 ...(subFamiliaId !== undefined && { idSubFamilia: Number(subFamiliaId) }),
             },
@@ -526,16 +693,38 @@ app.put("/api/products/:id", async (req, res) => {
             ((actual.fechaFinOferta ? new Date(actual.fechaFinOferta).getTime() : null) !== (fechaFinOferta ? new Date(fechaFinOferta).getTime() : null));
         const ofertaCambios = oferta !== undefined && (!!oferta !== actual.ofertaProducto);
         if (porcentajeCambios || fechaInicioCambios || fechaFinCambios || ofertaCambios) {
-            await prisma.ofertaProductoHistorial.create({
-                data: {
-                    idProducto: row.idProducto,
-                    ofertaProducto: row.ofertaProducto,
-                    porcentajeOfertaProducto: Number(row.porcentajeOfertaProducto ?? 0),
-                    ...(row.fechaInicioOferta ? { fechaInicio: row.fechaInicioOferta } : {}),
-                    ...(row.fechaFinOferta ? { fechaFin: row.fechaFinOferta } : {}),
-                    creadoPor: getUserId(req),
+            // Evitar duplicados por cambios redundantes o doble envío
+            const last = await prisma.ofertaProductoHistorial.findFirst({
+                where: { idProducto: row.idProducto },
+                orderBy: { idOfertaProductoHistorial: "desc" },
+                select: {
+                    ofertaProducto: true,
+                    porcentajeOfertaProducto: true,
+                    fechaInicio: true,
+                    fechaFin: true,
                 },
             });
+            const lastFi = last?.fechaInicio ? new Date(last.fechaInicio).getTime() : null;
+            const lastFf = last?.fechaFin ? new Date(last.fechaFin).getTime() : null;
+            const nextFi = row.fechaInicioOferta ? new Date(row.fechaInicioOferta).getTime() : null;
+            const nextFf = row.fechaFinOferta ? new Date(row.fechaFinOferta).getTime() : null;
+            const isSame = !!last &&
+                last.ofertaProducto === row.ofertaProducto &&
+                Number(last.porcentajeOfertaProducto ?? 0) === Number(row.porcentajeOfertaProducto ?? 0) &&
+                lastFi === nextFi &&
+                lastFf === nextFf;
+            if (!isSame) {
+                await prisma.ofertaProductoHistorial.create({
+                    data: {
+                        idProducto: row.idProducto,
+                        ofertaProducto: row.ofertaProducto,
+                        porcentajeOfertaProducto: Number(row.porcentajeOfertaProducto ?? 0),
+                        ...(row.fechaInicioOferta ? { fechaInicio: row.fechaInicioOferta } : {}),
+                        ...(row.fechaFinOferta ? { fechaFin: row.fechaFinOferta } : {}),
+                        creadoPor: getUserId(req),
+                    },
+                });
+            }
         }
         res.json({
             id: row.idProducto,
@@ -830,16 +1019,20 @@ app.get("/api/localidades", async (req, res) => {
 // — Estados de negocio:
 const ESTADOS = {
     PENDIENTE: "Pendiente",
+    RESERVADO: "Reservado",
     LISTO_CAJA: "ListoCaja",
     FINALIZADA: "Finalizada",
     CANCELADA: "Cancelada",
+    VENCIDA: "Vencido",
 };
 // Estados requeridos al arrancar 
 const REQUIRED_ESTADOS = [
     "Pendiente",
+    "Reservado",
     "ListoCaja",
     "Finalizada",
     "Cancelada",
+    "Vencido",
 ];
 // Normaliza nombres: sin espacios/guiones_bajos y lower 
 const norm = (s) => s.toLowerCase().replace(/[\s_]/g, "");
@@ -874,7 +1067,8 @@ async function ensureEstadosBase() {
 ensureEstadosBase().catch(err => console.error("ensureEstadosBase error", err));
 // — Usuario de la sesión o header para auditoría:
 function getUserId(req) {
-    const sid = req?.session?.user?.idUsuario ?? req?.session?.idUsuario;
+    // La sesión escribe en req.session.userId desde /api/auth/login
+    const sid = req?.session?.userId ?? req?.session?.user?.idUsuario ?? req?.session?.idUsuario;
     if (sid)
         return Number(sid);
     const hdr = req.headers["x-user-id"];
@@ -1024,14 +1218,22 @@ async function registrarEventoIds(tx, args) {
     }
 }
 async function registrarActor(tx, args) {
-    try {
-        await tx.ventaActor.create({
-            data: { idVenta: args.idVenta, idUsuario: args.idUsuario, papel: args.papel },
-        });
-    }
-    catch {
-        /* sin unique compuesto puede duplicar; aceptable */
-    }
+    // Evita duplicados y posibles errores por clave compuesta existente
+    await tx.ventaActor.upsert({
+        where: {
+            idVenta_idUsuario_papel: {
+                idVenta: args.idVenta,
+                idUsuario: args.idUsuario,
+                papel: args.papel,
+            },
+        },
+        update: {},
+        create: {
+            idVenta: args.idVenta,
+            idUsuario: args.idUsuario,
+            papel: args.papel,
+        },
+    });
 }
 async function agregarComentario(tx, args) {
     await tx.ventaComentario.create({
@@ -1049,6 +1251,26 @@ async function leerItemsVenta(tx, idVenta) {
         select: { idProducto: true, cantidad: true },
     });
     return items.map((r) => ({ idProducto: Number(r.idProducto), cantidad: Number(r.cantidad) }));
+}
+// Marca preventa como vencida y libera stock comprometido, registrando auditoría
+async function marcarPreventaComoVencida(tx, args) {
+    const { idVenta, idUsuario, estadoDesdeId, motivo } = args;
+    const idVenc = await getEstadoId(tx, ESTADOS.VENCIDA);
+    const items = await leerItemsVenta(tx, idVenta);
+    if (items.length) {
+        await liberarComprometido(tx, items);
+    }
+    await tx.venta.update({ where: { idVenta }, data: { idEstadoVenta: idVenc, estadoPago: 'PENDIENTE' } });
+    if (idUsuario) {
+        await registrarEventoIds(tx, {
+            idVenta,
+            idUsuario,
+            desdeId: estadoDesdeId ?? null,
+            hastaId: idVenc,
+            motivo: motivo ?? 'vencida por validación',
+        });
+        await registrarActor(tx, { idVenta, idUsuario, papel: client_1.PapelEnVenta.ANULADOR });
+    }
 }
 // — totales avanzados:
 async function calcularTotales(idVenta) {
@@ -1100,43 +1322,85 @@ async function calcularTotal(idVenta) {
 // Crear PREVENTA = estado Pendiente + reservar comprometido
 app.post("/api/preventas", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Vendedor"]), async (req, res) => {
     try {
-        const { idCliente, idTipoPago, observacion, detalles = [] } = req.body;
-        if (!idCliente || !idTipoPago || !Array.isArray(detalles) || detalles.length === 0)
+        const { idCliente, idTipoPago, observacion, detalles = [], items = [], descuentoGeneral, recargoPago, fechaFacturacion, fechaCobro, } = req.body;
+        const detallesIn = Array.isArray(items) && items.length > 0 ? items : detalles;
+        if (!idCliente || !idTipoPago || !Array.isArray(detallesIn) || detallesIn.length === 0)
             return res.status(400).json({ error: "FALTAN_DATOS" });
         // Validar ítems antes de crear
-        if (!Array.isArray(detalles) ||
-            detalles.length === 0 ||
-            detalles.some((d) => !Number(d.idProducto) || !(toNum(d.cantidad) > 0))) {
+        if (!Array.isArray(detallesIn) ||
+            detallesIn.length === 0 ||
+            detallesIn.some((d) => !Number(d.idProducto) || !(toNum(d.cantidad) > 0))) {
             return res.status(400).json({ error: "SIN_ITEMS" });
         }
         const idUsuario = getUserId(req);
+        // Precalcular precios y detectar ofertas fuera de la transacción
+        const ids = detallesIn.map((d) => Number(d.idProducto)).filter((x) => Number(x));
+        const productosPre = await prisma.producto.findMany({
+            where: { idProducto: { in: ids } },
+            select: {
+                idProducto: true,
+                precioVentaPublicoProducto: true,
+                ofertaProducto: true,
+                porcentajeOfertaProducto: true,
+                fechaInicioOferta: true,
+                fechaFinOferta: true,
+            },
+        });
+        const priceMap = new Map(productosPre.map((p) => [Number(p.idProducto), Number(p.precioVentaPublicoProducto ?? 0)]));
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayTs = today.getTime();
+        const offerPctMap = new Map();
+        for (const p of productosPre) {
+            const pct = Number(p.porcentajeOfertaProducto ?? 0);
+            const flag = p.ofertaProducto;
+            const ini = parseLocalDate(p.fechaInicioOferta, false);
+            const fin = parseLocalDate(p.fechaFinOferta, true);
+            const iniTs = ini ? ini.getTime() : null;
+            const finTs = fin ? fin.getTime() : null;
+            const dentro = (iniTs == null || todayTs >= iniTs) && (finTs == null || todayTs <= finTs);
+            const activo = (flag === undefined ? pct > 0 : Boolean(flag)) && pct > 0 && dentro;
+            offerPctMap.set(Number(p.idProducto), activo ? pct : 0);
+        }
+        // Permitir incluir productos en oferta en presupuestos pendientes.
         const result = await prisma.$transaction(async (tx) => {
             const idPend = await getEstadoId(tx, ESTADOS.PENDIENTE);
-            const m = await tx.moneda.findFirst({ select: { idMoneda: true } });
-            const idMoneda = m?.idMoneda ?? 1;
-            // precios por defecto para cada producto (si no viene precioUnit)
-            const ids = detalles.map((d) => Number(d.idProducto)).filter((x) => Number(x));
-            const precios = await tx.producto.findMany({
-                where: { idProducto: { in: ids } },
-                select: { idProducto: true, precioVentaPublicoProducto: true },
-            });
-            const priceMap = new Map(precios.map((p) => [Number(p.idProducto), Number(p.precioVentaPublicoProducto ?? 0)]));
+            const mARS = await tx.moneda.findFirst({ where: { moneda: { equals: "ARS" } }, select: { idMoneda: true } });
+            const idMoneda = mARS?.idMoneda ?? (await tx.moneda.findFirst({ select: { idMoneda: true } }))?.idMoneda ?? 1;
+            // normalización de fechas si vienen en el payload
+            const fFactIn = (() => {
+                if (!fechaFacturacion)
+                    return undefined;
+                const d = new Date(fechaFacturacion);
+                return isNaN(d.getTime()) ? undefined : d;
+            })();
+            const fCobroIn = (() => {
+                if (!fechaCobro)
+                    return undefined;
+                const d = new Date(fechaCobro);
+                return isNaN(d.getTime()) ? undefined : d;
+            })();
             const v = await tx.venta.create({
                 data: {
-                    fechaVenta: new Date(),
-                    fechaCobroVenta: new Date(),
+                    fechaVenta: fFactIn ?? new Date(),
+                    fechaCobroVenta: fCobroIn ?? new Date(),
+                    // Vigencia: 1 día desde creación
+                    fechaVencimiento: new Date(Date.now() + 24 * 60 * 60 * 1000),
                     observacion: observacion ?? null,
                     idCliente: Number(idCliente),
                     idEstadoVenta: idPend,
                     idTipoPago: Number(idTipoPago),
                     idMoneda,
                     estadoPago: 'RESERVA',
+                    ...(descuentoGeneral !== undefined && { descuentoGeneralVenta: new client_1.Prisma.Decimal(descuentoGeneral) }),
+                    ...(recargoPago !== undefined && { recargoPagoVenta: new client_1.Prisma.Decimal(recargoPago) }),
                     detalles: {
-                        create: detalles.map((d) => {
+                        create: detallesIn.map((d) => {
                             const idP = Number(d.idProducto);
                             const cant = toDec3(d.cantidad);
                             const pu = toDec2(d.precioUnit ?? priceMap.get(idP) ?? 0);
-                            const descItem = toDec2(d.descuentoItem ?? 0);
+                            // Aplicar como valor por defecto el porcentaje de oferta vigente
+                            const descItem = toDec2(d.descuentoItem ?? (offerPctMap.get(idP) ?? 0));
                             const recItem = toDec2(d.recargoItem ?? 0);
                             return {
                                 idProducto: idP,
@@ -1150,7 +1414,7 @@ app.post("/api/preventas", requireAuth_1.requireAuth, (0, authorize_1.authorize)
                 },
                 select: { idVenta: true },
             });
-            const items = detalles.map((d) => ({
+            const items = detallesIn.map((d) => ({
                 idProducto: Number(d.idProducto),
                 cantidad: toNum(d.cantidad),
             }));
@@ -1216,6 +1480,9 @@ app.get("/api/preventas", requireAuth_1.requireAuth, (0, authorize_1.authorize)(
         id: v.idVenta,
         cliente: v.Cliente ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}` : "",
         fecha: v.fechaVenta,
+        // Exponer fechas de vencimiento y de límite de reserva para el frontend
+        fechaVencimiento: v.fechaVencimiento ?? null,
+        fechaReservaLimite: v.fechaReservaLimite ?? null,
         metodoPago: v.TipoPago?.tipoPago ?? null,
         estado: v.EstadoVenta?.nombreEstadoVenta ?? "",
         descuentoGeneral: Number(v.descuentoGeneralVenta ?? 0),
@@ -1227,6 +1494,30 @@ app.get("/api/preventas", requireAuth_1.requireAuth, (0, authorize_1.authorize)(
 // Detalle PREVENTA
 app.get("/api/preventas/:id", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Vendedor", "Cajero"]), async (req, res) => {
     const id = Number(req.params.id);
+    const idUsuario = getUserId(req);
+    // Expiración perezosa: si la preventa venció, marcarla como Vencida y liberar stock
+    await prisma.$transaction(async (tx) => {
+        const ventaMini = await tx.venta.findUnique({
+            where: { idVenta: id },
+            select: { idEstadoVenta: true, fechaVencimiento: true },
+        });
+        if (!ventaMini)
+            return; // será manejado abajo con 404
+        const now = new Date();
+        const idVenc = await getEstadoId(tx, ESTADOS.VENCIDA);
+        const idFin = await getEstadoId(tx, ESTADOS.FINALIZADA);
+        const idCanc = await getEstadoId(tx, ESTADOS.CANCELADA);
+        const vencida = ventaMini.fechaVencimiento && ventaMini.fechaVencimiento < now;
+        const esTerminal = [idVenc, idFin, idCanc].includes(ventaMini.idEstadoVenta);
+        if (vencida && !esTerminal) {
+            await marcarPreventaComoVencida(tx, {
+                idVenta: id,
+                idUsuario,
+                estadoDesdeId: ventaMini.idEstadoVenta,
+                motivo: "expiración automática por consulta",
+            });
+        }
+    });
     const v = await prisma.venta.findUnique({
         where: { idVenta: id },
         include: {
@@ -1319,7 +1610,9 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
     const accion = String(req.body?.accion || "guardar").toLowerCase();
     const allow = {
         guardar: ["Administrador", "Vendedor", "Cajero"],
-        lock: ["Administrador", "Vendedor"],
+        editar: ["Administrador", "Vendedor", "Cajero"],
+        reservar: ["Administrador", "Vendedor", "Cajero"],
+        lock: ["Administrador", "Vendedor", "Cajero"],
         finalizar: ["Administrador", "Cajero"],
         cancelar: ["Administrador", "Cajero"],
     };
@@ -1327,9 +1620,56 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
 }, async (req, res) => {
     const id = Number(req.params.id);
     const idUsuario = getUserId(req);
+    if (DEV) {
+        try {
+            const accionIn = String(req.body?.accion || "guardar").toLowerCase();
+            console.log("PUT /api/preventas/:id start", { id, accion: accionIn, userId: idUsuario });
+        }
+        catch { }
+    }
+    // Expiración perezosa y bloqueo si ya está vencida
+    try {
+        await prisma.$transaction(async (tx) => {
+            const ventaMini = await tx.venta.findUnique({
+                where: { idVenta: id },
+                select: { idEstadoVenta: true, fechaVencimiento: true },
+            });
+            if (!ventaMini)
+                return; // se devolverá 404 más abajo si aplica
+            const now = new Date();
+            const idVenc = await getEstadoId(tx, ESTADOS.VENCIDA);
+            const idFin = await getEstadoId(tx, ESTADOS.FINALIZADA);
+            const idCanc = await getEstadoId(tx, ESTADOS.CANCELADA);
+            const vencida = ventaMini.fechaVencimiento && ventaMini.fechaVencimiento < now;
+            const esTerminal = [idVenc, idFin, idCanc].includes(ventaMini.idEstadoVenta);
+            if (vencida && !esTerminal) {
+                await marcarPreventaComoVencida(tx, {
+                    idVenta: id,
+                    idUsuario,
+                    estadoDesdeId: ventaMini.idEstadoVenta,
+                    motivo: "expiración automática por modificación",
+                });
+            }
+        });
+        const idVencCheck = await getEstadoId(prisma, ESTADOS.VENCIDA);
+        const ventaEstado = await prisma.venta.findUnique({
+            where: { idVenta: id },
+            select: { idEstadoVenta: true },
+        });
+        if (!ventaEstado)
+            return res.status(404).json({ error: "NOT_FOUND" });
+        if (ventaEstado.idEstadoVenta === idVencCheck) {
+            return res.status(400).json({ error: "PREVENTA_VENCIDA" });
+        }
+    }
+    catch (err) {
+        // Si algo falla en expiración, continuar con manejo estándar para no bloquear casos no relacionados
+        if (DEV)
+            console.warn("lazy expire in PUT falló", err);
+    }
     // normalización de payload
     const raw = req.body ?? {};
-    let { idCliente, idTipoPago, observacion, fechaFacturacion, fechaCobro, idMoneda, accion, motivoCancelacion, descuentoGeneral, ajuste, recargoPago, } = raw;
+    let { idCliente, idTipoPago, observacion, fechaFacturacion, fechaCobro, idMoneda, accion, motivoCancelacion, motivoLock, comentarioCajero, descuentoGeneral, ajuste, recargoPago, } = raw;
     let items = Array.isArray(raw.items)
         ? raw.items
         : Array.isArray(raw.detalles)
@@ -1374,6 +1714,23 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
         if (!ventaAntes)
             throw new Error("NOT_FOUND");
         const estadoActualNombre = ventaAntes.EstadoVenta.nombreEstadoVenta;
+        // Normalizar campos de entrada no estructurados
+        const normalizeObs = (v) => {
+            const s = String(v ?? "").trim();
+            // tratar placeholders comunes como vacío
+            if (!s || s === "-" || s === "—" || s.toLowerCase() === "n/a")
+                return undefined;
+            return s;
+        };
+        observacion = normalizeObs(observacion);
+        const normalizeDateIn = (v) => {
+            if (v === undefined || v === null || String(v).trim() === "")
+                return undefined;
+            const d = new Date(v);
+            return isNaN(d.getTime()) ? undefined : d;
+        };
+        const fFactIn = normalizeDateIn(fechaFacturacion);
+        const fCobroIn = normalizeDateIn(fechaCobro);
         // Determinar si hay cambios reales de encabezado respecto a valores actuales
         const numEq = (a, b) => Number(a ?? 0) === Number(b ?? 0);
         const dateEq = (a, b) => {
@@ -1381,13 +1738,16 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
                 return true;
             if (!a || !b)
                 return false;
-            return new Date(a).getTime() === new Date(b).getTime();
+            const da = new Date(a).getTime();
+            const db = new Date(b).getTime();
+            // tolerar pequeñas diferencias de milisegundos
+            return Math.abs(da - db) < 1000;
         };
         const headerChanged = ((idCliente !== undefined && !numEq(idCliente, ventaAntes.idCliente)) ||
             (idTipoPago !== undefined && !numEq(idTipoPago, ventaAntes.idTipoPago)) ||
-            (observacion !== undefined && String(observacion ?? null) !== String(ventaAntes.observacion ?? null)) ||
-            (fechaFacturacion !== undefined && !dateEq(fechaFacturacion, ventaAntes.fechaVenta)) ||
-            (fechaCobro !== undefined && !dateEq(fechaCobro, ventaAntes.fechaCobroVenta)) ||
+            (observacion !== undefined && String(observacion).trim() !== String(ventaAntes.observacion ?? "").trim()) ||
+            (fFactIn !== undefined && !dateEq(fFactIn, ventaAntes.fechaVenta)) ||
+            (fCobroIn !== undefined && !dateEq(fCobroIn, ventaAntes.fechaCobroVenta)) ||
             (idMoneda !== undefined && !numEq(idMoneda, ventaAntes.idMoneda)) ||
             (descuentoGeneral !== undefined && !numEq(descuentoGeneral, ventaAntes.descuentoGeneralVenta)) ||
             (ajuste !== undefined && !numEq(ajuste, ventaAntes.ajusteVenta)) ||
@@ -1395,11 +1755,12 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
         // --- SOLO escrituras dentro de la transacción. Sin lecturas finales aquí.
         await prisma.$transaction(async (tx) => {
             const idPend = await getEstadoId(tx, ESTADOS.PENDIENTE);
+            const idRes = await getEstadoId(tx, ESTADOS.RESERVADO);
             const idLC = await getEstadoId(tx, ESTADOS.LISTO_CAJA);
             const idFin = await getEstadoId(tx, ESTADOS.FINALIZADA);
             const idCan = await getEstadoId(tx, ESTADOS.CANCELADA);
             if (accion === "guardar") {
-                const editable = [ESTADOS.PENDIENTE, ESTADOS.LISTO_CAJA].map(norm);
+                const editable = [ESTADOS.PENDIENTE, ESTADOS.RESERVADO, ESTADOS.LISTO_CAJA].map(norm);
                 if (!editable.includes(norm(estadoActualNombre)))
                     throw new Error("ESTADO_INVALIDO");
                 const antes = await tx.detalleVenta.findMany({
@@ -1410,9 +1771,9 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
                     ? {
                         ...(idCliente !== undefined && idCliente !== null && idCliente !== "" && { idCliente: Number(idCliente) }),
                         ...(idTipoPago !== undefined && idTipoPago !== null && idTipoPago !== "" && { idTipoPago: Number(idTipoPago) }),
-                        ...(observacion !== undefined && { observacion: observacion ?? null }),
-                        ...(fechaFacturacion && { fechaVenta: new Date(fechaFacturacion) }),
-                        ...(fechaCobro && { fechaCobroVenta: new Date(fechaCobro) }),
+                        ...(observacion !== undefined && { observacion }),
+                        ...(fFactIn !== undefined && !dateEq(fFactIn, ventaAntes.fechaVenta) && { fechaVenta: fFactIn }),
+                        ...(fCobroIn !== undefined && !dateEq(fCobroIn, ventaAntes.fechaCobroVenta) && { fechaCobroVenta: fCobroIn }),
                         ...(idMoneda !== undefined && idMoneda !== null && idMoneda !== "" && { idMoneda: Number(idMoneda) }),
                         ...(descuentoGeneral !== undefined && { descuentoGeneralVenta: new client_1.Prisma.Decimal(descuentoGeneral) }),
                         ...(ajuste !== undefined && { ajusteVenta: new client_1.Prisma.Decimal(ajuste) }),
@@ -1443,11 +1804,33 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
                     throw new Error("SIN_ITEMS");
                 // Resolver precios por defecto y evaluar si los detalles cambian
                 const ids = itemsOk.map(i => Number(i.idProducto)).filter((x) => Number(x));
-                const precios = await tx.producto.findMany({
+                const productos = await tx.producto.findMany({
                     where: { idProducto: { in: ids } },
-                    select: { idProducto: true, precioVentaPublicoProducto: true },
+                    select: {
+                        idProducto: true,
+                        precioVentaPublicoProducto: true,
+                        ofertaProducto: true,
+                        porcentajeOfertaProducto: true,
+                        fechaInicioOferta: true,
+                        fechaFinOferta: true,
+                    },
                 });
-                const priceMap = new Map(precios.map((p) => [Number(p.idProducto), Number(p.precioVentaPublicoProducto ?? 0)]));
+                const priceMap = new Map(productos.map((p) => [Number(p.idProducto), Number(p.precioVentaPublicoProducto ?? 0)]));
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const todayTs = today.getTime();
+                const offerPctMap = new Map();
+                for (const p of productos) {
+                    const pct = Number(p.porcentajeOfertaProducto ?? 0);
+                    const flag = p.ofertaProducto;
+                    const ini = parseLocalDate(p.fechaInicioOferta, false);
+                    const fin = parseLocalDate(p.fechaFinOferta, true);
+                    const iniTs = ini ? ini.getTime() : null;
+                    const finTs = fin ? fin.getTime() : null;
+                    const dentro = (iniTs == null || todayTs >= iniTs) && (finTs == null || todayTs <= finTs);
+                    const activo = (flag === undefined ? pct > 0 : Boolean(flag)) && pct > 0 && dentro;
+                    offerPctMap.set(Number(p.idProducto), activo ? pct : 0);
+                }
                 const reqMap = new Map();
                 for (const i of itemsOk) {
                     reqMap.set(Number(i.idProducto), {
@@ -1472,16 +1855,22 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
                     // reemplazar detalles
                     try {
                         await tx.detalleVenta.deleteMany({ where: { idVenta: id } });
-                        await tx.detalleVenta.createMany({
-                            data: itemsOk.map(i => ({
+                        const dataDetalles = itemsOk.map(i => {
+                            const idProd = Number(i.idProducto);
+                            const prev = beforeMap.get(idProd);
+                            const precio = toDec2(i.precioUnit ?? priceMap.get(idProd) ?? 0);
+                            const desc = toDec2(i.descuentoItem ?? (prev ? prev.d : (offerPctMap.get(idProd) ?? 0)));
+                            const rec = toDec2(i.recargoItem ?? 0);
+                            return {
                                 idVenta: id,
-                                idProducto: Number(i.idProducto),
+                                idProducto: idProd,
                                 cantidad: toDec3(i.cantidad),
-                                precioUnit: toDec2(i.precioUnit ?? priceMap.get(Number(i.idProducto)) ?? 0),
-                                descuentoItem: toDec2(i.descuentoItem ?? 0),
-                                recargoItem: toDec2(i.recargoItem ?? 0),
-                            })),
+                                precioUnit: precio,
+                                descuentoItem: desc,
+                                recargoItem: rec,
+                            };
                         });
+                        await tx.detalleVenta.createMany({ data: dataDetalles });
                         // fuerza error inmediato si la transacción quedó abortada
                         await tx.$executeRaw `SELECT 1`;
                     }
@@ -1536,34 +1925,69 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
                     }));
                 // Registrar evento de edición SOLO si hubo cambios reales
                 if (headerChanged || itemsChanged || incs.length || decs.length) {
-                    const desdeId = norm(estadoActualNombre) === norm(ESTADOS.PENDIENTE) ? idPend : idLC;
+                    const estadoNorm = norm(estadoActualNombre);
+                    const desdeId = estadoNorm === norm(ESTADOS.PENDIENTE)
+                        ? idPend
+                        : (estadoNorm === norm(ESTADOS.RESERVADO) ? idRes : idLC);
                     await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId, hastaId: desdeId, motivo: "edición" });
                     await registrarActor(tx, { idVenta: id, idUsuario, papel: client_1.PapelEnVenta.EDITOR });
+                    if (comentarioCajero && String(comentarioCajero).trim().length > 0) {
+                        await agregarComentario(tx, { idVenta: id, idUsuario, comentario: String(comentarioCajero) });
+                    }
                 }
             }
-            // --- LOCK ---
-            else if (accion === "lock") {
+            // --- RESERVAR ---
+            else if (accion === "reservar") {
                 if (norm(estadoActualNombre) !== norm(ESTADOS.PENDIENTE))
                     throw new Error("ESTADO_INVALIDO");
                 await tx.venta.update({
                     where: { idVenta: id },
-                    data: { idEstadoVenta: idLC, estadoPago: 'PENDIENTE' },
+                    data: { idEstadoVenta: idRes, estadoPago: 'PENDIENTE' },
                 });
                 await registrarEventoIds(tx, {
                     idVenta: id, idUsuario,
-                    desdeId: idPend, hastaId: idLC,
-                    motivo: "cerrada por vendedor"
+                    desdeId: idPend, hastaId: idRes,
+                    motivo: "reservada",
                 });
                 await registrarActor(tx, { idVenta: id, idUsuario, papel: client_1.PapelEnVenta.EDITOR });
             }
+            // --- LOCK ---
+            else if (accion === "lock") {
+                const estadoNorm = norm(estadoActualNombre);
+                if (![norm(ESTADOS.PENDIENTE), norm(ESTADOS.RESERVADO)].includes(estadoNorm))
+                    throw new Error("ESTADO_INVALIDO");
+                if (!motivoLock || String(motivoLock).trim().length === 0)
+                    throw new Error("MOTIVO_REQUERIDO");
+                console.log("LOCK preventa", { id, estadoAntes: estadoActualNombre });
+                await tx.venta.update({
+                    where: { idVenta: id },
+                    data: {
+                        idEstadoVenta: idLC,
+                        estadoPago: 'PENDIENTE',
+                        // Al hacer LOCK, extender vigencia 24h desde ahora
+                        fechaVencimiento: new Date(Date.now() + 24 * 60 * 60 * 1000),
+                    },
+                });
+                const desdeId = estadoNorm === norm(ESTADOS.RESERVADO) ? idRes : idPend;
+                await registrarEventoIds(tx, {
+                    idVenta: id, idUsuario,
+                    desdeId, hastaId: idLC,
+                    motivo: String(motivoLock)
+                });
+                await registrarActor(tx, { idVenta: id, idUsuario, papel: client_1.PapelEnVenta.EDITOR });
+                await agregarComentario(tx, { idVenta: id, idUsuario, comentario: String(motivoLock) });
+                console.log("LOCK preventa DONE", { id, estadoDespues: ESTADOS.LISTO_CAJA });
+            }
             else if (accion === "cancelar") {
-                if (![norm(ESTADOS.PENDIENTE), norm(ESTADOS.LISTO_CAJA)].includes(norm(estadoActualNombre)))
+                if (![norm(ESTADOS.PENDIENTE), norm(ESTADOS.RESERVADO), norm(ESTADOS.LISTO_CAJA)].includes(norm(estadoActualNombre)))
                     throw new Error("ESTADO_INVALIDO");
                 if (!motivoCancelacion || String(motivoCancelacion).trim().length === 0)
                     throw new Error("MOTIVO_REQUERIDO");
                 const itemsAct = await leerItemsVenta(tx, id);
                 await liberarComprometido(tx, itemsAct);
-                const desde = norm(estadoActualNombre) === norm(ESTADOS.PENDIENTE) ? idPend : idLC;
+                const desde = norm(estadoActualNombre) === norm(ESTADOS.PENDIENTE)
+                    ? idPend
+                    : (norm(estadoActualNombre) === norm(ESTADOS.RESERVADO) ? idRes : idLC);
                 await tx.venta.update({
                     where: { idVenta: id },
                     data: { idEstadoVenta: idCan },
@@ -1578,14 +2002,52 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
                 const itemsAct = await leerItemsVenta(tx, id);
                 if (itemsAct.length === 0)
                     throw new Error("SIN_ITEMS");
+                // Antes de descontar stock, aplicar descuentos por oferta vigentes al momento del cobro
+                {
+                    const idsProd = itemsAct.map((i) => Number(i.idProducto)).filter((x) => Number(x));
+                    if (idsProd.length > 0) {
+                        const prods = await tx.producto.findMany({
+                            where: { idProducto: { in: idsProd } },
+                            select: {
+                                idProducto: true,
+                                ofertaProducto: true,
+                                porcentajeOfertaProducto: true,
+                                fechaInicioOferta: true,
+                                fechaFinOferta: true,
+                            },
+                        });
+                        const now = new Date();
+                        now.setHours(0, 0, 0, 0);
+                        const nowTs = now.getTime();
+                        for (const p of prods) {
+                            const pct = Number(p.porcentajeOfertaProducto ?? 0);
+                            const flag = p.ofertaProducto;
+                            const ini = parseLocalDate(p.fechaInicioOferta, false);
+                            const fin = parseLocalDate(p.fechaFinOferta, true);
+                            const iniTs = ini ? ini.getTime() : null;
+                            const finTs = fin ? fin.getTime() : null;
+                            const dentro = (iniTs == null || nowTs >= iniTs) && (finTs == null || nowTs <= finTs);
+                            const activo = (flag === undefined ? pct > 0 : Boolean(flag)) && pct > 0 && dentro;
+                            const descuento = activo ? pct : 0;
+                            // Guardar el descuento por oferta directamente en el detalle
+                            await tx.detalleVenta.updateMany({
+                                where: { idVenta: id, idProducto: Number(p.idProducto) },
+                                data: { descuentoItem: toDec2(descuento) },
+                            });
+                        }
+                    }
+                }
                 await validarReal(tx, itemsAct);
                 await descontarRealYComprometido(tx, itemsAct);
                 await tx.venta.update({
                     where: { idVenta: id },
-                    data: { idEstadoVenta: idFin, estadoPago: 'PAGADO' },
+                    data: { idEstadoVenta: idFin, estadoPago: 'PAGADO', fechaCobroVenta: new Date() },
                 });
                 await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: idLC, hastaId: idFin, motivo: "cobrada" });
                 await registrarActor(tx, { idVenta: id, idUsuario, papel: client_1.PapelEnVenta.CAJERO });
+                if (comentarioCajero && String(comentarioCajero).trim().length > 0) {
+                    await agregarComentario(tx, { idVenta: id, idUsuario, comentario: String(comentarioCajero) });
+                }
             }
             else {
                 throw new Error("ACCION_DESCONOCIDA");
@@ -1596,6 +2058,19 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
             where: { idVenta: id },
             include: { EstadoVenta: true, detalles: { include: { Producto: true } } },
         });
+        try {
+            const estadoResp = out?.EstadoVenta?.nombreEstadoVenta ?? null;
+            const accionResp = String(accion || "").toLowerCase();
+            if (estadoResp && DEV) {
+                console.log("PUT /api/preventas/:id done", { id, accion: accionResp, estado: estadoResp });
+            }
+            // Superficie un aviso en el frontend si se cerró o cambió de estado
+            if (estadoResp && accionResp === "lock") {
+                res.set("x-notification", `Estado actualizado: ${estadoResp}`);
+                res.set("x-notification-type", "success");
+            }
+        }
+        catch { }
         return res.json(out);
     }
     catch (err) {
@@ -1664,16 +2139,16 @@ app.put("/api/preventas/:id/reserva", requireAuth_1.requireAuth, async (req, res
 // Listado de PREVENTAS con reserva vencida
 app.get("/api/preventas/reservas-vencidas", requireAuth_1.requireAuth, async (_req, res) => {
     try {
-        // obtener id del estado 'Pendiente'
+        // obtener id del estado 'Reservado'
         const estados = await prisma.estadoVenta.findMany({
             select: { idEstadoVenta: true, nombreEstadoVenta: true },
         });
-        const pendiente = estados.find(e => e.nombreEstadoVenta.toLowerCase() === "pendiente")?.idEstadoVenta;
-        if (!pendiente)
+        const reservado = estados.find(e => e.nombreEstadoVenta.toLowerCase() === "reservado")?.idEstadoVenta;
+        if (!reservado)
             return res.json([]);
         const rows = await prisma.venta.findMany({
             where: {
-                idEstadoVenta: pendiente,
+                idEstadoVenta: reservado,
                 fechaReservaLimite: { not: null, lt: new Date() },
             },
             orderBy: { fechaVenta: "asc" },
@@ -1881,6 +2356,23 @@ app.get("/api/_meta/product-columns", async (_req, res) => {
   `);
     res.json(cols.map(c => c.column_name));
 });
+// Endpoint de debug para pruebas: devuelve IDs de estados (solo en DEV)
+if (DEV) {
+    app.get("/api/_debug/estado-ids", async (_req, res) => {
+        try {
+            const estados = await prisma.estadoVenta.findMany({
+                select: { idEstadoVenta: true, nombreEstadoVenta: true },
+                orderBy: { idEstadoVenta: "asc" },
+            });
+            const map = Object.fromEntries(estados.map((e) => [e.nombreEstadoVenta, e.idEstadoVenta]));
+            res.json({ estados: map });
+        }
+        catch (err) {
+            console.error("_debug/estado-ids error", err);
+            res.status(500).json({ error: "SERVER_ERROR" });
+        }
+    });
+}
 /* ========================
    STATS (Productos, Clientes, Meses)
    ======================== */
@@ -2117,4 +2609,277 @@ app.get("/api/stats/months", requireAuth_1.requireAuth, (0, authorize_1.authoriz
     const best = series.reduce((acc, cur) => (cur.monto > (acc.monto ?? 0) ? cur : acc), { month: null, monto: 0 });
     res.json({ series, bestMonth: best.month, bestAmount: best.monto });
 });
+/* ========================
+   CIERRE DE CAJA (básico)
+   ======================== */
+// Rango de un día calendario [00:00, siguiente 00:00)
+function rangoDia(dateStr) {
+    const d = parseLocalDate(dateStr) ?? new Date();
+    const desde = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0);
+    const hasta = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0);
+    return { desde, hasta };
+}
+// Calcula totales del día para cierre
+async function calcularTotalesCierre(fechaStr) {
+    const { desde, hasta } = rangoDia(fechaStr);
+    // Ventas cobradas ese día por fechaCobroVenta
+    const ventasPorCobro = (await prisma.venta.findMany({
+        where: {
+            fechaCobroVenta: { gte: desde, lt: hasta },
+            estadoPago: "PAGADO",
+        },
+        select: {
+            idVenta: true,
+            idTipoPago: true,
+            TipoPago: { select: { tipoPago: true } },
+            Cliente: { select: { nombreCliente: true, apellidoCliente: true } },
+        },
+    }));
+    // Regla clara: el cierre usa exclusivamente fechaCobroVenta.
+    // Evitamos confusión con eventos "cobrada" que podrían tener timestamps distintos.
+    const ventas = ventasPorCobro;
+    let totalVentas = 0;
+    const porMetodo = new Map();
+    const ventasDelDia = [];
+    for (const v of ventas) {
+        const totalV = Number(await calcularTotal(Number(v.idVenta)));
+        totalVentas += totalV;
+        const metodo = v.TipoPago?.tipoPago ?? String(v.idTipoPago);
+        const prev = porMetodo.get(metodo) ?? 0;
+        porMetodo.set(metodo, prev + totalV);
+        const cliente = [v.Cliente?.nombreCliente, v.Cliente?.apellidoCliente].filter(Boolean).join(" ") || "-";
+        ventasDelDia.push({ idVenta: Number(v.idVenta), cliente, metodoPago: metodo, total: totalV });
+    }
+    const ventasPorMetodo = Array.from(porMetodo.entries()).map(([metodo, total]) => ({ metodo, total }));
+    // Compras finalizadas ese día
+    const compras = await prisma.compra.findMany({
+        where: {
+            fechaComprobanteCompra: { gte: desde, lt: hasta },
+            estado: "Finalizado",
+        },
+        select: { id: true, total: true, Proveedor: { select: { nombreProveedor: true } } },
+    });
+    const totalCompras = compras.reduce((acc, c) => acc + Number(c.total ?? 0), 0);
+    const comprasDelDia = compras.map((c) => ({ idCompra: Number(c.id), proveedor: c.Proveedor?.nombreProveedor ?? "-", total: Number(c.total ?? 0) }));
+    const totalCobros = totalVentas; // si no hay otros cobros
+    // Egresos del día
+    const egresos = (await prisma.egresoCaja.findMany({
+        where: { fecha: { gte: desde, lt: hasta } },
+        select: { monto: true, comentario: true },
+        orderBy: { createdAt: "asc" },
+    }));
+    const totalEgresos = egresos.reduce((acc, e) => acc + Number(e.monto ?? 0), 0);
+    return { totalVentas, totalCobros, totalCompras, totalEgresos, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia };
+}
+// POST: generar cierre de caja
+app.post("/api/cierres-caja", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (req, res) => {
+    try {
+        const { fecha, saldoInicial, motivoSaldoInicial: rawMotivoSaldoInicial } = req.body ?? {};
+        if (!fecha) {
+            return res.status(400).json({ error: "Fecha requerida" });
+        }
+        const { desde, hasta } = rangoDia(String(fecha));
+        // evitar duplicados del mismo día
+        const cierreExistente = await prisma.cierreCaja.findFirst({
+            where: { fecha: { gte: desde, lt: hasta } },
+        });
+        if (cierreExistente) {
+            return res.status(409).json({ error: "Ya existe un cierre para ese día" });
+        }
+        // calcular totales del día
+        const { totalVentas, totalCobros, totalCompras, totalEgresos } = await calcularTotalesCierre(String(fecha));
+        // saldo inicial (si no viene, tomar último cierre anterior)
+        let saldoIni = Number(saldoInicial ?? 0);
+        const motivoSaldoInicial = rawMotivoSaldoInicial != null ? String(rawMotivoSaldoInicial).trim() : undefined;
+        if (saldoInicial == null) {
+            const ultimo = await prisma.cierreCaja.findFirst({
+                where: { fecha: { lt: desde } },
+                orderBy: { fecha: "desc" },
+            });
+            if (ultimo) {
+                saldoIni = Number(ultimo.saldoFinal);
+            }
+        }
+        else {
+            const ultimo = await prisma.cierreCaja.findFirst({
+                where: { fecha: { lt: desde } },
+                orderBy: { fecha: "desc" },
+            });
+            if (ultimo && Number(ultimo.saldoFinal) !== saldoIni && !motivoSaldoInicial) {
+                return res.status(400).json({ error: "Motivo requerido para modificar saldo inicial" });
+            }
+        }
+        // Saldo final centrado en efectivo (sin compras)
+        const saldoFinal = saldoIni + totalCobros - totalEgresos;
+        const cierre = await prisma.cierreCaja.create({
+            data: {
+                fecha: desde,
+                totalVentas: toDec2(totalVentas),
+                totalCobros: toDec2(totalCobros),
+                totalCompras: toDec2(totalCompras),
+                totalEgresos: toDec2(totalEgresos),
+                saldoInicial: toDec2(saldoIni),
+                saldoFinal: toDec2(saldoFinal),
+                motivoSaldoInicial: motivoSaldoInicial ?? null,
+                idUsuario: getUserId(req),
+            },
+        });
+        res.json(cierre);
+    }
+    catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Error al generar el cierre de caja" });
+    }
+});
+// GET: listado de cierres (rango opcional)
+app.get("/api/cierres-caja", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (req, res) => {
+    const { desde, hasta } = req.query;
+    const where = {};
+    if (desde || hasta) {
+        where.fecha = {};
+        if (desde)
+            where.fecha.gte = new Date(String(desde));
+        if (hasta) {
+            const dHasta = new Date(String(hasta));
+            dHasta.setDate(dHasta.getDate() + 1);
+            where.fecha.lt = dHasta;
+        }
+    }
+    const cierres = await prisma.cierreCaja.findMany({
+        where,
+        orderBy: { fecha: "desc" },
+        include: { Usuario: true },
+    });
+    res.json(cierres);
+});
+// GET: preview de cierre (sin persistir)
+app.get("/api/cierres-caja/preview", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (req, res) => {
+    try {
+        const fecha = String(req.query?.fecha ?? "");
+        if (!fecha)
+            return res.status(400).json({ error: "Fecha requerida" });
+        const { desde } = rangoDia(fecha);
+        const { totalVentas, totalCobros, totalCompras, totalEgresos, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia } = await calcularTotalesCierre(fecha);
+        let saldoInicial = Number(req.query?.saldoInicial ?? 0);
+        const saldoInicialProvided = req.query?.saldoInicial != null;
+        let motivoSaldoInicial = String(req.query?.motivoSaldoInicial ?? "").trim();
+        if (!saldoInicialProvided) {
+            const ultimo = await prisma.cierreCaja.findFirst({
+                where: { fecha: { lt: desde } },
+                orderBy: { fecha: "desc" },
+            });
+            if (ultimo)
+                saldoInicial = Number(ultimo.saldoFinal);
+        }
+        else {
+            const ultimo = await prisma.cierreCaja.findFirst({
+                where: { fecha: { lt: desde } },
+                orderBy: { fecha: "desc" },
+            });
+            if (ultimo && Number(ultimo.saldoFinal) !== saldoInicial && !motivoSaldoInicial) {
+                return res.status(400).json({ error: "Motivo requerido para modificar saldo inicial" });
+            }
+        }
+        // Saldo final enfocado en efectivo: saldoInicial + cobros - egresos (sin compras)
+        const saldoFinal = saldoInicial + totalCobros - totalEgresos;
+        res.json({ fecha: desde, totalVentas, totalCobros, totalCompras, totalEgresos, saldoInicial, saldoFinal, motivoSaldoInicial, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia });
+    }
+    catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Error en preview de cierre" });
+    }
+});
+// Egresos de caja
+app.post("/api/egresos-caja", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (req, res) => {
+    try {
+        const { fecha, monto, comentario } = req.body ?? {};
+        if (!fecha || monto == null)
+            return res.status(400).json({ error: "Fecha y monto requeridos" });
+        const parsed = parseLocalDate(String(fecha));
+        if (!parsed)
+            return res.status(400).json({ error: "Fecha inválida" });
+        const egreso = await prisma.egresoCaja.create({
+            data: {
+                fecha: parsed,
+                monto: toDec2(Number(monto)),
+                comentario: comentario ?? null,
+                idUsuario: getUserId(req),
+            },
+        });
+        res.json(egreso);
+    }
+    catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Error al registrar egreso" });
+    }
+});
+app.get("/api/egresos-caja", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (req, res) => {
+    const fecha = String(req.query?.fecha ?? "");
+    const { desde, hasta } = fecha ? rangoDia(fecha) : { desde: undefined, hasta: undefined };
+    const where = fecha ? { fecha: { gte: desde, lt: hasta } } : {};
+    const rows = await prisma.egresoCaja.findMany({
+        where,
+        orderBy: { fecha: "desc" },
+        include: { Usuario: true },
+    });
+    res.json(rows);
+});
+// Editar egreso de caja (monto/comentario)
+app.put("/api/egresos-caja/:id", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (req, res) => {
+    try {
+        const id = Number(req.params?.id);
+        if (!id)
+            return res.status(400).json({ error: "ID inválido" });
+        const { monto, comentario } = req.body ?? {};
+        if (monto == null && comentario == null)
+            return res.status(400).json({ error: "Nada para actualizar" });
+        const data = {};
+        if (monto != null)
+            data.monto = toDec2(Number(monto));
+        if (comentario !== undefined)
+            data.comentario = comentario ?? null;
+        const row = await prisma.egresoCaja.update({ where: { idEgreso: id }, data });
+        res.json(row);
+    }
+    catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Error al editar egreso" });
+    }
+});
+// Eliminar egreso de caja
+app.delete("/api/egresos-caja/:id", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (req, res) => {
+    try {
+        const id = Number(req.params?.id);
+        if (!id)
+            return res.status(400).json({ error: "ID inválido" });
+        await prisma.egresoCaja.delete({ where: { idEgreso: id } });
+        res.json({ ok: true });
+    }
+    catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Error al eliminar egreso" });
+    }
+});
+// GET: detalle de un cierre
+app.get("/api/cierres-caja/:id", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (req, res) => {
+    const id = Number(req.params.id);
+    const cierre = await prisma.cierreCaja.findUnique({
+        where: { idCierre: id },
+        include: { Usuario: true },
+    });
+    if (!cierre)
+        return res.status(404).json({ error: "Cierre no encontrado" });
+    res.json(cierre);
+});
 app.listen(4000, () => console.log("✅ API corriendo en http://localhost:4000"));
+// Utilidad: parsear fechas de oferta con semántica local por día
+function parseLocalDate(raw, isEnd = false) {
+    if (!raw)
+        return null;
+    if (typeof raw === "string" && raw.length === 10) {
+        // YYYY-MM-DD → interpretado como hora local (inicio 00:00, fin 23:59:59.999)
+        return new Date(`${raw}${isEnd ? "T23:59:59.999" : "T00:00:00"}`);
+    }
+    const d = new Date(raw);
+    return Number.isNaN(d.valueOf()) ? null : d;
+}

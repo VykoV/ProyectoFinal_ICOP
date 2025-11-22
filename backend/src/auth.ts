@@ -1,11 +1,14 @@
 import express from "express";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
+import { Pool } from "pg";
+import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcrypt";
 import { loginSchema } from "./validators/auth";
 import { requireAuth } from "./middleware/requireAuth";
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 // ===============================
 // LOGIN

@@ -516,7 +516,10 @@ seed()
 
 // prisma/seed.ts
 import { PrismaClient, Prisma, PapelEnVenta } from '@prisma/client'
-const prisma = new PrismaClient()
+import { Pool } from 'pg'
+import { PrismaPg } from '@prisma/adapter-pg'
+const pool = new Pool({ connectionString: process.env.DATABASE_URL! })
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) })
 
 async function upsertBy<T>(
   find: () => Promise<T | null>,
@@ -953,7 +956,9 @@ await prisma.producto.createMany({
       where: { codigoProducto: { in: codes } },
       select: { idProducto: true, codigoProducto: true },
     });
-    const idByCode = new Map(prods.map(p => [p.codigoProducto, p.idProducto]));
+    const idByCode = new Map<string, number>(
+      prods.map(p => [p.codigoProducto, p.idProducto] as [string, number])
+    );
     const stockByCode = [
       { code: 'ART-001', bajoMinimoStock: D(5),  cantidadRealStock: D(42.00),   stockComprometido: D(0) },
       { code: 'ART-002', bajoMinimoStock: D(10), cantidadRealStock: D(46.14),   stockComprometido: D(0) },
@@ -966,10 +971,10 @@ await prisma.producto.createMany({
       { code: 'ART-009', bajoMinimoStock: D(5),  cantidadRealStock: D(5264.64), stockComprometido: D(0) },
       { code: 'ART-010', bajoMinimoStock: D(3),  cantidadRealStock: D(1.00),    stockComprometido: D(0) },
     ];
-    const data = stockByCode
+    const data: Array<{ idProducto: number; bajoMinimoStock: any; cantidadRealStock: any; stockComprometido: any }> = stockByCode
       .filter(s => idByCode.has(s.code))
       .map(s => ({
-        idProducto: idByCode.get(s.code)!,
+        idProducto: idByCode.get(s.code) as number,
         bajoMinimoStock: s.bajoMinimoStock,
         cantidadRealStock: s.cantidadRealStock,
         stockComprometido: s.stockComprometido,

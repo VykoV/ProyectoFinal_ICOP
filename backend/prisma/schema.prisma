@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 /**
@@ -338,6 +337,7 @@ model Venta {
   fechaVenta            DateTime          @db.Date
   fechaCobroVenta       DateTime          @db.Date
   fechaReservaLimite    DateTime?         @db.Date
+  fechaVencimiento      DateTime?         @db.Date
   observacion           String?           @db.Text
   idCliente             Int
   idEstadoVenta         Int
@@ -378,28 +378,47 @@ model DetalleVenta {
 /**
  * ===== Notificaciones =====
  */
-enum TipoNotificacion {
-  MONEDA
-  STOCK_BAJO
-  RESERVA_VENCIDA
-  OTRO
-}
-
 enum NivelNotificacion {
   INFO
   WARN
   ERROR
 }
 
+enum DestinatarioNotificacion {
+  ADMIN
+  CAJERO
+  VENDEDOR
+  TODOS
+}
+
+enum TipoNotificacion {
+  MONEDA_DESACTUALIZADA      // Admin
+  STOCK_BAJO                 // Admin (y si querés Vendedor)
+  CIERRE_CAJA_PENDIENTE      // Admin
+  CIERRE_CAJA_GENERADO       // Admin
+
+  CLIENTE_IMPORTANTE         // Admin
+  OFERTA_PRODUCTO            // Admin
+  COMPRA_PAGO_PENDIENTE      // Admin
+
+  RESERVA_POR_VENCER         // Cajero
+  RESERVA_VENCIDA            // Cajero
+
+  PRESUPUESTOS_PENDIENTES    // Vendedor
+
+  OTRO
+}
+
 model Notificacion {
-  idNotificacion Int               @id @default(autoincrement()) @db.Integer
+  idNotificacion Int                      @id @default(autoincrement()) @db.Integer
   tipo           TipoNotificacion
-  mensaje        String            @db.Text
+  mensaje        String                   @db.Text
   nivel          NivelNotificacion
-  leido          Boolean           @default(false)
+  leido          Boolean                  @default(false)
   data           Json?
-  createdAt      DateTime          @default(now())
+  createdAt      DateTime                 @default(now())
   idUsuario      Int?
+  destinatario   DestinatarioNotificacion
 
   Usuario Usuario? @relation(fields: [idUsuario], references: [idUsuario])
 
@@ -418,6 +437,7 @@ model CierreCaja {
   totalEgresos Decimal  @default(0) @db.Decimal(12, 2)
   saldoInicial Decimal  @default(0) @db.Decimal(12, 2)
   saldoFinal   Decimal  @default(0) @db.Decimal(12, 2)
+  motivoSaldoInicial String?  @db.Text
   idUsuario    Int
   Usuario      Usuario  @relation(fields: [idUsuario], references: [idUsuario])
   createdAt    DateTime @default(now())

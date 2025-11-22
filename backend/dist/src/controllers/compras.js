@@ -8,8 +8,11 @@ exports.remove = remove;
 exports.confirmar = confirmar;
 exports.aplicarStock = aplicarStock;
 const client_1 = require("@prisma/client");
+const pg_1 = require("pg");
+const adapter_pg_1 = require("@prisma/adapter-pg");
 const compras_1 = require("../validators/compras");
-const prisma = new client_1.PrismaClient();
+const pool = new pg_1.Pool({ connectionString: process.env.DATABASE_URL });
+const prisma = new client_1.PrismaClient({ adapter: new adapter_pg_1.PrismaPg(pool) });
 const calcTotal = (items) => items.reduce((acc, i) => acc + i.cantidad * i.precioUnit, 0);
 async function list(req, res) {
     const q = compras_1.comprasQuery.parse(req.query);

@@ -6,14 +6,23 @@ exports.creaPreventaSchema = zod_1.z.object({
     idCliente: zod_1.z.number().int().positive(),
     idTipoPago: zod_1.z.number().int().positive(),
     observacion: zod_1.z.string().nullable().optional(),
+    // permitir tanto "detalles" como "items" en creación
     detalles: zod_1.z
         .array(zod_1.z.object({
         idProducto: zod_1.z.number().int().positive(),
         cantidad: zod_1.z.number().positive(),
     }))
         .min(1),
+    items: zod_1.z
+        .array(zod_1.z.object({
+        idProducto: zod_1.z.number().int().positive(),
+        cantidad: zod_1.z.number().positive(),
+    }))
+        .optional(),
     descuentoGeneral: zod_1.z.number().min(0).max(100).default(0),
-    porcentajeMetodo: zod_1.z.number().min(0).max(100).default(0),
+    recargoPago: zod_1.z.number().min(0).max(100).default(0).optional(),
+    fechaFacturacion: zod_1.z.string().optional(),
+    fechaCobro: zod_1.z.string().optional(),
 });
 exports.editaPreventaSchema = zod_1.z.object({
     accion: zod_1.z.enum(["guardar", "lock", "finalizar", "cancelar"]),

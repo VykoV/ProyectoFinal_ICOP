@@ -1,4 +1,6 @@
 import { PrismaClient, Prisma } from "@prisma/client";
+import { Pool } from "pg";
+import { PrismaPg } from "@prisma/adapter-pg";
 
 /**
  * Deduplica registros consecutivos idénticos en OfertaProductoHistorial
@@ -6,7 +8,8 @@ import { PrismaClient, Prisma } from "@prisma/client";
  * (misma combinación de: ofertaProducto, porcentaje, fechaInicio, fechaFin).
  */
 async function main() {
-  const prisma = new PrismaClient();
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+  const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
   try {
     const rows = await prisma.ofertaProductoHistorial.findMany({
       orderBy: [{ idProducto: "asc" }, { idOfertaProductoHistorial: "asc" }],
