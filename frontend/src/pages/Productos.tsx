@@ -1,7 +1,7 @@
 // src/pages/Productos.tsx
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "../components/DataTable";
-import { Search, Plus, Pencil, Trash, X, Eye } from "lucide-react";
+import { Search, Plus, Pencil, X, Eye } from "lucide-react";
 import { useForm, type SubmitHandler, type Resolver } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -238,44 +238,7 @@ export default function Productos() {
               <Pencil className="h-3.5 w-3.5" /> Editar
             </button>
           )}
-          {!(isVendedor || isCajero) && (
-            <button
-              className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-              onClick={async () => {
-                const id = (row.original as any).id;
-                const nombre = (row.original as any).nombre ?? (row.original as any).nombreProducto;
-                const ok = await askConfirm({
-                  title: "¿Quiere eliminar producto?",
-                  message: nombre ? String(nombre) : "",
-                  confirmText: "Sí",
-                  cancelText: "No",
-                  type: "question",
-                });
-                if (!ok) return;
-                try {
-                  await api.delete(`/products/${id}`);
-                  await loadProducts();
-                  await showAlert({ type: "success", message: "Producto eliminado" });
-                } catch (err: any) {
-                  const s = err?.response?.status;
-                  const e = err?.response?.data;
-                  if (s === 409 && e?.error === "PRODUCT_IN_USE") {
-                    await showAlert({ type: "error", message: e?.message || "No se puede eliminar: el producto tiene movimientos, histórico o stock." });
-                    return;
-                  }
-                  if (s === 409 && e?.error === "FK_CONSTRAINT_IN_USE") {
-                    await showAlert({ type: "error", message: "No se puede eliminar: tiene movimientos relacionados." });
-                    return;
-                  }
-                  await showAlert({ type: "error", message: "No se pudo eliminar" });
-                  console.error(err);
-                }
-              }}
-              title="Eliminar"
-            >
-              <Trash className="h-3.5 w-3.5" /> Eliminar
-            </button>
-          )}
+          {!(isVendedor || isCajero) && null}
         </div>
       ),
       size: 220,

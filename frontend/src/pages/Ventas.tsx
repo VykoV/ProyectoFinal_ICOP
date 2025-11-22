@@ -23,7 +23,7 @@ type VentaRow = {
 };
 
 export default function Ventas() {
-  const [tab, setTab] = useState<"ventas" | "preventas">("ventas");
+  const [tab, setTab] = useState<"ventas" | "preventas">("preventas");
 
   // modal registrar venta nueva
   const [openNuevaVenta, setOpenNuevaVenta] = useState(false);
@@ -426,16 +426,6 @@ setPreRows(
       {/* Tabs */}
       <div className="flex gap-2 border-b">
         <button
-          onClick={() => setTab("ventas")}
-          className={`px-4 py-2 text-sm font-medium ${
-            tab === "ventas"
-              ? "border-b-2 border-black text-black"
-              : "text-gray-500"
-          }`}
-        >
-          Ventas
-        </button>
-        <button
           onClick={() => setTab("preventas")}
           className={`px-4 py-2 text-sm font-medium ${
             tab === "preventas"
@@ -444,6 +434,16 @@ setPreRows(
           }`}
         >
           Presupuestos Pendientes
+        </button>
+        <button
+          onClick={() => setTab("ventas")}
+          className={`px-4 py-2 text-sm font-medium ${
+            tab === "ventas"
+              ? "border-b-2 border-black text-black"
+              : "text-gray-500"
+          }`}
+        >
+          Ventas
         </button>
       </div>
 

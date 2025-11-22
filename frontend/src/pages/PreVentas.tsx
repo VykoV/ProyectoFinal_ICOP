@@ -7,7 +7,7 @@ import { api } from "../lib/api";
 import { fmtPrice } from "../lib/format";
 import Modal from "../components/Modal";
 import { getProductStock } from "../lib/api/products";
-import { askText } from "../lib/alerts";
+import { askText, askConfirm, showAlert } from "../lib/alerts";
 
 /* ===== Tipos ===== */
   type PreRow = {
@@ -664,6 +664,9 @@ function PreventaView({
   const estadoStr =
     venta?.EstadoVenta?.nombreEstadoVenta ??
     (venta?.idEstadoVenta ? `Estado ${venta.idEstadoVenta}` : "-");
+  const estadoEsReservado = String(estadoStr || "")
+    .toLowerCase()
+    .replace(/[\s_]+/g, "") === "reservado";
 
   // 2. Flag editable. Solo si está "Pendiente"
   const isEditable =
@@ -683,24 +686,26 @@ function PreventaView({
 
   // 3. Handler para cerrar edición (lock -> ListoCaja)
   async function terminarEdicion() {
-    const ok = window.confirm(
-      "¿Finalizar edición?\nYa no vas a poder modificar ni eliminar este presupuesto."
-    );
+    const ok = await askConfirm({
+      title: "Finalizar edición",
+      message: "¿Confirmás finalizar la edición? Ya no vas a poder modificar ni eliminar este presupuesto.",
+      confirmText: "Sí",
+      cancelText: "No",
+      type: "question",
+    });
     if (!ok) return;
 
     try {
       await api.put(`/preventas/${id}`, {
         accion: "lock",
+        motivoLock: "finalización de edición",
       });
 
       // Cerramos modal y pedimos reload al padre
       onClose(true);
+      await showAlert({ type: "success", title: "Éxito", message: "Edición finalizada" });
     } catch (e: any) {
-      alert(
-        e?.response?.data?.error ||
-          e?.message ||
-          "No se pudo finalizar la edición"
-      );
+      await showAlert({ type: "error", title: "Error", message: e?.response?.data?.error || e?.message || "No se pudo finalizar la edición" });
     }
   }
 
@@ -749,9 +754,11 @@ function PreventaView({
                       Fecha:{" "}
                       {String(venta?.fechaVenta ?? "").slice(0, 10) || "-"}
                     </span>
-                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
-                      Estado: {estadoStr}
-                    </span>
+                    {!estadoEsReservado && (
+                      <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
+                        Estado: {estadoStr}
+                      </span>
+                    )}
                     {venta?.fechaReservaLimite ? (
                       <span
                         className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
@@ -760,7 +767,7 @@ function PreventaView({
                             : "bg-green-100 text-green-800"
                         }`}
                       >
-                        Reserva hasta:{" "}
+                        Estado: Reservado hasta {""}
                         {new Date(venta.fechaReservaLimite).toLocaleString()}
                       </span>
                     ) : (
@@ -838,7 +845,7 @@ function PreventaView({
             <div>
               <p className="text-gray-700 font-medium mb-2">Productos</p>
 
-              <div className="rounded-xl border overflow-hidden">
+              <div className="rounded-xl border overflow-hidden mb-4">
                 <table className="w-full text-xs">
                   <thead className="bg-gray-50 text-gray-500">
                     <tr>
@@ -922,7 +929,7 @@ function PreventaView({
             </div>
 
             {/* Resumen */}
-            <div className="rounded-xl border bg-white p-3">
+            <div className="rounded-xl border bg-white p-3 mt-2">
               <p className="text-gray-700 font-medium mb-2">Resumen</p>
               {loadingVenta ? (
                 <div className="text-sm text-gray-500">Cargando resumen…</div>
@@ -940,10 +947,13 @@ function PreventaView({
                   const recargoPercent = Number(venta?.recargoPagoVenta ?? venta?.recargoPago ?? 0) / 100;
 
                   if (tot) {
-                    subtotalSinIVA = Number(tot.importeNeto ?? 0);
-                    impuestos = Number(tot.impuesto ?? 0);
-                    totalFinal = Number(tot.totalFinal ?? 0);
+                    const total = Number(tot.totalFinal ?? 0);
+                    totalFinal = total;
                     baseArticulos = Number(tot.importeArticulos ?? 0);
+                    // IVA como 21% del total mostrado
+                    impuestos = total * IVA;
+                    subtotalSinIVA = total - impuestos;
+                    // Desglose informativo de descuentos/recargos
                     descuentoGeneralMonto = baseArticulos * descGPercent;
                     const trasDescuento = baseArticulos * (1 - descGPercent);
                     recargoPagoMonto = trasDescuento * recargoPercent;
@@ -962,8 +972,8 @@ function PreventaView({
                     const trasDescuento = baseArticulos * (1 - descGPercent);
                     recargoPagoMonto = trasDescuento * recargoPercent;
                     const finalFallback = trasDescuento * (1 + recargoPercent);
-                    subtotalSinIVA = finalFallback / (1 + IVA);
-                    impuestos = finalFallback - subtotalSinIVA;
+                    impuestos = finalFallback * IVA;
+                    subtotalSinIVA = finalFallback - impuestos;
                     totalFinal = finalFallback;
                   }
 
@@ -1539,15 +1549,12 @@ function PreventaForm({
   const baseTrasDescCliente = baseTrasDescLineas - descClienteMonto;
 
   const IVA = 0.21;
-  const subtotalSinIVA = baseTrasDescCliente;
-  const impuestos = subtotalSinIVA * IVA;
-
-  const totalAntesRecargo = subtotalSinIVA + impuestos;
-
   const recargoPct = tieneRecargoMP ? porcentajeMP : 0;
-  const recargoMonto = totalAntesRecargo * (recargoPct / 100);
-
-  const totalFinal = totalAntesRecargo + recargoMonto;
+  const recargoMonto = baseTrasDescCliente * (recargoPct / 100);
+  const totalConRecargo = baseTrasDescCliente + recargoMonto;
+  const impuestos = totalConRecargo * IVA;
+  const subtotalSinIVA = totalConRecargo - impuestos;
+  const totalFinal = totalConRecargo;
 
   /* ===== Submit ===== */
   async function onSubmit(e?: React.FormEvent) {
@@ -1857,11 +1864,9 @@ function PreventaForm({
                     inputMode="decimal"
                     step="0.1"
                     value={desc}
-                    onChange={(e) =>
-                      setDesc(
-                        Math.min(100, Math.max(0, Number(e.target.value) || 0))
-                      )
-                    }
+                    readOnly
+                    disabled
+                    title="El descuento se determina automáticamente por la oferta del producto"
                   />
                 </div>
 
@@ -1880,7 +1885,7 @@ function PreventaForm({
             </div>
 
             {/* === Tabla productos === */}
-            <div className="rounded-2xl border bg-white p-4">
+            <div className="rounded-2xl border bg-white p-4 mb-4">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-sm font-medium text-gray-700">
                   Productos cargados
@@ -1970,25 +1975,7 @@ function PreventaForm({
                           </>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-center">
-                        {isEdit ? (
-                          <Input
-                            type="number"
-                            inputMode="decimal"
-                            step="0.1"
-                            value={i.descuento}
-                            onChange={(e) =>
-                              setItemDescuento(
-                                i.idProducto,
-                                Number(e.target.value) || 0
-                              )
-                            }
-                            className="w-20 text-center"
-                          />
-                        ) : (
-                          `${i.descuento}%`
-                        )}
-                      </td>
+                      <td className="px-3 py-2 text-center">{`${i.descuento}%`}</td>
                       <td className="px-3 py-2 text-right">
                         $
                         {fmtPrice(
@@ -2024,7 +2011,7 @@ function PreventaForm({
             </div>
 
             {/* === Resumen === */}
-            <div className="rounded-2xl border bg-white p-4">
+            <div className="rounded-2xl border bg-white p-4 mt-4">
               <div className="flex items-start justify-between gap-4 mb-3">
                 <h2 className="font-medium">Resumen del Presupuesto</h2>
                 <span className="rounded-full px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800">
@@ -2039,7 +2026,7 @@ function PreventaForm({
                     Subtotal (sin impuestos)
                   </p>
                   <p className="text-2xl font-semibold">
-                    ${baseTrasDescCliente.toFixed(2)}
+                    ${subtotalSinIVA.toFixed(2)}
                   </p>
                 </div>
 

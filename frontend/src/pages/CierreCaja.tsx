@@ -34,7 +34,7 @@ type CierreCaja = {
   totalEgresos: string;
   saldoInicial: string;
   saldoFinal: string;
-  Usuario?: { nombreUsuario?: string } | null;
+  Usuario?: { nombre?: string } | null;
 };
 
 function todayStr() {
@@ -136,7 +136,7 @@ export default function CierreCajaPage() {
 
   // Listado
   const [cierres, setCierres] = useState<CierreCaja[]>([]);
-  const [egresosDia, setEgresosDia] = useState<Array<{ idEgreso: number; fecha: string; monto: string | number; comentario?: string; Usuario?: { nombreUsuario?: string } }>>([]);
+  const [egresosDia, setEgresosDia] = useState<Array<{ idEgreso: number; fecha: string; monto: string | number; comentario?: string; Usuario?: { nombre?: string } }>>([]);
   const [loadingList, setLoadingList] = useState(false);
   // Exportación por período (Listado)
   function firstDayOfMonthStr() {
@@ -340,6 +340,26 @@ export default function CierreCajaPage() {
     }
   }
 
+  function exportPreviewCSV() {
+    if (!preview) return;
+    const header = toCsvLine(["Campo", "Valor"]);
+    const byMet = sumPorMetodo(preview.ventasPorMetodo || []);
+    const lines: string[] = [];
+    lines.push(toCsvLine(["Fecha", toYmd(preview.fecha)]));
+    lines.push(toCsvLine(["Saldo inicial", preview.saldoInicial]));
+    lines.push(toCsvLine(["Total ventas del día", preview.totalVentas]));
+    lines.push(toCsvLine(["Ventas por método - Efectivo", byMet.Efectivo]));
+    lines.push(toCsvLine(["Ventas por método - Transferencia", byMet.Transferencia]));
+    lines.push(toCsvLine(["Ventas por método - QR", byMet.QR]));
+    lines.push(toCsvLine(["Ventas por método - Crédito", byMet.Crédito]));
+    lines.push(toCsvLine(["Ventas por método - Débito", byMet.Débito]));
+    lines.push(toCsvLine(["Total egresos", preview.totalEgresos]));
+    lines.push(toCsvLine(["Total ingresos efectivo", totalIngresosEfectivo]));
+    lines.push(toCsvLine(["Usuario", String(user?.nombre || user?.email || "-")]))
+    lines.push(toCsvLine(["Saldo final teórico", preview.saldoFinal]));
+    const csv = header + "\n" + lines.join("\n") + "\n";
+    downloadFile(`cierre_preview_${toYmd(preview.fecha)}.csv`, csv, "text/csv;charset=utf-8");
+  }
 
   function printHtml(title: string, html: string) {
     const w = window.open("", "_blank");
@@ -359,6 +379,39 @@ export default function CierreCajaPage() {
     setTimeout(() => w.print(), 200);
   }
 
+  function exportPreviewPDF() {
+    if (!preview) return;
+    const byMet = sumPorMetodo(preview?.ventasPorMetodo || []);
+    const html = `
+      <h1>Informe diario de cierre de caja (Preview)</h1>
+      <table>
+        <tbody>
+          <tr><th>Fecha</th><td>${toYmd(preview.fecha)}</td></tr>
+          <tr><th>Saldo inicial</th><td>${fmt(preview.saldoInicial)}</td></tr>
+          <tr><th>Total ventas del día</th><td>${fmt(preview.totalVentas)}</td></tr>
+          <tr><th>Usuario</th><td>${user?.nombre || user?.email || "-"}</td></tr>
+        </tbody>
+      </table>
+      <h1 style="margin-top:16px">Ventas por método</h1>
+      <table>
+        <tbody>
+          <tr><th>Efectivo</th><td>${fmt(byMet.Efectivo)}</td></tr>
+          <tr><th>Transferencia</th><td>${fmt(byMet.Transferencia)}</td></tr>
+          <tr><th>QR</th><td>${fmt(byMet.QR)}</td></tr>
+          <tr><th>Crédito</th><td>${fmt(byMet.Crédito)}</td></tr>
+          <tr><th>Débito</th><td>${fmt(byMet.Débito)}</td></tr>
+        </tbody>
+      </table>
+      <table>
+        <tbody>
+          <tr><th>Total ingresos efectivo</th><td>${fmt(totalIngresosEfectivo)}</td></tr>
+          <tr><th>Total egresos</th><td>${fmt(preview.totalEgresos)}</td></tr>
+          <tr><th>Saldo final teórico</th><td>${fmt(preview.saldoFinal)}</td></tr>
+        </tbody>
+      </table>
+    `;
+    printHtml(`Cierre_${toYmd(preview.fecha)}`, html);
+  }
 
   async function exportCierreCSV(c: CierreCaja) {
     const ventasMet = await obtenerVentasPorMetodo(toYmd((c as any).fecha));
@@ -377,7 +430,7 @@ export default function CierreCajaPage() {
     lines.push(toCsvLine(["Total ingresos efectivo", ingresosCaja]));
     lines.push(toCsvLine(["Total egresos", Number(c.totalEgresos)]));
     lines.push(toCsvLine(["Saldo final teórico", Number(c.saldoFinal)]));
-    lines.push(toCsvLine(["Usuario", String(c.Usuario?.nombreUsuario ?? "-")]));
+    lines.push(toCsvLine(["Usuario", String(c.Usuario?.nombre ?? "-")]));
     const csv = header + "\n" + lines.join("\n") + "\n";
     downloadFile(`cierre_${toYmd((c as any).fecha)}.csv`, csv, "text/csv;charset=utf-8");
   }
@@ -410,7 +463,7 @@ export default function CierreCajaPage() {
           <tr><th>Total ingresos efectivo</th><td>${fmt(Number(ingresosCaja))}</td></tr>
           <tr><th>Total egresos</th><td>${fmt(Number(c.totalEgresos))}</td></tr>
           <tr><th>Saldo final teórico</th><td>${fmt(Number(c.saldoFinal))}</td></tr>
-          <tr><th>Usuario</th><td>${c.Usuario?.nombreUsuario ?? "-"}</td></tr>
+          <tr><th>Usuario</th><td>${c.Usuario?.nombre ?? "-"}</td></tr>
         </tbody>
       </table>
     `;
@@ -485,7 +538,7 @@ export default function CierreCajaPage() {
       totQr += byMet.QR;
       totCr += byMet.Crédito;
       totDb += byMet.Débito;
-      return toCsvLine([f, ini, vta, byMet.Efectivo, byMet.Transferencia, byMet.QR, byMet.Crédito, byMet.Débito, ingresosCaja, egr, fin, c.Usuario?.nombreUsuario ?? "-"]);
+      return toCsvLine([f, ini, vta, byMet.Efectivo, byMet.Transferencia, byMet.QR, byMet.Crédito, byMet.Débito, ingresosCaja, egr, fin, c.Usuario?.nombre ?? "-"]);
     }))).join("\n");
     const footer = "\n" + toCsvLine(["Totales", totIni, totVentas, totEf, totTr, totQr, totCr, totDb, totIng, totEgresos, totFinal, "-"]);
     const csv = header + "\n" + body + footer + "\n";
@@ -541,7 +594,7 @@ export default function CierreCajaPage() {
           <td>${fmt(ingresosCaja)}</td>
           <td>${fmt(egr)}</td>
           <td>${fmt(fin)}</td>
-          <td>${c.Usuario?.nombreUsuario ?? "-"}</td>
+          <td>${c.Usuario?.nombre ?? "-"}</td>
         </tr>`;
     }))).join("");
     const html = `
@@ -656,14 +709,25 @@ export default function CierreCajaPage() {
                   >
                     {loadingPrev ? "Calculando…" : "Calcular"}
                   </button>
-                  {yaCerrada && (
-                    <span className="ml-auto text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 border" aria-live="polite">
-                      Caja ya cerrada
-                    </span>
-                  )}
                 </div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-medium">Resultado</h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="text-xs border px-2 py-1 rounded"
+                      onClick={exportPreviewCSV}
+                      disabled={!preview}
+                      aria-label="Exportar preview CSV"
+                    >CSV</button>
+                    <button
+                      type="button"
+                      className="text-xs border px-2 py-1 rounded"
+                      onClick={exportPreviewPDF}
+                      disabled={!preview}
+                      aria-label="Exportar preview PDF"
+                    >PDF</button>
+                  </div>
                 </div>
                 {preview ? (
                   <div className="space-y-1 text-sm">
@@ -920,7 +984,6 @@ export default function CierreCajaPage() {
                     <tr className="text-left">
                       <th className="py-2 border-b">Monto</th>
                       <th className="py-2 border-b">Comentario</th>
-                      <th className="py-2 border-b">Usuario</th>
                       <th className="py-2 border-b">Acciones</th>
                     </tr>
                   </thead>
@@ -938,7 +1001,7 @@ export default function CierreCajaPage() {
                     ))}
                     {egresosDia.length === 0 && (
                       <tr>
-                         <td className="py-2 border-b text-gray-600" colSpan={4}>Sin movimientos.</td>
+                         <td className="py-2 border-b text-gray-600" colSpan={3}>Sin movimientos.</td>
                        </tr>
                      )}
                    </tbody>
@@ -1011,7 +1074,7 @@ export default function CierreCajaPage() {
                         <th className="py-2 border-b">Fecha</th>
                         <th className="py-2 border-b">Total Ventas</th>
                         <th className="py-2 border-b">Saldo final efectivo</th>
-                      <th className="py-2 border-b">Usuario</th>
+                        <th className="py-2 border-b">Usuario</th>
                         <th className="py-2 border-b">Acciones</th>
                       </tr>
                     </thead>
@@ -1021,7 +1084,7 @@ export default function CierreCajaPage() {
                           <td className="py-2 border-b">{toYmd((c as any).fecha)}</td>
                           <td className="py-2 border-b">{fmt(c.totalVentas)}</td>
                           <td className={`py-2 border-b ${Number(c.saldoFinal) < 0 ? "text-red-600" : ""}`}>{fmt(c.saldoFinal)}</td>
-                          <td className="py-2 border-b">{c.Usuario?.nombreUsuario ?? "-"}</td>
+                          <td className="py-2 border-b">{c.Usuario?.nombre ?? "-"}</td>
                           <td className="py-2 border-b">
                             <div className="flex items-center gap-2">
                               <button className="text-xs border px-2 py-1 rounded" onClick={() => exportCierreCSV(c)}>CSV</button>
@@ -1085,7 +1148,7 @@ export default function CierreCajaPage() {
 
  
 
-function EgresoRow({ egreso, onChanged, movimientosBloqueados }: { egreso: { idEgreso: number; monto: number | string; comentario?: string | null; Usuario?: { nombreUsuario?: string } | null }; onChanged: () => void; movimientosBloqueados: boolean }) {
+function EgresoRow({ egreso, onChanged, movimientosBloqueados }: { egreso: { idEgreso: number; monto: number | string; comentario?: string | null }; onChanged: () => void; movimientosBloqueados: boolean }) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const comentarioLc = (egreso.comentario ?? "").toLowerCase();
@@ -1162,7 +1225,6 @@ function EgresoRow({ egreso, onChanged, movimientosBloqueados }: { egreso: { idE
           {egreso.comentario ?? "-"}
         </span>
       </td>
-      <td className="py-2 border-b">{egreso.Usuario?.nombreUsuario ?? "-"}</td>
       <td className="py-2 border-b">
         <div className="flex items-center gap-2">
           <button
