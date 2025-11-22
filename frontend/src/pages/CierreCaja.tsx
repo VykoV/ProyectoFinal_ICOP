@@ -34,7 +34,7 @@ type CierreCaja = {
   totalEgresos: string;
   saldoInicial: string;
   saldoFinal: string;
-  Usuario?: { nombre?: string } | null;
+  Usuario?: { nombreUsuario?: string; emailUsuario?: string } | null;
 };
 
 function todayStr() {
@@ -340,26 +340,7 @@ export default function CierreCajaPage() {
     }
   }
 
-  function exportPreviewCSV() {
-    if (!preview) return;
-    const header = toCsvLine(["Campo", "Valor"]);
-    const byMet = sumPorMetodo(preview.ventasPorMetodo || []);
-    const lines: string[] = [];
-    lines.push(toCsvLine(["Fecha", toYmd(preview.fecha)]));
-    lines.push(toCsvLine(["Saldo inicial", preview.saldoInicial]));
-    lines.push(toCsvLine(["Total ventas del día", preview.totalVentas]));
-    lines.push(toCsvLine(["Ventas por método - Efectivo", byMet.Efectivo]));
-    lines.push(toCsvLine(["Ventas por método - Transferencia", byMet.Transferencia]));
-    lines.push(toCsvLine(["Ventas por método - QR", byMet.QR]));
-    lines.push(toCsvLine(["Ventas por método - Crédito", byMet.Crédito]));
-    lines.push(toCsvLine(["Ventas por método - Débito", byMet.Débito]));
-    lines.push(toCsvLine(["Total egresos", preview.totalEgresos]));
-    lines.push(toCsvLine(["Total ingresos efectivo", totalIngresosEfectivo]));
-    lines.push(toCsvLine(["Usuario", String(user?.nombre || user?.email || "-")]))
-    lines.push(toCsvLine(["Saldo final teórico", preview.saldoFinal]));
-    const csv = header + "\n" + lines.join("\n") + "\n";
-    downloadFile(`cierre_preview_${toYmd(preview.fecha)}.csv`, csv, "text/csv;charset=utf-8");
-  }
+  
 
   function printHtml(title: string, html: string) {
     const w = window.open("", "_blank");
@@ -379,39 +360,7 @@ export default function CierreCajaPage() {
     setTimeout(() => w.print(), 200);
   }
 
-  function exportPreviewPDF() {
-    if (!preview) return;
-    const byMet = sumPorMetodo(preview?.ventasPorMetodo || []);
-    const html = `
-      <h1>Informe diario de cierre de caja (Preview)</h1>
-      <table>
-        <tbody>
-          <tr><th>Fecha</th><td>${toYmd(preview.fecha)}</td></tr>
-          <tr><th>Saldo inicial</th><td>${fmt(preview.saldoInicial)}</td></tr>
-          <tr><th>Total ventas del día</th><td>${fmt(preview.totalVentas)}</td></tr>
-          <tr><th>Usuario</th><td>${user?.nombre || user?.email || "-"}</td></tr>
-        </tbody>
-      </table>
-      <h1 style="margin-top:16px">Ventas por método</h1>
-      <table>
-        <tbody>
-          <tr><th>Efectivo</th><td>${fmt(byMet.Efectivo)}</td></tr>
-          <tr><th>Transferencia</th><td>${fmt(byMet.Transferencia)}</td></tr>
-          <tr><th>QR</th><td>${fmt(byMet.QR)}</td></tr>
-          <tr><th>Crédito</th><td>${fmt(byMet.Crédito)}</td></tr>
-          <tr><th>Débito</th><td>${fmt(byMet.Débito)}</td></tr>
-        </tbody>
-      </table>
-      <table>
-        <tbody>
-          <tr><th>Total ingresos efectivo</th><td>${fmt(totalIngresosEfectivo)}</td></tr>
-          <tr><th>Total egresos</th><td>${fmt(preview.totalEgresos)}</td></tr>
-          <tr><th>Saldo final teórico</th><td>${fmt(preview.saldoFinal)}</td></tr>
-        </tbody>
-      </table>
-    `;
-    printHtml(`Cierre_${toYmd(preview.fecha)}`, html);
-  }
+  
 
   async function exportCierreCSV(c: CierreCaja) {
     const ventasMet = await obtenerVentasPorMetodo(toYmd((c as any).fecha));
@@ -430,7 +379,7 @@ export default function CierreCajaPage() {
     lines.push(toCsvLine(["Total ingresos efectivo", ingresosCaja]));
     lines.push(toCsvLine(["Total egresos", Number(c.totalEgresos)]));
     lines.push(toCsvLine(["Saldo final teórico", Number(c.saldoFinal)]));
-    lines.push(toCsvLine(["Usuario", String(c.Usuario?.nombre ?? "-")]));
+    lines.push(toCsvLine(["Usuario", String(c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-")]));
     const csv = header + "\n" + lines.join("\n") + "\n";
     downloadFile(`cierre_${toYmd((c as any).fecha)}.csv`, csv, "text/csv;charset=utf-8");
   }
@@ -463,7 +412,7 @@ export default function CierreCajaPage() {
           <tr><th>Total ingresos efectivo</th><td>${fmt(Number(ingresosCaja))}</td></tr>
           <tr><th>Total egresos</th><td>${fmt(Number(c.totalEgresos))}</td></tr>
           <tr><th>Saldo final teórico</th><td>${fmt(Number(c.saldoFinal))}</td></tr>
-          <tr><th>Usuario</th><td>${c.Usuario?.nombre ?? "-"}</td></tr>
+          <tr><th>Usuario</th><td>${c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-"}</td></tr>
         </tbody>
       </table>
     `;
@@ -538,7 +487,7 @@ export default function CierreCajaPage() {
       totQr += byMet.QR;
       totCr += byMet.Crédito;
       totDb += byMet.Débito;
-      return toCsvLine([f, ini, vta, byMet.Efectivo, byMet.Transferencia, byMet.QR, byMet.Crédito, byMet.Débito, ingresosCaja, egr, fin, c.Usuario?.nombre ?? "-"]);
+      return toCsvLine([f, ini, vta, byMet.Efectivo, byMet.Transferencia, byMet.QR, byMet.Crédito, byMet.Débito, ingresosCaja, egr, fin, c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-"]);
     }))).join("\n");
     const footer = "\n" + toCsvLine(["Totales", totIni, totVentas, totEf, totTr, totQr, totCr, totDb, totIng, totEgresos, totFinal, "-"]);
     const csv = header + "\n" + body + footer + "\n";
@@ -594,7 +543,7 @@ export default function CierreCajaPage() {
           <td>${fmt(ingresosCaja)}</td>
           <td>${fmt(egr)}</td>
           <td>${fmt(fin)}</td>
-          <td>${c.Usuario?.nombre ?? "-"}</td>
+          <td>${c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-"}</td>
         </tr>`;
     }))).join("");
     const html = `
@@ -712,22 +661,7 @@ export default function CierreCajaPage() {
                 </div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-medium">Resultado</h3>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="text-xs border px-2 py-1 rounded"
-                      onClick={exportPreviewCSV}
-                      disabled={!preview}
-                      aria-label="Exportar preview CSV"
-                    >CSV</button>
-                    <button
-                      type="button"
-                      className="text-xs border px-2 py-1 rounded"
-                      onClick={exportPreviewPDF}
-                      disabled={!preview}
-                      aria-label="Exportar preview PDF"
-                    >PDF</button>
-                  </div>
+                  
                 </div>
                 {preview ? (
                   <div className="space-y-1 text-sm">
@@ -1084,7 +1018,7 @@ export default function CierreCajaPage() {
                           <td className="py-2 border-b">{toYmd((c as any).fecha)}</td>
                           <td className="py-2 border-b">{fmt(c.totalVentas)}</td>
                           <td className={`py-2 border-b ${Number(c.saldoFinal) < 0 ? "text-red-600" : ""}`}>{fmt(c.saldoFinal)}</td>
-                          <td className="py-2 border-b">{c.Usuario?.nombre ?? "-"}</td>
+                          <td className="py-2 border-b">{c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-"}</td>
                           <td className="py-2 border-b">
                             <div className="flex items-center gap-2">
                               <button className="text-xs border px-2 py-1 rounded" onClick={() => exportCierreCSV(c)}>CSV</button>

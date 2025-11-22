@@ -1524,14 +1524,7 @@ function PreventaForm({
     );
   }
 
-  function setItemDescuento(idProducto: number, descuento: number) {
-    const pct = Math.min(100, Math.max(0, descuento));
-    setItems((prev) =>
-      prev.map((i) =>
-        i.idProducto === idProducto ? { ...i, descuento: pct } : i
-      )
-    );
-  }
+  
 
   /* ===== Cálculos de totales ===== */
   const bruto = items.reduce((a, i) => a + i.cantidad * i.precio, 0);
