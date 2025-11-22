@@ -42,8 +42,7 @@ export default function Estadisticas() {
   const [monthsCount, setMonthsCount] = useState<number>(6);
   const [salesPurchases, setSalesPurchases] = useState<{ series: Array<{ month: string; ventas: number; compras: number }> }>({ series: [] });
   const [providers, setProviders] = useState<Array<{ idProveedor: number; nombre: string; total: number }>>([]);
-  // Buscar clientes (se mueve al popup) y exclusión
-  const [customerSearch, setCustomerSearch] = useState<string>(""); // deprecado en encabezado
+  // Exclusión de clientes
   const [customerExcludeQuery, setCustomerExcludeQuery] = useState<string>("");
   const [excludedCustomerIds, setExcludedCustomerIds] = useState<number[]>([]);
   // Histórico de precios
@@ -65,30 +64,7 @@ export default function Estadisticas() {
   const [spFiltersOpen, setSpFiltersOpen] = useState(false);
   const [providersFiltersOpen, setProvidersFiltersOpen] = useState(false);
 
-  function resetFilters() {
-    const today = new Date();
-    const startMonth = new Date();
-    startMonth.setDate(1);
-    const r = {
-      desde: startMonth.toISOString().slice(0, 10),
-      hasta: today.toISOString().slice(0, 10),
-    };
-    setProductsRange({ ...r });
-    setCustomersRange({ ...r });
-    setMonthsRange({ ...r });
-    setSpRange({ ...r });
-    setProvidersRange({ ...r });
-    setOrder("desc");
-    setLimit(10);
-    setFamiliaId("");
-    setCustomerMetric("compras");
-    setCustomerSearch("");
-    setMonthsCount(6);
-    setPriceProductQuery("");
-    setPriceProductOpts([]);
-    setPriceProductId(null);
-    setPriceHistory([]);
-  }
+  // reset filters se realiza a través de controles individuales en cada tarjeta
 
   async function load() {
     setLoading(true);
@@ -375,11 +351,6 @@ export default function Estadisticas() {
         <div className="rounded-2xl border bg-white p-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-medium text-gray-700">Ventas por mes</h2>
-            {months.bestMonth && (
-              <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
-                Mejor mes: {months.bestMonth} ({months.bestAmount})
-              </span>
-            )}
             <button
               onClick={() => setMonthsFiltersOpen(true)}
               className="rounded-lg border px-2 py-1 text-xs bg-white hover:bg-gray-50"
@@ -471,13 +442,6 @@ export default function Estadisticas() {
             <div className="w-full max-w-md rounded-2xl border bg-white shadow-2xl">
               <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
                 <h3 className="text-sm font-medium">Filtros de productos vendidos</h3>
-                <button
-                  className="rounded border px-2 py-1 text-xs bg-white"
-                  onClick={() => setFiltersOpen(false)}
-                  type="button"
-                >
-                  Cerrar
-                </button>
               </div>
               <div className="p-4 space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -536,22 +500,49 @@ export default function Estadisticas() {
                   </div>
                 </div>
               </div>
-              <div className="px-4 py-3 border-t bg-gray-50 flex justify-end gap-2">
-                <button
-                  className="rounded-lg border px-3 py-2 text-xs bg-white"
-                  onClick={() => setFiltersOpen(false)}
-                  type="button"
-                >
-                  Cancelar
-                </button>
-                <button
-                  className="rounded-lg bg-black text-white px-3 py-2 text-xs"
-                  onClick={async () => { await load(); setFiltersOpen(false); }}
-                  type="button"
-                  disabled={loading}
-                >
-                  {loading ? "Aplicando…" : "Aplicar"}
-                </button>
+              <div className="px-4 py-3 border-t bg-gray-50 flex justify-between gap-2">
+                <div>
+                  <button
+                    className="rounded-lg border px-3 py-2 text-xs bg-white"
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      const startMonth = new Date();
+                      startMonth.setDate(1);
+                      const r = {
+                        desde: startMonth.toISOString().slice(0, 10),
+                        hasta: today.toISOString().slice(0, 10),
+                      };
+                      setProductsRange({ ...r });
+                      setOrder("desc");
+                      setLimit(10);
+                      setFamiliaId("");
+                      setTimeout(async () => {
+                        await load();
+                        setFiltersOpen(false);
+                      }, 0);
+                    }}
+                  >
+                    Limpiar
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="rounded-lg border px-3 py-2 text-xs bg-white"
+                    onClick={() => setFiltersOpen(false)}
+                    type="button"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    className="rounded-lg bg-black text-white px-3 py-2 text-xs"
+                    onClick={async () => { await load(); setFiltersOpen(false); }}
+                    type="button"
+                    disabled={loading}
+                  >
+                    {loading ? "Aplicando…" : "Aplicar"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

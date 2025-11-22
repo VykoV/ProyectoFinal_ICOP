@@ -81,7 +81,6 @@ type FormData = z.infer<typeof schema>;
 
 export default function Productos() {
   const { hasRole } = useAuth();
-  const isAdmin = hasRole("Administrador");
   const isVendedor = hasRole("Vendedor");
   const isCajero = hasRole("Cajero");
   const [rows, setRows] = useState<Producto[]>([]);
@@ -1126,13 +1125,13 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
+      <div className="fixed inset-0 z-40 bg-black/20" onClick={() => onClose()} />
       <div className="fixed inset-0 z-50 p-0 md:p-4">
         <div className="mx-auto h-dvh md:h-[90vh] w-full max-w-2xl md:rounded-2xl border bg-white shadow-xl flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b">
             <h3 className="text-base font-semibold">Detalle de Producto</h3>
             <button
-              onClick={onClose}
+              onClick={() => onClose()}
               className="p-2 rounded hover:bg-gray-100"
               aria-label="Cerrar"
             >
@@ -1463,7 +1462,7 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
 
           <div className="px-4 py-3 border-t bg-gray-50 flex justify-end">
             <button
-              onClick={onClose}
+              onClick={() => onClose()}
               className="rounded-lg border px-3 py-2 text-sm"
             >
               Cerrar
