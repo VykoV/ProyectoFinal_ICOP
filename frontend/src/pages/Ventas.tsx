@@ -1512,6 +1512,44 @@ function ValidarPreventaModal({
       const resVenta = await api.get(`/preventas/${ventaId}`);
       setVenta(resVenta.data);
 
+      // Si la acción fue finalizar, cerrar oferta de productos cuyo stock quedó en 0
+      if (accion === "finalizar") {
+        try {
+          const detalles: any[] = Array.isArray(resVenta.data?.detalles)
+            ? resVenta.data.detalles
+            : [];
+          await Promise.all(
+            detalles.map(async (d: any) => {
+              const idProducto = Number(d.idProducto ?? d.Producto?.idProducto);
+              if (!idProducto) return;
+              const [prodRes, stockRes] = await Promise.all([
+                api.get(`/products/${idProducto}`),
+                api.get(`/products/${idProducto}/stock`),
+              ]);
+              const p = prodRes.data ?? {};
+              const ofertaFlag = Boolean(p?.oferta ?? p?.ofertaProducto);
+              const pct = Number(p?.porcentajeOferta ?? p?.porcentajeOfertaProducto ?? 0);
+              const ini = p?.fechaInicioOferta ? new Date(p.fechaInicioOferta).getTime() : null;
+              const fin = p?.fechaFinOferta ? new Date(p.fechaFinOferta).getTime() : null;
+              const now = Date.now();
+              const activo = ofertaFlag && pct > 0 && (!ini || ini <= now) && (!fin || fin >= now);
+              const stockActual = Number(
+                (stockRes.data ?? {})?.cantidadRealStock ?? (stockRes.data ?? {})?.real ?? p?.stock ?? 0
+              );
+              if (activo && stockActual === 0) {
+                await api.put(`/products/${idProducto}`, {
+                  oferta: false,
+                  porcentajeOferta: null,
+                  fechaFinOferta: new Date().toISOString(),
+                });
+              }
+            })
+          );
+        } catch (err) {
+          console.warn("No se pudo sincronizar cierre de oferta tras finalizar venta", err);
+        }
+      }
+
       if (accion === "guardar") {
         // Mantener modal abierto; botones se recalculan con el estado actualizado
         setSaving(false);

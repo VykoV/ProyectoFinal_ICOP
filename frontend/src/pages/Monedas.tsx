@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { fmtPrice } from "../lib/format";
 import { useAuth } from "../context/AuthContext";
-import { listMonedas, updatePrecioMoneda, updateMoneda, createMoneda, deleteMoneda } from "../lib/api/monedas";
+import { listMonedas, updateMoneda, createMoneda, deleteMoneda } from "../lib/api/monedas";
+import { showAlert, askConfirm } from "../lib/alerts";
 import type { MonedaRow } from "../lib/api/monedas";
 import Modal from "../components/Modal";
 import { Label, Input, FieldError } from "../components/ui/Form";
@@ -68,13 +69,14 @@ export default function Monedas() {
   }
 
   async function eliminarMoneda(r: MonedaRow) {
-    const ok = window.confirm(`¿Eliminar moneda ${r.nombre}?`);
+    const ok = await askConfirm({ title: "Eliminar moneda", message: `¿Eliminar moneda ${r.nombre}?` });
     if (!ok) return;
     try {
       await deleteMoneda(r.id);
       await load();
+      await showAlert({ title: "Éxito", type: "success", message: "Moneda eliminada" });
     } catch (e: any) {
-      alert(e?.response?.data?.error || e?.message || "No se pudo eliminar la moneda");
+      await showAlert({ title: "Error", type: "error", message: e?.response?.data?.error || e?.message || "No se pudo eliminar la moneda" });
     }
   }
 

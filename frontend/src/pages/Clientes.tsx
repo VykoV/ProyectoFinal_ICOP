@@ -11,6 +11,22 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 
+function normPhone(v?: string | null) {
+  return String(v ?? "").replace(/\D/g, "");
+}
+function fmtPhone(v?: string | null) {
+  const d = normPhone(v);
+  const n = d.length;
+  if (n === 0) return String(v ?? "");
+  if (n <= 4) return d;
+  if (n <= 7) return `${d.slice(0, n - 4)}-${d.slice(n - 4)}`;
+  if (n === 8) return `${d.slice(0, 4)}-${d.slice(4)}`;
+  if (n === 9) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  if (n === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  if (n === 11) return `(${d.slice(0, 3)}) ${d.slice(3, 7)}-${d.slice(7)}`;
+  return `+${d}`;
+}
+
 /* ===== Tipos ===== */
 type ClienteRow = {
   id: number;
@@ -111,6 +127,8 @@ export default function Clientes() {
     load();
   }, []);
 
+  
+
   const columns: ColumnDef<ClienteRow>[] = [
     { header: "ID", accessorKey: "id", size: 60 },
     { header: "CUIL/CUIT", accessorKey: "cuil" },
@@ -119,7 +137,25 @@ export default function Clientes() {
       cell: ({ row }) => `${row.original.apellido}, ${row.original.nombre}`,
     },
     { header: "Email", accessorKey: "email" },
-    { header: "Teléfono", accessorKey: "telefono" },
+    {
+      header: "Teléfono",
+      id: "telefono",
+      cell: ({ row }) => {
+        const tel = row.original.telefono || null;
+        const d = normPhone(tel);
+        return d ? (
+          <a
+            href={`tel:${d}`}
+            className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50"
+            title={d}
+          >
+            <Phone className="h-3 w-3" /> {fmtPhone(tel)}
+          </a>
+        ) : (
+          <span className="text-gray-400 text-xs">-</span>
+        );
+      },
+    },
     {
       header: "Acciones",
       id: "acciones",
@@ -676,9 +712,16 @@ function ClienteView({ id, onClose }: { id: number; onClose: () => void }) {
                     <Phone className="h-4 w-4" />
                     <span className="text-sm font-medium">Teléfono</span>
                   </div>
-                  <p className={`mt-2 text-sm ${data?.telefonoCliente || data?.telefono ? "text-gray-900" : "text-gray-400"}`}>
-                    {data?.telefonoCliente ?? data?.telefono ?? "No especificado"}
-                  </p>
+                  {data?.telefonoCliente || data?.telefono ? (
+                    <a
+                      href={`tel:${normPhone(data?.telefonoCliente ?? data?.telefono)}`}
+                      className="mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs text-gray-700 bg-gray-50"
+                    >
+                      <Phone className="h-3 w-3" /> {fmtPhone(data?.telefonoCliente ?? data?.telefono)}
+                    </a>
+                  ) : (
+                    <p className="mt-2 text-sm text-gray-400">No especificado</p>
+                  )}
                 </div>
                 <div className="rounded-lg border p-4">
                   <div className="flex items-center gap-2 text-gray-700">

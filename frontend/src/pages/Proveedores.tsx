@@ -4,7 +4,7 @@ import { DataTable } from "../components/DataTable";
 import { Label, Input } from "../components/ui/Form";
 import * as svc from "../lib/api/proveedores";
 import { Button } from "@/components/ui/button";
-import { X, Pencil, Trash2, Search, Plus, Eye, Phone, Mail, Info } from "lucide-react";
+import { X, Pencil, Trash2, Search, Plus, Eye, Phone, Mail, Info, IdCard } from "lucide-react";
 import { toast } from "react-hot-toast";
 import { showAlert, askConfirm } from "../lib/alerts";
 
@@ -33,10 +33,60 @@ export default function ProveedoresPage() {
     load();
   }, [search, page]);
 
+  function normPhone(v?: string | null) {
+    return String(v ?? "").replace(/\D/g, "");
+  }
+  function fmtPhone(v?: string | null) {
+    const d = normPhone(v);
+    const n = d.length;
+    if (n === 0) return "";
+    if (n <= 4) return d;
+    if (n <= 7) return `${d.slice(0, n - 4)}-${d.slice(n - 4)}`;
+    if (n === 8) return `${d.slice(0, 4)}-${d.slice(4)}`;
+    if (n === 9) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    if (n === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    if (n === 11) return `(${d.slice(0, 3)}) ${d.slice(3, 7)}-${d.slice(7)}`;
+    return `+${d}`;
+  }
+  function fmtCifNif(v?: string | null) {
+    const s = String(v ?? "").trim();
+    if (!s) return "";
+    const letterMatch = s.match(/^[A-Za-z]/);
+    const digits = s.replace(/[^0-9]/g, "");
+    if (!digits) return s;
+    const group8 = (d: string) => `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}`;
+    if (letterMatch) {
+      const l = letterMatch[0].toUpperCase();
+      if (digits.length >= 8) return `${l}-${group8(digits.slice(0, 8))}`;
+      return `${l}-${digits}`;
+    }
+    if (digits.length === 8) return group8(digits);
+    if (digits.length === 9) return `${group8(digits.slice(0, 8))}-${digits.slice(8)}`;
+    return s;
+  }
+
   const cols = useMemo<ColumnDef<svc.Proveedor>[]>(
     () => [
       { accessorKey: "nombreProveedor", header: "Nombre" },
-      { accessorKey: "telefonoProveedor", header: "Teléfono" },
+      {
+        id: "telefono",
+        header: "Teléfono",
+        cell: ({ row }) => {
+          const tel = row.original.telefonoProveedor || null;
+          const telDigits = normPhone(tel);
+          return telDigits ? (
+            <a
+              href={`tel:${telDigits}`}
+              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50"
+              title={telDigits}
+            >
+              <Phone className="h-3 w-3" /> {fmtPhone(tel)}
+            </a>
+          ) : (
+            <span className="text-gray-400 text-xs">-</span>
+          );
+        },
+      },
       { accessorKey: "mailProveedor", header: "Email" },
       {
         id: "acciones",
@@ -352,30 +402,49 @@ export default function ProveedoresPage() {
                     </div>
                     <div>
                       <h3 className="text-lg font-semibold">{viewItem.nombreProveedor}</h3>
-                      <p className="text-xs text-gray-500">Proveedor</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-gray-500">Proveedor</p>
+                        {viewItem.CIF_NIFProveedor ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] text-gray-700 bg-gray-50 max-w-xs truncate"
+                            title={String(fmtCifNif(viewItem.CIF_NIFProveedor))}
+                          >
+                            <IdCard className="h-3 w-3" /> {fmtCifNif(viewItem.CIF_NIFProveedor)}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Contenido con mejor estética */}
                 <div className="p-6 space-y-6">
-                  {/* Contacto */}
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="rounded-lg border p-4">
                       <div className="flex items-center gap-2 text-gray-700">
                         <Phone className="h-4 w-4" />
                         <span className="text-sm font-medium">Teléfono</span>
                       </div>
-                      <p className={`mt-2 text-sm ${viewItem.telefonoProveedor ? "text-gray-900" : "text-gray-400"}`}>
-                        {viewItem.telefonoProveedor || "No especificado"}
-                      </p>
+                      {viewItem.telefonoProveedor ? (
+                        <a
+                      href={`tel:${normPhone(viewItem.telefonoProveedor)}`}
+                      className="mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs text-gray-700 bg-gray-50"
+                      >
+                        <Phone className="h-3 w-3" /> {fmtPhone(viewItem.telefonoProveedor)}
+                      </a>
+                      ) : (
+                        <p className="mt-2 text-sm text-gray-400">No especificado</p>
+                      )}
                     </div>
                     <div className="rounded-lg border p-4">
                       <div className="flex items-center gap-2 text-gray-700">
                         <Mail className="h-4 w-4" />
                         <span className="text-sm font-medium">Email</span>
                       </div>
-                      <p className={`mt-2 text-sm ${viewItem.mailProveedor ? "text-gray-900" : "text-gray-400"}`}>
+                      <p
+                        className={`mt-2 text-sm ${viewItem.mailProveedor ? "text-gray-900" : "text-gray-400"} break-words`}
+                        title={String(viewItem.mailProveedor || "No especificado")}
+                      >
                         {viewItem.mailProveedor || "No especificado"}
                       </p>
                     </div>
@@ -387,7 +456,9 @@ export default function ProveedoresPage() {
                       <Info className="h-4 w-4" />
                       <span className="text-sm font-medium">Observación</span>
                     </div>
-                    <p className={`mt-2 text-sm ${viewItem.observacionProveedor ? "text-gray-900" : "text-gray-400"}`}>
+                    <p className={`mt-2 text-sm ${viewItem.observacionProveedor ? "text-gray-900" : "text-gray-400"} break-words`}
+                      title={String(viewItem.observacionProveedor || "Sin observaciones")}
+                    >
                       {viewItem.observacionProveedor || "Sin observaciones"}
                     </p>
                   </div>

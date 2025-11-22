@@ -146,25 +146,25 @@ export default function Productos() {
     setSubfamilias(subs);
   }
 
+  async function loadExpiringOffers() {
+    try {
+      const { data } = await api.get("/products/ofertas-por-vencer", { params: { days: 2 } });
+      const list = (data as any[]).map((x) => ({
+        id: Number(x.id ?? x.idProducto),
+        nombre: String(x.nombre ?? x.nombreProducto ?? ""),
+        porcentajeOferta: Number(x.porcentajeOferta ?? x.porcentajeOfertaProducto ?? 0),
+        fechaFinOferta: x.fechaFinOferta ? fmtLocalDate(x.fechaFinOferta) : "-",
+      }));
+      setExpiringOffers(list);
+    } catch (err) {
+      console.warn("No se pudo cargar ofertas por vencer", err);
+    }
+  }
+
   useEffect(() => {
     loadProducts();
     loadTaxonomies();
-    // Cargar ofertas por vencer (próximos 2 días)
-    (async () => {
-      try {
-        const { data } = await api.get("/products/ofertas-por-vencer", { params: { days: 2 } });
-        const list = (data as any[]).map((x) => ({
-          id: Number(x.id ?? x.idProducto),
-          nombre: String(x.nombre ?? x.nombreProducto ?? ""),
-          porcentajeOferta: Number(x.porcentajeOferta ?? x.porcentajeOfertaProducto ?? 0),
-          fechaFinOferta: x.fechaFinOferta ? fmtLocalDate(x.fechaFinOferta) : "-",
-        }));
-        setExpiringOffers(list);
-      } catch (err) {
-        // silencio: es un extra opcional
-        console.warn("No se pudo cargar ofertas por vencer", err);
-      }
-    })();
+    loadExpiringOffers();
   }, []);
 
   function onNew() {
@@ -490,7 +490,14 @@ export default function Productos() {
           subfamilias={subfamilias}
           onClose={async (reload?: boolean) => {
             setOpen(false);
-            if (reload) await loadProducts();
+            if (reload) {
+              try {
+                await loadProducts();
+                await loadExpiringOffers();
+              } catch (err) {
+                console.warn("Falló el refresh post-guardar producto", err);
+              }
+            }
           }}
         />
       )}
@@ -498,9 +505,17 @@ export default function Productos() {
       {openView && viewId != null && (
         <ProductoView
           id={viewId}
-          onClose={() => {
+          onClose={async (reload?: boolean) => {
             setOpenView(false);
             setViewId(null);
+            if (reload) {
+              try {
+                await loadProducts();
+                await loadExpiringOffers();
+              } catch (err) {
+                console.warn("Falló el refresh post-cierre oferta", err);
+              }
+            }
           }}
         />
       )}
@@ -701,9 +716,11 @@ function ProductoPopup({
           ? null
           : Number(v.porcentajeOferta),
       fechaInicioOferta:
-        !isOferta || v.fechaInicioOferta === "" || v.fechaInicioOferta == null
+        !isOferta
           ? null
-          : v.fechaInicioOferta,
+          : v.fechaInicioOferta && v.fechaInicioOferta !== ""
+          ? v.fechaInicioOferta
+          : todayISO,
       fechaFinOferta:
         !isOferta || v.fechaFinOferta === "" || v.fechaFinOferta == null
           ? null
@@ -965,7 +982,7 @@ function ProductoPopup({
 }
 
 /* MODAL "VER" */
-function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
+function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean) => void }) {
   const { hasRole } = useAuth();
   const isAdmin = hasRole("Administrador");
   const [data, setData] = useState<any | null>(null);
@@ -1031,6 +1048,48 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
     })();
   }, [id, offerPage, offerLimit]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const ofertaFlag = Boolean(data?.oferta ?? data?.ofertaProducto);
+        const pct = Number(data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0);
+        const fin = data?.fechaFinOferta ? new Date(data.fechaFinOferta).getTime() : null;
+        const ini = data?.fechaInicioOferta ? new Date(data.fechaInicioOferta).getTime() : null;
+        const now = Date.now();
+        const activo = ofertaFlag && pct > 0 && (!ini || ini <= now) && (!fin || fin >= now);
+        const stockActual = Number((stockDet as any)?.cantidadRealStock ?? (stockDet as any)?.real ?? data?.stock ?? 0);
+        if (activo && stockActual === 0) {
+          await api.put(`/products/${id}`, {
+            oferta: false,
+            porcentajeOferta: null,
+            fechaFinOferta: new Date().toISOString(),
+          });
+          const { data: d2 } = await api.get(`/products/${id}`);
+          setData(d2);
+        }
+      } catch {}
+    })();
+  }, [stockDet, data]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const pct = Number(data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0);
+        const ofertaFlag = Boolean(data?.oferta ?? data?.ofertaProducto);
+        const stockActual = Number((stockDet as any)?.cantidadRealStock ?? (stockDet as any)?.real ?? data?.stock ?? 0);
+        if (ofertaFlag && pct > 0 && stockActual === 0) {
+          await api.put(`/products/${id}`, {
+            oferta: false,
+            porcentajeOferta: null,
+            fechaFinOferta: new Date().toISOString(),
+          });
+          const { data: d2 } = await api.get(`/products/${id}`);
+          setData(d2);
+        }
+      } catch {}
+    })();
+  }, [stockDet, data]);
+
   async function cerrarOferta() {
     try {
       const ok = await askConfirm({
@@ -1042,10 +1101,11 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
         oferta: false,
         porcentajeOferta: null,
         fechaInicioOferta: null,
-        fechaFinOferta: null,
+        fechaFinOferta: new Date().toISOString(),
       });
       const { data } = await api.get(`/products/${id}`);
       setData(data);
+      onClose(true);
       await showAlert({ title: "Éxito", type: "success", message: "Oferta cerrada" });
     } catch (e) {
       await showAlert({ title: "Error", type: "error", message: "No se pudo cerrar la oferta" });
@@ -1097,16 +1157,26 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
                     <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
                       Código barras: {data?.codigoBarras ?? data?.codigoBarrasProducto ?? "-"}
                     </span>
-                    <span
-                      className={
-                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs " +
-                        (data?.oferta
-                          ? "bg-green-100 text-green-700 border border-green-200"
-                          : "bg-gray-100 text-gray-700 border border-gray-200")
-                      }
-                    >
-                      {data?.oferta ? "En oferta" : "Normal"}
-                    </span>
+                    {(() => {
+                      const oferta = Boolean(data?.oferta ?? data?.ofertaProducto);
+                      const pct = Number(data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0);
+                      const ini = data?.fechaInicioOferta ? new Date(data.fechaInicioOferta).getTime() : null;
+                      const fin = data?.fechaFinOferta ? new Date(data.fechaFinOferta).getTime() : null;
+                      const now = Date.now();
+                      const activo = oferta && pct > 0 && (!ini || ini <= now) && (!fin || fin >= now);
+                      return (
+                        <span
+                          className={
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs " +
+                            (activo
+                              ? "bg-green-100 text-green-700 border border-green-200"
+                              : "bg-gray-100 text-gray-700 border border-gray-200")
+                          }
+                        >
+                          {activo ? "En oferta" : "Normal"}
+                        </span>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -1158,26 +1228,38 @@ function ProductoView({ id, onClose }: { id: number; onClose: () => void }) {
                   {/* Oferta */}
                   <div className="rounded-xl border bg-white p-3">
                     <p className="text-gray-500">Oferta</p>
-                    <div className="grid grid-cols-2 gap-3 mt-2">
-                      <div>
-                        <p className="text-gray-500 text-xs">Estado</p>
-                        <p className="font-medium">{data?.oferta ? "En oferta" : "Normal"}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500 text-xs">Porcentaje</p>
-                        <p className="font-medium">{data?.porcentajeOferta != null ? `${data.porcentajeOferta}%` : "-"}</p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 mt-3">
-                      <div>
-                        <p className="text-gray-500 text-xs">Inicio</p>
-                        <p className="font-medium">{fmtLocalDate(data?.fechaInicioOferta)}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500 text-xs">Fin</p>
-                        <p className="font-medium">{fmtLocalDate(data?.fechaFinOferta)}</p>
-                      </div>
-                    </div>
+                    {(() => {
+                      const pct = Number(data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0);
+                      const ofertaFlag = Boolean(data?.oferta ?? data?.ofertaProducto);
+                      const ini = data?.fechaInicioOferta ? new Date(data.fechaInicioOferta).getTime() : null;
+                      const fin = data?.fechaFinOferta ? new Date(data.fechaFinOferta).getTime() : null;
+                      const now = Date.now();
+                      const activo = ofertaFlag && pct > 0 && (!ini || ini <= now) && (!fin || fin >= now);
+                      return (
+                        <>
+                          <div className="grid grid-cols-2 gap-3 mt-2">
+                            <div>
+                              <p className="text-gray-500 text-xs">Estado</p>
+                              <p className="font-medium">{activo ? "En oferta" : "Normal"}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-500 text-xs">Porcentaje</p>
+                              <p className="font-medium">{activo ? `${pct}%` : "-"}</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3 mt-3">
+                            <div>
+                              <p className="text-gray-500 text-xs">Inicio</p>
+                              <p className="font-medium">{activo ? fmtLocalDate(data?.fechaInicioOferta) : "-"}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-500 text-xs">Fin</p>
+                              <p className="font-medium">{activo ? fmtLocalDate(data?.fechaFinOferta) : "-"}</p>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
                     {data?.oferta && isAdmin && (
                       <div className="mt-3">
                         <button
