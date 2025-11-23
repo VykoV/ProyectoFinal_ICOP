@@ -5,7 +5,7 @@ import cors from "cors";
 import session from "express-session";
 import pgSession from "connect-pg-simple";
 import bcrypt from "bcrypt";
-import { PrismaClient, Prisma, PapelEnVenta } from "@prisma/client";
+import { PrismaClient, Prisma, PapelEnVenta, TipoNotificacion, NivelNotificacion, DestinatarioNotificacion } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 import authRoutes from "./auth";
@@ -337,6 +337,51 @@ app.get("/api/products/:id/stock", async (req, res) => {
     res.status(400).json({ error: "STOCK_READ_FAILED" });
   }
 });
+
+app.get(
+  "/api/products/stock-minimo",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (_req, res) => {
+    try {
+      const stocks = await prisma.stock.findMany({
+        select: {
+          idProducto: true,
+          cantidadRealStock: true,
+          stockComprometido: true,
+          bajoMinimoStock: true,
+          ultimaModificacionStock: true,
+        },
+      });
+      const ids = Array.from(new Set(stocks.map((s: any) => Number(s.idProducto)).filter((x) => Number(x))));
+      const prods = await prisma.producto.findMany({
+        where: { idProducto: { in: ids } },
+        select: { idProducto: true, nombreProducto: true },
+      });
+      const mapNombre = new Map<number, string>(prods.map((p) => [p.idProducto, p.nombreProducto]));
+      const list = stocks
+        .map((s: any) => {
+          const real = Number(s.cantidadRealStock || 0);
+          const comp = Number(s.stockComprometido || 0);
+          const minimo = Number(s.bajoMinimoStock || 0);
+          const disp = real - comp;
+          return {
+            idProducto: Number(s.idProducto),
+            nombreProducto: mapNombre.get(Number(s.idProducto)) || "",
+            disponible: disp,
+            minimo,
+            actualizadoEn: s.ultimaModificacionStock ?? null,
+          };
+        })
+        .filter((x) => x.minimo > 0 && x.disponible < x.minimo)
+        .sort((a, b) => a.disponible - b.disponible);
+      res.json(list);
+    } catch (err) {
+      console.error("GET /api/products/stock-minimo error", err);
+      res.status(500).json({ error: "SERVER_ERROR" });
+    }
+  }
+);
 
 // HISTÓRICO DE PRECIO POR PRODUCTO (opcional filtro de proveedor y rango de fechas)
 app.get("/api/products/:id/historico-precio", async (req, res) => {
@@ -984,6 +1029,7 @@ app.put(
   authorize(["Administrador"]),
   async (req, res) => {
     const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: "ID_INVALIDO" });
     const { nombreUsuario, emailUsuario, contrasenaUsuario, idRol } = req.body;
 
     const data: any = {};
@@ -1730,11 +1776,12 @@ app.get(
 
 // Detalle PREVENTA
 app.get(
-  "/api/preventas/:id",
+  "/api/preventas/:id(\\d+)",
   requireAuth,
   authorize(["Administrador", "Vendedor", "Cajero"]),
   async (req, res) => {
     const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: "ID_INVALIDO" });
     const idUsuario = getUserId(req);
 
     // Expiración perezosa: si la preventa venció, marcarla como Vencida y liberar stock
@@ -2344,7 +2391,11 @@ app.put(
       // Lectura final FUERA de la transacción
       const out = await prisma.venta.findUnique({
         where: { idVenta: id },
-        include: { EstadoVenta: true, detalles: { include: { Producto: true } } },
+        include: {
+          EstadoVenta: true,
+          Cliente: { select: { nombreCliente: true, apellidoCliente: true } },
+          detalles: { include: { Producto: true } },
+        },
       });
       try {
         const estadoResp = out?.EstadoVenta?.nombreEstadoVenta ?? null;
@@ -2356,6 +2407,22 @@ app.put(
         if (estadoResp && accionResp === "lock") {
           res.set("x-notification", `Estado actualizado: ${estadoResp}`);
           res.set("x-notification-type", "success");
+          try {
+            const total = Number(await calcularTotal(id));
+            const cliente = out?.Cliente ? `${out.Cliente.apellidoCliente}, ${out.Cliente.nombreCliente}` : String(out?.idCliente ?? "");
+            await prisma.notificacion.create({
+              data: {
+                tipo: TipoNotificacion.OTRO,
+                mensaje: `Lista para caja #${id} — ${cliente} — $${total.toFixed(2)} — ${new Date().toLocaleTimeString()}`,
+                nivel: NivelNotificacion.INFO,
+                destinatario: DestinatarioNotificacion.CAJERO,
+                data: { code: "NUEVA_LISTA_CAJA", ventaId: id },
+                idUsuario,
+              },
+            });
+          } catch (e) {
+            console.error("notificacion NUEVA_LISTA_CAJA error", e);
+          }
         }
       } catch { }
       return res.json(out);
@@ -2444,6 +2511,234 @@ app.get("/api/preventas/reservas-vencidas", requireAuth, async (_req, res) => {
     res.json(rows);
   } catch (err) {
     console.error("GET /api/preventas/reservas-vencidas error", err);
+    res.status(500).json({ error: "SERVER_ERROR" });
+  }
+});
+
+app.get(
+  "/api/preventas/vencidas",
+  requireAuth,
+  authorize(["Administrador"]),
+  async (_req, res) => {
+    try {
+      const idPend = await getEstadoId(prisma, ESTADOS.PENDIENTE);
+      if (!idPend) return res.json([]);
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const rows = await prisma.venta.findMany({
+        where: {
+          idEstadoVenta: idPend,
+          OR: [
+            { fechaVenta: { lt: cutoff } },
+            { fechaReservaLimite: { not: null, lt: new Date() } },
+          ],
+        },
+        orderBy: { fechaVenta: "asc" },
+        include: { Cliente: true },
+      });
+      const out = await Promise.all(
+        rows.map(async (v) => ({
+          idVenta: v.idVenta,
+          cliente: v.Cliente ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}` : "",
+          fecha: v.fechaVenta,
+          total: Number(await calcularTotal(v.idVenta)),
+        }))
+      );
+      res.json(out);
+    } catch (err) {
+      console.error("GET /api/preventas/vencidas error", err);
+      res.status(500).json({ error: "SERVER_ERROR" });
+    }
+  }
+);
+
+app.get(
+  "/api/preventas/reservas-hoy",
+  requireAuth,
+  authorize(["Administrador", "Cajero"]),
+  async (_req, res) => {
+    try {
+      const idRes = await getEstadoId(prisma, ESTADOS.RESERVADO);
+      if (!idRes) return res.json([]);
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      const { desde, hasta } = rangoDia(`${y}-${m}-${day}`);
+      const rows = await prisma.venta.findMany({
+        where: {
+          idEstadoVenta: idRes,
+          fechaReservaLimite: { gte: desde, lt: hasta },
+        },
+        orderBy: { fechaReservaLimite: "asc" },
+        include: { Cliente: true },
+      });
+      res.json(rows.map((v) => ({
+        idVenta: v.idVenta,
+        cliente: v.Cliente ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}` : "",
+        fechaReservaLimite: v.fechaReservaLimite,
+      })));
+    } catch (err) {
+      console.error("GET /api/preventas/reservas-hoy error", err);
+      res.status(500).json({ error: "SERVER_ERROR" });
+    }
+  }
+);
+
+app.get(
+  "/api/ventas/pendientes-cobro",
+  requireAuth,
+  authorize(["Administrador", "Cajero"]),
+  async (_req, res) => {
+    try {
+      const idLC = await getEstadoId(prisma, ESTADOS.LISTO_CAJA);
+      if (!idLC) return res.json([]);
+      const rows = await prisma.venta.findMany({
+        where: {
+          idEstadoVenta: idLC,
+          estadoPago: { not: "PAGADO" },
+        },
+        include: { Cliente: true },
+        orderBy: { idVenta: "desc" },
+        take: 100,
+      });
+      const out = await Promise.all(
+        rows.map(async (v) => ({
+          idVenta: v.idVenta,
+          cliente: v.Cliente ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}` : "",
+          fecha: v.fechaVenta,
+          total: Number(await calcularTotal(v.idVenta)),
+        }))
+      );
+      res.json(out);
+    } catch (err) {
+      console.error("GET /api/ventas/pendientes-cobro error", err);
+      res.status(500).json({ error: "SERVER_ERROR" });
+    }
+  }
+);
+
+app.get(
+  "/api/cierres-caja/pending-today",
+  requireAuth,
+  authorize(["Administrador", "Cajero"]),
+  async (_req, res) => {
+    try {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      const { desde, hasta } = rangoDia(`${y}-${m}-${day}`);
+      const cierre = await prisma.cierreCaja.findFirst({ where: { fecha: { gte: desde, lt: hasta } } });
+      res.json({ pending: !cierre, fecha: desde });
+    } catch (err) {
+      console.error("GET /api/cierres-caja/pending-today error", err);
+      res.status(500).json({ error: "SERVER_ERROR" });
+    }
+  }
+);
+
+function nivelFromType(t: string): NivelNotificacion {
+  const s = String(t || "").toLowerCase();
+  if (s === "error") return NivelNotificacion.ERROR;
+  if (s === "warning" || s === "warn") return NivelNotificacion.WARN;
+  return NivelNotificacion.INFO;
+}
+
+function tipoFromCode(code?: string): TipoNotificacion {
+  const c = String(code || "").toUpperCase();
+  if (c.includes("STOCK")) return TipoNotificacion.STOCK_BAJO;
+  if (c.includes("CIERRE_CAJA") && c.includes("PENDIENTE")) return TipoNotificacion.CIERRE_CAJA_PENDIENTE;
+  if (c.includes("RESERVA") && c.includes("VENCIDA")) return TipoNotificacion.RESERVA_VENCIDA;
+  if (c.includes("RESERVA")) return TipoNotificacion.RESERVA_POR_VENCER;
+  if (c.includes("PRESUPUESTO")) return TipoNotificacion.PRESUPUESTOS_PENDIENTES;
+  return TipoNotificacion.OTRO;
+}
+
+function destinatarioFromCode(code?: string): DestinatarioNotificacion {
+  const c = String(code || "").toUpperCase();
+  if (c.includes("RESERVA") || c.includes("VENTA_PENDIENTE_COBRO")) return DestinatarioNotificacion.CAJERO;
+  if (c.includes("PRESUPUESTO")) return DestinatarioNotificacion.VENDEDOR;
+  if (c.includes("CIERRE_CAJA") || c.includes("STOCK")) return DestinatarioNotificacion.ADMIN;
+  return DestinatarioNotificacion.ADMIN;
+}
+
+async function getDestinatariosPermitidos(req: any): Promise<DestinatarioNotificacion[]> {
+  const uid = getUserId(req);
+  const roles = await prisma.usuarioRol.findMany({ where: { idUsuario: uid }, include: { Rol: true } });
+  const set = new Set<DestinatarioNotificacion>([DestinatarioNotificacion.TODOS]);
+  for (const r of roles) {
+    const nombre = String(r.Rol?.nombreRol || "").toLowerCase();
+    if (nombre.includes("administrador")) set.add(DestinatarioNotificacion.ADMIN);
+    if (nombre.includes("cajero")) set.add(DestinatarioNotificacion.CAJERO);
+    if (nombre.includes("vendedor")) set.add(DestinatarioNotificacion.VENDEDOR);
+  }
+  return Array.from(set);
+}
+
+app.get("/api/notificaciones", requireAuth, async (req, res) => {
+  try {
+    const permitidos = await getDestinatariosPermitidos(req);
+    const leidoRaw = req.query.leido;
+    const where: any = { destinatario: { in: permitidos } };
+    if (leidoRaw !== undefined) {
+      const v = String(leidoRaw).toLowerCase();
+      where.leido = v === "true" ? true : v === "false" ? false : undefined;
+    }
+    const rows = await prisma.notificacion.findMany({
+      where,
+      orderBy: { idNotificacion: "desc" },
+      take: 200,
+    });
+    res.json(rows);
+  } catch (err) {
+    console.error("GET /api/notificaciones error", err);
+    res.status(500).json({ error: "SERVER_ERROR" });
+  }
+});
+
+app.post("/api/notificaciones", requireAuth, async (req, res) => {
+  try {
+    const { code, type, title, message, destinatario } = req.body ?? {};
+    const uid = getUserId(req);
+    const row = await prisma.notificacion.create({
+      data: {
+        tipo: tipoFromCode(code),
+        mensaje: String(message || ""),
+        nivel: nivelFromType(type),
+        data: { code: code ?? null, title: title ?? null },
+        idUsuario: uid,
+        destinatario: destinatario ? destinatario as DestinatarioNotificacion : destinatarioFromCode(code),
+      },
+    });
+    res.status(201).json(row);
+  } catch (err) {
+    console.error("POST /api/notificaciones error", err);
+    res.status(500).json({ error: "SERVER_ERROR" });
+  }
+});
+
+app.put("/api/notificaciones/mark-all-read", requireAuth, async (req, res) => {
+  try {
+    const permitidos = await getDestinatariosPermitidos(req);
+    const out = await prisma.notificacion.updateMany({
+      where: { destinatario: { in: permitidos }, leido: false },
+      data: { leido: true },
+    });
+    res.json({ updated: out.count });
+  } catch (err) {
+    console.error("PUT /api/notificaciones/mark-all-read error", err);
+    res.status(500).json({ error: "SERVER_ERROR" });
+  }
+});
+
+app.put("/api/notificaciones/:id/read", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: "BAD_ID" });
+    const row = await prisma.notificacion.update({ where: { idNotificacion: id }, data: { leido: true } });
+    res.json(row);
+  } catch (err) {
+    console.error("PUT /api/notificaciones/:id/read error", err);
     res.status(500).json({ error: "SERVER_ERROR" });
   }
 });

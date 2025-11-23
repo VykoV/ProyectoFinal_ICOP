@@ -14,6 +14,7 @@ import Usuarios from "./pages/Usuarios";
 import Compras from "./pages/Compras";
 import CierreCaja from "./pages/CierreCaja";
 import Estadisticas from "./pages/Estadisticas";
+import Notificaciones from "./pages/Notificaciones";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import AdminRoute from "./routes/AdminRoute";
 
@@ -41,6 +42,7 @@ export default function App() {
   <Route element={<ProtectedRoute />}>
     <Route element={<Layout />}>
       <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/notificaciones" element={<Notificaciones />} />
       <Route path="/productos" element={<Productos />} />
       <Route path="/clientes" element={<Clientes />} />
       <Route path="/ventas" element={<Ventas />} />

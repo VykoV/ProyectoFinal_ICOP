@@ -3,6 +3,7 @@ import Navbar from "./Navbar";
 import Sidebar from "./Sidebar";
 import { useAuth } from "../context/AuthContext";
 import { useDailyReminder } from "../hooks/useDailyReminder";
+import { useAdminNotifications } from "../hooks/useAdminNotifications";
 
 export default function Layout() {
   const { hasRole } = useAuth();
@@ -15,6 +16,7 @@ export default function Layout() {
     enabled: hasRole("Administrador"),
     title: "Monedas",
   });
+  useAdminNotifications(hasRole("Administrador"));
   return (
     <div className="h-dvh flex flex-col">
       <Navbar />

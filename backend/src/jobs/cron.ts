@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import { PrismaClient, Prisma, PapelEnVenta } from "@prisma/client";
+import { PrismaClient, Prisma, PapelEnVenta, TipoNotificacion, NivelNotificacion, DestinatarioNotificacion } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 
@@ -82,6 +82,25 @@ async function liberarComprometidoVenta(idVenta: number): Promise<void> {
   }
 }
 
+async function calcularTotalBasico(idVenta: number): Promise<number> {
+  const detalles = await prisma.detalleVenta.findMany({
+    where: { idVenta },
+    select: { cantidad: true, precioUnit: true, descuentoItem: true, recargoItem: true },
+  });
+  let total = 0;
+  for (const d of detalles) {
+    const cant = Number(d.cantidad ?? 0);
+    const pu = Number(d.precioUnit ?? 0);
+    const base = cant * pu;
+    const descPct = Number(d.descuentoItem ?? 0) / 100;
+    const recPct = Number(d.recargoItem ?? 0) / 100;
+    const conDesc = base * (1 - descPct);
+    const conRec = conDesc * (1 + recPct);
+    total += conRec;
+  }
+  return total;
+}
+
 // Aviso diario “revisar cotización” (11:00)
 cron.schedule("0 11 * * *", async () => {
   try {
@@ -101,28 +120,60 @@ cron.schedule("0 11 * * *", async () => {
   }
 });
 
-// Recordatorio de reservas vencidas (08:30)
+// Reservas vencidas (Cajero) — 08:30
 cron.schedule("30 8 * * *", async () => {
   try {
-    const pendienteId = await getEstadoPendienteId();
-    if (!pendienteId) return;
-    const vencidas = await prisma.venta.findMany({
+    const { Reservado } = await getEstadoIds();
+    if (Reservado == null) return;
+    const rows = await prisma.venta.findMany({
       where: {
-        idEstadoVenta: pendienteId,
+        idEstadoVenta: Reservado,
         fechaReservaLimite: { not: null, lt: new Date() },
       },
       select: { idVenta: true },
     });
-    if (vencidas.length > 0) {
-      const msg = `Reservas vencidas: ${vencidas.map(v => v.idVenta).join(", ")}`;
-      console.warn(`[WARN] ${msg}`);
-      // Opcional: automatizar liberación llamando al servicio correspondiente
-      // for (const v of vencidas) await liberarReserva(v.idVenta)
-      // Si luego agregas una tabla de logs, registra aquí
-      // await prisma.log.create({ data: { nivel: 'WARN', mensaje: msg } });
+    if (rows.length > 0) {
+      await prisma.notificacion.create({
+        data: {
+          tipo: TipoNotificacion.RESERVA_VENCIDA,
+          mensaje: `Reservas vencidas: ${rows.length}`,
+          nivel: NivelNotificacion.WARN,
+          destinatario: DestinatarioNotificacion.CAJERO,
+        },
+      });
     }
   } catch (err) {
     console.error("cron 08:30 reservas vencidas error", err);
+  }
+});
+
+// Reservas retiro hoy (Cajero) — 09:00
+cron.schedule("0 9 * * *", async () => {
+  try {
+    const { Reservado } = await getEstadoIds();
+    if (Reservado == null) return;
+    const start = new Date(); start.setHours(0,0,0,0);
+    const end = new Date(); end.setHours(23,59,59,999);
+    const rows = await prisma.venta.findMany({
+      where: {
+        idEstadoVenta: Reservado,
+        fechaReservaLimite: { not: null, gte: start, lte: end },
+      },
+      select: { idVenta: true },
+    });
+    if (rows.length > 0) {
+      await prisma.notificacion.create({
+        data: {
+          tipo: TipoNotificacion.OTRO,
+          mensaje: `Reservas para retiro hoy: ${rows.length}`,
+          nivel: NivelNotificacion.INFO,
+          destinatario: DestinatarioNotificacion.CAJERO,
+          data: { code: "RESERVA_RETIRO_HOY" },
+        },
+      });
+    }
+  } catch (err) {
+    console.error("cron 09:00 reservas retiro hoy error", err);
   }
 });
 
@@ -236,5 +287,125 @@ cron.schedule("*/15 * * * *", async () => {
     console.log(`[INFO] Preventas vencidas marcadas y stock liberado: ${vencidas.map(x => x.idVenta).join(', ')}`);
   } catch (err) {
     console.error("cron expirar preventas error", err);
+  }
+});
+
+cron.schedule("30 19 * * *", async () => {
+  try {
+    const systemUserId = await getSystemUserId();
+    const now = new Date();
+    const startToday = new Date(now); startToday.setHours(0,0,0,0);
+    const endToday = new Date(now); endToday.setHours(23,59,59,999);
+    const y = new Date(now); y.setDate(y.getDate() - 1); y.setHours(0,0,0,0);
+    const yEnd = new Date(now); yEnd.setDate(yEnd.getDate() - 1); yEnd.setHours(23,59,59,999);
+
+    const cierreHoy = await prisma.cierreCaja.findFirst({ where: { fecha: { gte: startToday, lte: endToday } } });
+    if (!cierreHoy) {
+      const exists = await prisma.notificacion.findFirst({
+        where: {
+          tipo: TipoNotificacion.CIERRE_CAJA_PENDIENTE,
+          createdAt: { gte: startToday },
+          mensaje: { equals: `Fecha sin cierre: ${startToday.toISOString().slice(0,10)}` },
+        },
+      });
+      if (!exists) {
+        for (const dest of [DestinatarioNotificacion.ADMIN, DestinatarioNotificacion.CAJERO]) {
+          await prisma.notificacion.create({
+            data: {
+              tipo: TipoNotificacion.CIERRE_CAJA_PENDIENTE,
+              mensaje: `Fecha sin cierre: ${startToday.toISOString().slice(0,10)}`,
+              nivel: NivelNotificacion.WARN,
+              idUsuario: systemUserId ?? null,
+              destinatario: dest,
+            },
+          });
+        }
+      }
+    }
+
+    const cierreAyer = await prisma.cierreCaja.findFirst({ where: { fecha: { gte: y, lte: yEnd } } });
+    if (!cierreAyer) {
+      const existsPrev = await prisma.notificacion.findFirst({
+        where: {
+          tipo: TipoNotificacion.CIERRE_CAJA_PENDIENTE,
+          createdAt: { gte: startToday },
+          mensaje: { equals: `Cierre pendiente día anterior: ${y.toISOString().slice(0,10)}` },
+        },
+      });
+      if (!existsPrev) {
+        for (const dest of [DestinatarioNotificacion.ADMIN, DestinatarioNotificacion.CAJERO]) {
+          await prisma.notificacion.create({
+            data: {
+              tipo: TipoNotificacion.CIERRE_CAJA_PENDIENTE,
+              mensaje: `Cierre pendiente día anterior: ${y.toISOString().slice(0,10)}`,
+              nivel: NivelNotificacion.WARN,
+              idUsuario: systemUserId ?? null,
+              destinatario: dest,
+            },
+          });
+        }
+      }
+    }
+
+    // Ventas en ListoCaja pendientes de cobro (Cajero) — 19:30
+    try {
+      const estados = await getEstadoIds();
+      const idLC = estados.ListoCaja;
+      if (idLC != null) {
+        const ventasLC = await prisma.venta.findMany({
+          where: { idEstadoVenta: idLC, fechaVenta: { gte: startToday, lte: endToday } },
+          select: { idVenta: true, idCliente: true, Cliente: { select: { nombreCliente: true, apellidoCliente: true } }, fechaVenta: true },
+        });
+        if (ventasLC.length > 0) {
+          const top5 = ventasLC.slice(0, 5);
+          const resumenParts: string[] = [];
+          for (const v of top5) {
+            const cliente = v.Cliente ? (v.Cliente.apellidoCliente + ", " + v.Cliente.nombreCliente) : String(v.idCliente);
+            const hora = v.fechaVenta ? new Date(v.fechaVenta).toTimeString().slice(0,5) : "";
+            const total = await calcularTotalBasico(v.idVenta);
+            resumenParts.push(`#${v.idVenta} ${cliente} $${total.toFixed(2)} ${hora}`);
+          }
+          const resumen = resumenParts.join("; ");
+          await prisma.notificacion.create({
+            data: {
+              tipo: TipoNotificacion.OTRO,
+              mensaje: `Ventas pendientes de cobro: ${ventasLC.length}. ${resumen}`,
+              nivel: NivelNotificacion.WARN,
+              destinatario: DestinatarioNotificacion.CAJERO,
+              data: { code: "VENTA_PENDIENTE_COBRO_CAJERO" },
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.error("cron 19:30 ventas pendientes cobro cajero error", err);
+    }
+
+    // Presupuestos por vencer (Vendedor) — 19:30
+    try {
+      const estados = await getEstadoIds();
+      const idPend = estados.Pendiente;
+      if (idPend != null) {
+        const presupuestos = await prisma.venta.findMany({
+          where: { idEstadoVenta: idPend, fechaVenta: { gte: startToday, lte: endToday } },
+          select: { idVenta: true, idCliente: true, Cliente: { select: { nombreCliente: true, apellidoCliente: true } } },
+        });
+        if (presupuestos.length > 0) {
+          const resumen = presupuestos.slice(0, 5).map((v) => `#${v.idVenta} ${(v.Cliente ? (v.Cliente.apellidoCliente + ", " + v.Cliente.nombreCliente) : String(v.idCliente))}`).join("; ");
+          await prisma.notificacion.create({
+            data: {
+              tipo: TipoNotificacion.PRESUPUESTOS_PENDIENTES,
+              mensaje: `Presupuestos por vencer hoy: ${presupuestos.length}. ${resumen}`,
+              nivel: NivelNotificacion.WARN,
+              destinatario: DestinatarioNotificacion.VENDEDOR,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.error("cron 19:30 presupuestos por vencer vendedor error", err);
+    }
+  } catch (err) {
+    console.error("cron 19:30 cierre caja pendiente error", err);
   }
 });
