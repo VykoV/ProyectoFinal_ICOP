@@ -1316,6 +1316,34 @@ function PreventaForm({
     }[]
   >([]);
 
+  // Selector visual de productos (igual que en Ventas)
+  const [openProdPicker, setOpenProdPicker] = useState(false);
+  const [pickerQ, setPickerQ] = useState("");
+  const [pickerResults, setPickerResults] = useState<any[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!openProdPicker) return;
+    const t = setTimeout(async () => {
+      setPickerLoading(true);
+      setPickerError(null);
+      try {
+        const { data } = await api.get("/products", {
+          params: pickerQ ? { q: pickerQ } : undefined,
+        });
+        setPickerResults(Array.isArray(data) ? data : []);
+      } catch (e: any) {
+        setPickerError(
+          e?.response?.data?.error || e?.message || "Error al buscar productos"
+        );
+      } finally {
+        setPickerLoading(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [openProdPicker, pickerQ]);
+
   async function openStockForLoadedProducts() {
     setStockError(null);
     setStockLoading(true);
@@ -1865,6 +1893,128 @@ function PreventaForm({
             onSubmit={onSubmit}
             className="p-4 overflow-auto flex-1 space-y-6"
           >
+            <Modal
+              open={openProdPicker}
+              title="Seleccionar producto"
+              centered
+              size="2xl"
+              onClose={() => setOpenProdPicker(false)}
+            >
+              <div className="space-y-3 text-sm">
+                <div>
+                  <Label htmlFor="buscarProdPicker">Buscar</Label>
+                  <input
+                    id="buscarProdPicker"
+                    type="text"
+                    className="rounded border px-2 py-1 w-full"
+                    placeholder="Código, nombre o SKU"
+                    value={pickerQ}
+                    onChange={(e) => setPickerQ(e.target.value)}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Escribe para ver productos existentes. Se muestran precio y
+                    oferta vigente.
+                  </p>
+                </div>
+                <div className="rounded border">
+                  <div className="border-b bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                    Resultados
+                  </div>
+                  <div className="max-h-64 overflow-auto">
+                    {pickerLoading ? (
+                      <div className="p-3 text-sm text-gray-600">Buscando…</div>
+                    ) : pickerError ? (
+                      <div className="p-3 text-sm text-red-700">
+                        {pickerError}
+                      </div>
+                    ) : pickerResults.length === 0 ? (
+                      <div className="p-3 text-sm text-gray-600">
+                        No se encontraron productos
+                      </div>
+                    ) : (
+                      <table className="min-w-full text-xs">
+                        <thead className="bg-gray-100 text-left">
+                          <tr>
+                            <th className="px-3 py-2">Código</th>
+                            <th className="px-3 py-2">Nombre</th>
+                            <th className="px-3 py-2 text-right">Precio</th>
+                            <th className="px-3 py-2 text-right">Oferta</th>
+                            <th className="px-3 py-2 text-right">Acción</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pickerResults.slice(0, 50).map((p: any) => {
+                            const pu = Number(
+                              p.precio ?? p.precioVentaPublicoProducto ?? 0
+                            );
+                            const pct = Number(
+                              p.porcentajeOferta ??
+                                p.porcentajeOfertaProducto ??
+                                0
+                            );
+                            const oferta = pct > 0;
+                            return (
+                              <tr
+                                key={p.idProducto ?? p.id}
+                                className="border-t"
+                              >
+                                <td className="px-3 py-2">
+                                  {p.codigoProducto ??
+                                    p.sku ??
+                                    p.idProducto ??
+                                    p.id}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {p.nombreProducto ?? p.nombre}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  $
+                                  {fmtPrice(
+                                    oferta ? pu * (1 - pct / 100) : pu,
+                                    {
+                                      minFraction: 2,
+                                      maxFraction: 2,
+                                    }
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  {oferta ? `${pct}%` : "-"}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <button
+                                    className="rounded border px-2 py-1 text-xs"
+                                    onClick={() => {
+                                      const prodId = Number(
+                                        p.idProducto ?? p.id
+                                      );
+                                      const label = `${
+                                        p.codigoProducto ?? p.sku ?? prodId
+                                      } — ${p.nombreProducto ?? p.nombre}`;
+                                      setProdSel({
+                                        id: prodId,
+                                        label,
+                                        precio: pu,
+                                        ofertaPct: oferta ? pct : 0,
+                                      });
+                                      setProdQ(label);
+                                      setPrecio(pu);
+                                      setDesc(oferta ? pct : 0);
+                                      setOpenProdPicker(false);
+                                    }}
+                                  >
+                                    Seleccionar
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </Modal>
             {/* === Datos de la operación === */}
             <div className="rounded-2xl border bg-white p-4 space-y-4">
               <h4 className="text-sm font-medium text-gray-700">
@@ -1987,9 +2137,22 @@ function PreventaForm({
 
             {/* === Agregar productos === */}
             <div className="rounded-2xl border bg-white p-4 space-y-3">
-              <h4 className="text-sm font-medium text-gray-700">
-                Agregar producto
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium text-gray-700">
+                  Agregar producto
+                </h4>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                  onClick={() => {
+                    setOpenProdPicker(true);
+                    setPickerQ("");
+                  }}
+                  title="Buscar y seleccionar producto"
+                >
+                  Agregar producto
+                </button>
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-20 gap-3">
                 {/* Producto */}

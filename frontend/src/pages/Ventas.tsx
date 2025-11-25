@@ -1948,6 +1948,34 @@ function ValidarPreventaModal({
     }[]
   >([]);
 
+  // Picker de productos para agregar a la preventa
+  const [openProdPicker, setOpenProdPicker] = useState(false);
+  const [prodQ, setProdQ] = useState("");
+  const [prodResults, setProdResults] = useState<any[]>([]);
+  const [prodLoading, setProdLoading] = useState(false);
+  const [prodError, setProdError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!openProdPicker) return;
+    const t = setTimeout(async () => {
+      setProdLoading(true);
+      setProdError(null);
+      try {
+        const { data } = await api.get("/products", {
+          params: prodQ ? { q: prodQ } : undefined,
+        });
+        setProdResults(Array.isArray(data) ? data : []);
+      } catch (e: any) {
+        setProdError(
+          e?.response?.data?.error || e?.message || "Error al buscar productos"
+        );
+      } finally {
+        setProdLoading(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [openProdPicker, prodQ]);
+
   async function openStockForLoadedProducts() {
     const detalles = venta?.detalles ?? [];
     setStockError(null);
@@ -2280,53 +2308,9 @@ function ValidarPreventaModal({
                         <button
                           type="button"
                           className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-                          onClick={async () => {
-                            const q = await askText({
-                              title: "Agregar producto",
-                              label: "Código/Nombre/ID",
-                              placeholder:
-                                "Escribe para buscar (mín. 2 caracteres)",
-                              confirmText: "Agregar",
-                              cancelText: "Cancelar",
-                              required: true,
-                            });
-                            if (!q) return;
-                            try {
-                              const res = await api.get(`/products/search`, {
-                                params: { q },
-                              });
-                              const list = Array.isArray(res.data)
-                                ? res.data
-                                : [];
-                              const p = list[0];
-                              if (!p) {
-                                alert("No se encontró producto");
-                                return;
-                              }
-                              setVenta((prev: any) => {
-                                const detalles = Array.isArray(prev?.detalles)
-                                  ? [...prev.detalles]
-                                  : [];
-                                detalles.push({
-                                  idProducto: Number(p.idProducto),
-                                  cantidad: 1,
-                                  precioUnit: Number(
-                                    p.precioVentaPublicoProducto ?? 0
-                                  ),
-                                  descuentoItem:
-                                    Number(p.porcentajeOfertaProducto ?? 0) ||
-                                    0,
-                                  Producto: p,
-                                });
-                                return { ...prev, detalles };
-                              });
-                            } catch (e: any) {
-                              alert(
-                                e?.response?.data?.error ||
-                                  e?.message ||
-                                  "Error buscando producto"
-                              );
-                            }
+                          onClick={() => {
+                            setOpenProdPicker(true);
+                            setProdQ("");
                           }}
                         >
                           <Plus className="h-3.5 w-3.5" />
@@ -2335,6 +2319,160 @@ function ValidarPreventaModal({
                       )}
                     </div>
                   </div>
+
+                  {openProdPicker && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+                      <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl">
+                        <div className="flex items-center justify-between border-b px-4 py-2">
+                          <h2 className="text-sm font-medium">
+                            Seleccionar producto
+                          </h2>
+                          <button
+                            className="rounded border px-2 py-1 text-xs"
+                            onClick={() => setOpenProdPicker(false)}
+                            title="Cerrar"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <div className="p-4 space-y-3">
+                          <div>
+                            <Label htmlFor="buscarProd">Buscar</Label>
+                            <input
+                              id="buscarProd"
+                              type="text"
+                              className="rounded border px-2 py-1 w-full"
+                              placeholder="Código, nombre o SKU"
+                              value={prodQ}
+                              onChange={(e) => setProdQ(e.target.value)}
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                              Escribe para ver productos existentes. Se muestran
+                              precio y oferta vigente.
+                            </p>
+                          </div>
+                          <div className="rounded border">
+                            <div className="border-b bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                              Resultados
+                            </div>
+                            <div className="max-h-64 overflow-auto">
+                              {prodLoading ? (
+                                <div className="p-3 text-sm text-gray-600">
+                                  Buscando…
+                                </div>
+                              ) : prodError ? (
+                                <div className="p-3 text-sm text-red-700">
+                                  {prodError}
+                                </div>
+                              ) : prodResults.length === 0 ? (
+                                <div className="p-3 text-sm text-gray-600">
+                                  No se encontraron productos
+                                </div>
+                              ) : (
+                                <table className="min-w-full text-xs">
+                                  <thead className="bg-gray-100 text-left">
+                                    <tr>
+                                      <th className="px-3 py-2">Código</th>
+                                      <th className="px-3 py-2">Nombre</th>
+                                      <th className="px-3 py-2 text-right">
+                                        Precio
+                                      </th>
+                                      <th className="px-3 py-2 text-right">
+                                        Oferta
+                                      </th>
+                                      <th className="px-3 py-2 text-right">
+                                        Acción
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {prodResults.slice(0, 50).map((p: any) => {
+                                      const pu = Number(
+                                        p.precio ??
+                                          p.precioVentaPublicoProducto ??
+                                          0
+                                      );
+                                      const pct = Number(
+                                        p.porcentajeOferta ??
+                                          p.porcentajeOfertaProducto ??
+                                          0
+                                      );
+                                      const oferta = pct > 0;
+                                      return (
+                                        <tr
+                                          key={p.idProducto ?? p.id}
+                                          className="border-t"
+                                        >
+                                          <td className="px-3 py-2">
+                                            {p.codigoProducto ??
+                                              p.sku ??
+                                              p.idProducto ??
+                                              p.id}
+                                          </td>
+                                          <td className="px-3 py-2">
+                                            {p.nombreProducto ?? p.nombre}
+                                          </td>
+                                          <td className="px-3 py-2 text-right">
+                                            $
+                                            {fmtPrice(
+                                              oferta
+                                                ? pu * (1 - pct / 100)
+                                                : pu,
+                                              { minFraction: 2, maxFraction: 2 }
+                                            )}
+                                          </td>
+                                          <td className="px-3 py-2 text-right">
+                                            {oferta ? `${pct}%` : "-"}
+                                          </td>
+                                          <td className="px-3 py-2 text-right">
+                                            <button
+                                              className="rounded border px-2 py-1 text-xs"
+                                              onClick={async () => {
+                                                setVenta((prev: any) => {
+                                                  const detalles =
+                                                    Array.isArray(
+                                                      prev?.detalles
+                                                    )
+                                                      ? [...prev.detalles]
+                                                      : [];
+                                                  detalles.push({
+                                                    idProducto: Number(
+                                                      p.idProducto ?? p.id
+                                                    ),
+                                                    cantidad: 1,
+                                                    precioUnit: pu,
+                                                    descuentoItem: oferta
+                                                      ? pct
+                                                      : 0,
+                                                    Producto: p,
+                                                  });
+                                                  return { ...prev, detalles };
+                                                });
+                                                setOpenProdPicker(false);
+                                                await showAlert({
+                                                  type: "success",
+                                                  title: "Producto agregado",
+                                                  message: `${
+                                                    p.nombreProducto ?? p.nombre
+                                                  } añadido a la preventa`,
+                                                });
+                                              }}
+                                            >
+                                              Agregar
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-xs">
@@ -2414,12 +2552,21 @@ function ValidarPreventaModal({
                                 className="border-t"
                               >
                                 <td className="px-3 py-2">
-                                  {d.Producto?.codigoProducto
-                                    ? `${d.Producto.codigoProducto} - ${
-                                        d.Producto.nombreProducto ?? ""
-                                      }`
-                                    : d.Producto?.nombreProducto ??
-                                      `Producto ${d.idProducto ?? ""}`}
+                                  {(() => {
+                                    const codigo =
+                                      d.Producto?.codigoProducto ??
+                                      d.Producto?.sku ??
+                                      d.Producto?.codigo ??
+                                      d.idProducto ??
+                                      "";
+                                    const nombre =
+                                      d.Producto?.nombreProducto ??
+                                      d.Producto?.nombre ??
+                                      `Producto ${d.idProducto ?? ""}`;
+                                    return codigo
+                                      ? `${codigo} — ${nombre}`
+                                      : nombre;
+                                  })()}
                                 </td>
                                 <td className="px-3 py-2 text-right">
                                   {canSave ? (
