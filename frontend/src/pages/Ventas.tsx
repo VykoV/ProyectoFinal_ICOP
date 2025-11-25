@@ -20,6 +20,7 @@ type VentaRow = {
   total: number;
   estadoPago?: string | null;
   fechaCobro?: string | null;
+  fechaReservaLimite?: string | null;
 };
 
 export default function Ventas() {
@@ -257,6 +258,7 @@ export default function Ventas() {
               v.EstadoVenta?.nombreEstadoVenta ??
               "Pendiente",
             total: Number(v.total ?? 0),
+            fechaReservaLimite: v.fechaReservaLimite ?? null,
           }))
       );
     } finally {
@@ -415,20 +417,39 @@ export default function Ventas() {
         const raw = row.original.estado || "Pendiente";
         const norm = raw.toLowerCase().replace(/[\s_]+/g, "");
 
-        let cls = "bg-blue-100 text-blue-800"; // default intermedio / caja
+        let cls = "bg-blue-100 text-blue-800";
         if (norm.includes("pend")) {
-          cls = "bg-yellow-100 text-yellow-800"; // pendiente vendedor
+          cls = "bg-yellow-100 text-yellow-800";
         } else if (norm.includes("finaliz") || norm.includes("cerrad")) {
-          cls = "bg-green-100 text-green-800"; // cerrado ok
+          cls = "bg-green-100 text-green-800";
         } else if (norm.includes("cancel")) {
-          cls = "bg-red-100 text-red-800"; // cancelado
+          cls = "bg-red-100 text-red-800";
         } else if (norm.includes("reserv")) {
-          cls = "bg-purple-100 text-purple-800"; // reservado
+          cls = "bg-purple-100 text-purple-800";
+        }
+
+        let extra: string | null = null;
+        if (norm.includes("reserv")) {
+          const lim = row.original.fechaReservaLimite
+            ? new Date(row.original.fechaReservaLimite)
+            : null;
+          const hoy = new Date();
+          hoy.setHours(0, 0, 0, 0);
+          if (lim && lim < hoy) {
+            extra = "Reserva vencida";
+          }
         }
 
         return (
-          <span className={`rounded-full px-2 py-1 text-xs font-medium ${cls}`}>
-            {raw}
+          <span
+            className={`inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs font-medium ${cls}`}
+          >
+            <span>{raw}</span>
+            {extra && (
+              <span className="rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[10px]">
+                {extra}
+              </span>
+            )}
           </span>
         );
       },
@@ -1095,6 +1116,20 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
     venta?.EstadoVenta?.nombreEstadoVenta ??
     (venta?.idEstadoVenta ? `Estado ${venta.idEstadoVenta}` : "-");
 
+  const estadoEsReservado = String(estadoStr || "")
+    .toLowerCase()
+    .includes("reserv");
+
+  const reservaVencida = (() => {
+    try {
+      if (!venta?.fechaReservaLimite) return false;
+      const now = new Date();
+      return new Date(venta.fechaReservaLimite).getTime() < now.getTime();
+    } catch {
+      return false;
+    }
+  })();
+
   const lineItems = venta?.detalles ?? [];
 
   return (
@@ -1137,27 +1172,28 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                       Fecha:{" "}
                       {String(venta?.fechaVenta ?? "").slice(0, 10) || "-"}
                     </span>
-                    {(() => {
-                      const est = (estadoStr || "").toLowerCase();
-                      let cls =
-                        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50";
-                      if (est.includes("reserv"))
-                        cls =
-                          "inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-purple-700 bg-purple-50";
-                      else if (est.includes("listocaja"))
-                        cls =
-                          "inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-blue-700 bg-blue-50";
-                      else if (est.includes("pend"))
-                        cls =
-                          "inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-yellow-800 bg-yellow-100";
-                      else if (est.includes("final"))
-                        cls =
-                          "inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-green-700 bg-green-50";
-                      else if (est.includes("cancel"))
-                        cls =
-                          "inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-red-700 bg-red-50";
-                      return <span className={cls}>Estado: {estadoStr}</span>;
-                    })()}
+                    {estadoEsReservado ? (
+                      venta?.fechaReservaLimite ? (
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
+                            reservaVencida
+                              ? "bg-red-100 text-red-800"
+                              : "bg-green-100 text-green-800"
+                          }`}
+                        >
+                          Estado: Reservado hasta {""}
+                          {new Date(venta.fechaReservaLimite).toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
+                          Estado: Reservado (sin vencimiento)
+                        </span>
+                      )
+                    ) : (
+                      <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
+                        Estado: {estadoStr}
+                      </span>
+                    )}
                   </div>
                 </div>
 

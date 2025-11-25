@@ -264,52 +264,9 @@ export default function PreVentas() {
               (hasRole("Vendedor") || hasRole("Administrador")) && (
                 <button
                   className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
-                  onClick={async () => {
-                    const ok = await askConfirm({
-                      title: "Reservar preventa",
-                      message:
-                        "¿Confirmás marcar esta preventa como Reservada?",
-                      confirmText: "Reservar",
-                      cancelText: "Volver",
-                      type: "question",
-                    });
-                    if (!ok) return;
-                    try {
-                      await api.put(`/preventas/${row.original.id}`, {
-                        accion: "reservar",
-                      });
-                      await load(q);
-                    } catch (e: any) {
-                      const code = e?.response?.data?.error;
-                      if (code === "RESERVA_PRODUCTO_EN_OFERTA") {
-                        await showAlert({
-                          type: "warning",
-                          title: "No permitido",
-                          message:
-                            "No se puede reservar una preventa con productos en oferta.",
-                        });
-                      } else if (code === "SIN_ITEMS") {
-                        await showAlert({
-                          type: "warning",
-                          title: "Validación",
-                          message:
-                            "El presupuesto no tiene productos cargados.",
-                        });
-                      } else if (code === "ESTADO_INVALIDO") {
-                        await showAlert({
-                          type: "warning",
-                          title: "Estado",
-                          message:
-                            "Solo se puede reservar desde estado Pendiente.",
-                        });
-                      } else {
-                        await showAlert({
-                          type: "error",
-                          title: "Error",
-                          message: e?.message || "No se pudo reservar",
-                        });
-                      }
-                    }
+                  onClick={() => {
+                    setReservaFecha("");
+                    setOpenReservaId(row.original.id);
                   }}
                   title="Marcar como Reservado"
                 >
@@ -903,25 +860,26 @@ function PreventaView({
                       Fecha:{" "}
                       {String(venta?.fechaVenta ?? "").slice(0, 10) || "-"}
                     </span>
-                    {!estadoEsReservado && (
+                    {estadoEsReservado ? (
+                      venta?.fechaReservaLimite ? (
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
+                            reservaVencida
+                              ? "bg-red-100 text-red-800"
+                              : "bg-green-100 text-green-800"
+                          }`}
+                        >
+                          Estado: Reservado hasta {""}
+                          {new Date(venta.fechaReservaLimite).toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
+                          Estado: Reservado (sin vencimiento)
+                        </span>
+                      )
+                    ) : (
                       <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
                         Estado: {estadoStr}
-                      </span>
-                    )}
-                    {venta?.fechaReservaLimite ? (
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
-                          reservaVencida
-                            ? "bg-red-100 text-red-800"
-                            : "bg-green-100 text-green-800"
-                        }`}
-                      >
-                        Estado: Reservado hasta {""}
-                        {new Date(venta.fechaReservaLimite).toLocaleString()}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs bg-gray-100 text-gray-700">
-                        Sin reserva
                       </span>
                     )}
                   </div>
