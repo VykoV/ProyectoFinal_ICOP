@@ -4,7 +4,7 @@ import { DataTable } from "../components/DataTable";
 import { Search, Eye, Plus, X } from "lucide-react";
 import { Label, Input } from "../components/ui/Form";
 import { api } from "../lib/api";
-import { askText } from "../lib/alerts";
+import { askText, showAlert } from "../lib/alerts";
 import { fmtPrice } from "../lib/format";
 import Modal from "../components/Modal";
 import { getProductStock } from "../lib/api/products";
@@ -48,7 +48,10 @@ export default function Ventas() {
   const [preDesde, setPreDesde] = useState<string>("");
   const [preHasta, setPreHasta] = useState<string>("");
   const [prePage, setPrePage] = useState<number>(1);
-  const [venEstados, setVenEstados] = useState<string[]>(["finalizada", "cancelada"]);
+  const [venEstados, setVenEstados] = useState<string[]>([
+    "finalizada",
+    "cancelada",
+  ]);
   const [venDesde, setVenDesde] = useState<string>("");
   const [venHasta, setVenHasta] = useState<string>("");
   const [venPage, setVenPage] = useState<number>(1);
@@ -56,8 +59,18 @@ export default function Ventas() {
   const [venSort, setVenSort] = useState<"asc" | "desc">("desc");
   const pageSize = 10;
 
-  function normEstado(raw: string): "pendiente" | "reservado" | "listocaja" | "finalizada" | "cancelada" | "otro" {
-    const n = String(raw || "").toLowerCase().replace(/[\s_]+/g, "");
+  function normEstado(
+    raw: string
+  ):
+    | "pendiente"
+    | "reservado"
+    | "listocaja"
+    | "finalizada"
+    | "cancelada"
+    | "otro" {
+    const n = String(raw || "")
+      .toLowerCase()
+      .replace(/[\s_]+/g, "");
     if (n.includes("pend")) return "pendiente";
     if (n.includes("reserv")) return "reservado";
     if (n.includes("listocaja")) return "listocaja";
@@ -67,10 +80,17 @@ export default function Ventas() {
   }
 
   // Coincidencia simple contra múltiples campos; si q está vacío, siempre true
-  function matchesQuery(qv: string, ...fields: Array<string | null | undefined>): boolean {
+  function matchesQuery(
+    qv: string,
+    ...fields: Array<string | null | undefined>
+  ): boolean {
     const qn = (qv || "").trim().toLowerCase();
     if (!qn) return true;
-    return fields.some((f) => String(f || "").toLowerCase().includes(qn));
+    return fields.some((f) =>
+      String(f || "")
+        .toLowerCase()
+        .includes(qn)
+    );
   }
 
   function readParams() {
@@ -89,19 +109,40 @@ export default function Ventas() {
     const venS = sp.get("venSort") || "";
     if (tabQ === "ventas" || tabQ === "preventas") setTab(tabQ);
     setQ(q0);
-    setPreEstados(preE ? preE.split(",").filter(Boolean) : ["pendiente", "reservado", "listocaja"]);
+    setPreEstados(
+      preE
+        ? preE.split(",").filter(Boolean)
+        : ["pendiente", "reservado", "listocaja"]
+    );
     setPreDesde(preD);
     setPreHasta(preH);
     setPrePage(Math.max(1, preP || 1));
     setPreSort(preS === "asc" || preS === "desc" ? (preS as any) : "desc");
-    setVenEstados(venE ? venE.split(",").filter(Boolean) : ["finalizada", "cancelada"]);
+    setVenEstados(
+      venE ? venE.split(",").filter(Boolean) : ["finalizada", "cancelada"]
+    );
     setVenDesde(venD);
     setVenHasta(venH);
     setVenPage(Math.max(1, venP || 1));
     setVenSort(venS === "asc" || venS === "desc" ? (venS as any) : "desc");
   }
 
-  function writeParams(next?: Partial<{ tab: "ventas" | "preventas"; q: string; preEstados: string[]; preDesde: string; preHasta: string; prePage: number; preSort: "asc" | "desc"; venEstados: string[]; venDesde: string; venHasta: string; venPage: number; venSort: "asc" | "desc" }>) {
+  function writeParams(
+    next?: Partial<{
+      tab: "ventas" | "preventas";
+      q: string;
+      preEstados: string[];
+      preDesde: string;
+      preHasta: string;
+      prePage: number;
+      preSort: "asc" | "desc";
+      venEstados: string[];
+      venDesde: string;
+      venHasta: string;
+      venPage: number;
+      venSort: "asc" | "desc";
+    }>
+  ) {
     const sp = new URLSearchParams(window.location.search);
     const t = next?.tab ?? tab;
     const qv = next?.q ?? q;
@@ -116,15 +157,22 @@ export default function Ventas() {
     const vp = next?.venPage ?? venPage;
     const vs = next?.venSort ?? venSort;
     sp.set("tab", t);
-    if (qv) sp.set("q", qv); else sp.delete("q");
-    if (pe.length) sp.set("preEstados", pe.join(",")); else sp.delete("preEstados");
-    if (pd) sp.set("preDesde", pd); else sp.delete("preDesde");
-    if (ph) sp.set("preHasta", ph); else sp.delete("preHasta");
+    if (qv) sp.set("q", qv);
+    else sp.delete("q");
+    if (pe.length) sp.set("preEstados", pe.join(","));
+    else sp.delete("preEstados");
+    if (pd) sp.set("preDesde", pd);
+    else sp.delete("preDesde");
+    if (ph) sp.set("preHasta", ph);
+    else sp.delete("preHasta");
     sp.set("prePage", String(pp));
     sp.set("preSort", ps);
-    if (ve.length) sp.set("venEstados", ve.join(",")); else sp.delete("venEstados");
-    if (vd) sp.set("venDesde", vd); else sp.delete("venDesde");
-    if (vh) sp.set("venHasta", vh); else sp.delete("venHasta");
+    if (ve.length) sp.set("venEstados", ve.join(","));
+    else sp.delete("venEstados");
+    if (vd) sp.set("venDesde", vd);
+    else sp.delete("venDesde");
+    if (vh) sp.set("venHasta", vh);
+    else sp.delete("venHasta");
     sp.set("venPage", String(vp));
     sp.set("venSort", vs);
     window.history.replaceState(null, "", `?${sp.toString()}`);
@@ -153,64 +201,64 @@ export default function Ventas() {
           estado: v.estado,
           total: Number(v.total ?? 0),
           estadoPago: v.estadoPago ?? null,
-          fechaCobro: v.fechaCobroVenta ? String(v.fechaCobroVenta).slice(0,10) : null,
+          fechaCobro: v.fechaCobroVenta
+            ? String(v.fechaCobroVenta).slice(0, 10)
+            : null,
         }))
       );
 
       // preventas pendientes
       let preData: any[] = [];
-try {
-  const resP = await api.get("/preventas", {
-    params: { ...(query ? { q: query } : {}), _: Date.now() },
-  });
-  preData = resP.data ?? [];
-} catch {
-  preData = [];
-}
+      try {
+        const resP = await api.get("/preventas", {
+          params: { ...(query ? { q: query } : {}), _: Date.now() },
+        });
+        preData = resP.data ?? [];
+      } catch {
+        preData = [];
+      }
 
-setPreRows(
-  preData
-    .filter((v: any) => {
-      const estadoNombre =
-        v.estado ??
-        v.estadoVenta ??
-        v.EstadoVenta?.nombreEstadoVenta ??
-        "Pendiente";
+      setPreRows(
+        preData
+          .filter((v: any) => {
+            const estadoNombre =
+              v.estado ??
+              v.estadoVenta ??
+              v.EstadoVenta?.nombreEstadoVenta ??
+              "Pendiente";
 
-      const norm = String(estadoNombre)
-        .toLowerCase()
-        .replace(/[\s_]+/g, "");
+            const norm = String(estadoNombre)
+              .toLowerCase()
+              .replace(/[\s_]+/g, "");
 
-      // Estados que NO queremos ver en la pestaña de "Pre-Ventas Pendientes" de caja:
-      // finalizada, finalizado, cerrado, cancelada, cancelado
-      const esCerrada =
-        norm.includes("finaliz") ||
-        norm.includes("cerrad") ||
-        norm.includes("cancel");
+            // Estados que NO queremos ver en la pestaña de "Pre-Ventas Pendientes" de caja:
+            // finalizada, finalizado, cerrado, cancelada, cancelado
+            const esCerrada =
+              norm.includes("finaliz") ||
+              norm.includes("cerrad") ||
+              norm.includes("cancel");
 
-      // Caja debe ver todo lo que no esté cerrado
-      return !esCerrada;
-    })
-    .map((v: any) => ({
-      id: v.id ?? v.idVenta,
-      cliente: v.cliente
-        ? v.cliente
-        : v.Cliente
-        ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
-        : "",
-      fecha: String(v.fecha ?? v.fechaVenta ?? "").slice(0, 10),
-      metodoPago:
-        v.metodoPago ?? v.TipoPago?.tipoPago ?? v.metodo ?? null,
-      estado:
-        v.estado ??
-        v.estadoVenta ??
-        v.EstadoVenta?.nombreEstadoVenta ??
-        "Pendiente",
-      total: Number(v.total ?? 0),
-    }))
-);
-
-
+            // Caja debe ver todo lo que no esté cerrado
+            return !esCerrada;
+          })
+          .map((v: any) => ({
+            id: v.id ?? v.idVenta,
+            cliente: v.cliente
+              ? v.cliente
+              : v.Cliente
+              ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
+              : "",
+            fecha: String(v.fecha ?? v.fechaVenta ?? "").slice(0, 10),
+            metodoPago:
+              v.metodoPago ?? v.TipoPago?.tipoPago ?? v.metodo ?? null,
+            estado:
+              v.estado ??
+              v.estadoVenta ??
+              v.EstadoVenta?.nombreEstadoVenta ??
+              "Pendiente",
+            total: Number(v.total ?? 0),
+          }))
+      );
     } finally {
       setLoading(false);
     }
@@ -236,7 +284,19 @@ setPreRows(
   // sync URL when filters/page/tab change
   useEffect(() => {
     writeParams();
-  }, [tab, preEstados, preDesde, preHasta, prePage, preSort, venEstados, venDesde, venHasta, venPage, venSort]);
+  }, [
+    tab,
+    preEstados,
+    preDesde,
+    preHasta,
+    prePage,
+    preSort,
+    venEstados,
+    venDesde,
+    venHasta,
+    venPage,
+    venSort,
+  ]);
 
   // derived filtered + paginated datasets
   const preFiltered = preRows
@@ -323,7 +383,9 @@ setPreRows(
     {
       header: "Total",
       cell: ({ row }) => (
-        <span className="block text-right">${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}</span>
+        <span className="block text-right">
+          ${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}
+        </span>
       ),
     },
     {
@@ -348,38 +410,34 @@ setPreRows(
     { header: "Cliente", accessorKey: "cliente" },
     { header: "Fecha", accessorKey: "fecha" },
     {
-  header: "Estado",
-  cell: ({ row }) => {
-    const raw = row.original.estado || "Pendiente";
-    const norm = raw.toLowerCase().replace(/[\s_]+/g, "");
+      header: "Estado",
+      cell: ({ row }) => {
+        const raw = row.original.estado || "Pendiente";
+        const norm = raw.toLowerCase().replace(/[\s_]+/g, "");
 
-    let cls = "bg-blue-100 text-blue-800"; // default intermedio / caja
-    if (norm.includes("pend")) {
-      cls = "bg-yellow-100 text-yellow-800"; // pendiente vendedor
-    } else if (
-      norm.includes("finaliz") ||
-      norm.includes("cerrad")
-    ) {
-      cls = "bg-green-100 text-green-800"; // cerrado ok
-    } else if (norm.includes("cancel")) {
-      cls = "bg-red-100 text-red-800"; // cancelado
-    }
+        let cls = "bg-blue-100 text-blue-800"; // default intermedio / caja
+        if (norm.includes("pend")) {
+          cls = "bg-yellow-100 text-yellow-800"; // pendiente vendedor
+        } else if (norm.includes("finaliz") || norm.includes("cerrad")) {
+          cls = "bg-green-100 text-green-800"; // cerrado ok
+        } else if (norm.includes("cancel")) {
+          cls = "bg-red-100 text-red-800"; // cancelado
+        }
 
-    return (
-      <span
-        className={`rounded-full px-2 py-1 text-xs font-medium ${cls}`}
-      >
-        {raw}
-      </span>
-    );
-  },
-},
-
+        return (
+          <span className={`rounded-full px-2 py-1 text-xs font-medium ${cls}`}>
+            {raw}
+          </span>
+        );
+      },
+    },
 
     {
       header: "Total",
       cell: ({ row }) => (
-        <span className="block text-right">${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}</span>
+        <span className="block text-right">
+          ${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}
+        </span>
       ),
     },
     {
@@ -473,8 +531,12 @@ setPreRows(
         </button>
         <span className="ml-auto text-xs text-gray-600">
           {tab === "ventas"
-            ? `Mostrando ${venTotal === 0 ? 0 : venStart + 1}–${venEnd} de ${venTotal}`
-            : `Mostrando ${preTotal === 0 ? 0 : preStart + 1}–${preEnd} de ${preTotal}`}
+            ? `Mostrando ${
+                venTotal === 0 ? 0 : venStart + 1
+              }–${venEnd} de ${venTotal}`
+            : `Mostrando ${
+                preTotal === 0 ? 0 : preStart + 1
+              }–${preEnd} de ${preTotal}`}
         </span>
       </div>
 
@@ -484,7 +546,9 @@ setPreRows(
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg md:max-w-xl lg:max-w-2xl">
             <div className="flex items-center justify-between border-b px-4 py-2">
               <h2 className="text-sm font-medium">
-                {tab === "ventas" ? "Filtros de Ventas" : "Filtros de Presupuestos"}
+                {tab === "ventas"
+                  ? "Filtros de Ventas"
+                  : "Filtros de Presupuestos"}
               </h2>
               <button
                 className="rounded border px-2 py-1 text-xs"
@@ -500,15 +564,23 @@ setPreRows(
                     <span className="text-gray-600">Estado</span>
                     {(() => {
                       const preEstadoSel: "todas" | "pendiente" | "listocaja" =
-                        preEstados.length === 1 ? (preEstados[0] as "pendiente" | "listocaja") : "todas";
+                        preEstados.length === 1
+                          ? (preEstados[0] as "pendiente" | "listocaja")
+                          : "todas";
                       return (
                         <>
                           <select
                             className="rounded border px-2 py-1"
                             value={preEstadoSel}
                             onChange={(e) => {
-                              const val = e.target.value as "todas" | "pendiente" | "listocaja";
-                              const next = val === "todas" ? ["pendiente", "listocaja"] : [val];
+                              const val = e.target.value as
+                                | "todas"
+                                | "pendiente"
+                                | "listocaja";
+                              const next =
+                                val === "todas"
+                                  ? ["pendiente", "listocaja"]
+                                  : [val];
                               setPreEstados(next);
                               setPrePage(1);
                             }}
@@ -521,7 +593,9 @@ setPreRows(
                           <select
                             className="rounded border px-2 py-1"
                             value={preSort}
-                            onChange={(e) => setPreSort(e.target.value as "asc" | "desc")}
+                            onChange={(e) =>
+                              setPreSort(e.target.value as "asc" | "desc")
+                            }
                           >
                             <option value="desc">Descendente</option>
                             <option value="asc">Ascendente</option>
@@ -552,7 +626,6 @@ setPreRows(
                       }}
                     />
                   </div>
-                  
                 </>
               ) : (
                 <>
@@ -562,8 +635,12 @@ setPreRows(
                       className="rounded border px-2 py-1"
                       value={venEstadoSel}
                       onChange={(e) => {
-                        const val = e.target.value as "todas" | "finalizada" | "cancelada";
-                        const next = val === "todas" ? ["finalizada", "cancelada"] : [val];
+                        const val = e.target.value as
+                          | "todas"
+                          | "finalizada"
+                          | "cancelada";
+                        const next =
+                          val === "todas" ? ["finalizada", "cancelada"] : [val];
                         setVenEstados(next);
                         setVenPage(1);
                       }}
@@ -576,7 +653,9 @@ setPreRows(
                     <select
                       className="rounded border px-2 py-1"
                       value={venSort}
-                      onChange={(e) => setVenSort(e.target.value as "asc" | "desc")}
+                      onChange={(e) =>
+                        setVenSort(e.target.value as "asc" | "desc")
+                      }
                     >
                       <option value="desc">Descendente</option>
                       <option value="asc">Ascendente</option>
@@ -604,7 +683,6 @@ setPreRows(
                       }}
                     />
                   </div>
-                  
                 </>
               )}
             </div>
@@ -629,7 +707,10 @@ setPreRows(
               >
                 <X className="h-3.5 w-3.5" /> Borrar filtros
               </button>
-              <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenFiltros(false)}>
+              <button
+                className="rounded border px-3 py-1 text-sm"
+                onClick={() => setOpenFiltros(false)}
+              >
                 Cerrar
               </button>
             </div>
@@ -662,7 +743,9 @@ setPreRows(
                 </button>
                 <button
                   className="border px-2 py-1 rounded disabled:opacity-50"
-                  onClick={() => setPrePage((p) => Math.min(preTotalPages, p + 1))}
+                  onClick={() =>
+                    setPrePage((p) => Math.min(preTotalPages, p + 1))
+                  }
                   disabled={preSafePage >= preTotalPages}
                 >
                   Siguiente
@@ -677,7 +760,10 @@ setPreRows(
                   max={preTotalPages}
                   value={preSafePage}
                   onChange={(e) => {
-                    const v = Math.max(1, Math.min(preTotalPages, Number(e.target.value) || 1));
+                    const v = Math.max(
+                      1,
+                      Math.min(preTotalPages, Number(e.target.value) || 1)
+                    );
                     setPrePage(v);
                   }}
                 />
@@ -696,7 +782,9 @@ setPreRows(
                 </button>
                 <button
                   className="border px-2 py-1 rounded disabled:opacity-50"
-                  onClick={() => setVenPage((p) => Math.min(venTotalPages, p + 1))}
+                  onClick={() =>
+                    setVenPage((p) => Math.min(venTotalPages, p + 1))
+                  }
                   disabled={venSafePage >= venTotalPages}
                 >
                   Siguiente
@@ -711,7 +799,10 @@ setPreRows(
                   max={venTotalPages}
                   value={venSafePage}
                   onChange={(e) => {
-                    const v = Math.max(1, Math.min(venTotalPages, Number(e.target.value) || 1));
+                    const v = Math.max(
+                      1,
+                      Math.min(venTotalPages, Number(e.target.value) || 1)
+                    );
                     setVenPage(v);
                   }}
                 />
@@ -1040,7 +1131,8 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                       N°: {venta?.idVenta ?? id}
                     </span>
                     <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
-                      Fecha: {String(venta?.fechaVenta ?? "").slice(0, 10) || "-"}
+                      Fecha:{" "}
+                      {String(venta?.fechaVenta ?? "").slice(0, 10) || "-"}
                     </span>
                     <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
                       Estado: {estadoStr}
@@ -1060,19 +1152,33 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                       (() => {
                         const tot = venta?.totales;
                         if (tot) return Number(tot.totalFinal ?? 0);
-                        const bruto = (lineItems ?? []).reduce((acc: number, d: any) => {
-                          const cant = Number(d.cantidad ?? 0);
-                          const puBase = Number(
-                            d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
-                          );
-                          const descPct = Number(d.descuentoItem ?? 0) / 100;
-                          const puFinal = puBase * (1 - descPct);
-                          return acc + cant * puFinal;
-                        }, 0);
-                        const descGPercent = Number(venta?.descuentoGeneralVenta ?? venta?.descuentoGeneral ?? 0) / 100;
-                        const recargoPercent = Number(venta?.recargoPagoVenta ?? venta?.recargoPago ?? 0) / 100;
+                        const bruto = (lineItems ?? []).reduce(
+                          (acc: number, d: any) => {
+                            const cant = Number(d.cantidad ?? 0);
+                            const puBase = Number(
+                              d.precioUnit ??
+                                d.Producto?.precioVentaPublicoProducto ??
+                                0
+                            );
+                            const descPct = Number(d.descuentoItem ?? 0) / 100;
+                            const puFinal = puBase * (1 - descPct);
+                            return acc + cant * puFinal;
+                          },
+                          0
+                        );
+                        const descGPercent =
+                          Number(
+                            venta?.descuentoGeneralVenta ??
+                              venta?.descuentoGeneral ??
+                              0
+                          ) / 100;
+                        const recargoPercent =
+                          Number(
+                            venta?.recargoPagoVenta ?? venta?.recargoPago ?? 0
+                          ) / 100;
                         const trasDescuento = bruto * (1 - descGPercent);
-                        const finalFallback = trasDescuento * (1 + recargoPercent);
+                        const finalFallback =
+                          trasDescuento * (1 + recargoPercent);
                         return finalFallback;
                       })()
                     )}
@@ -1116,7 +1222,8 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                       <div>
                         <p className="text-gray-500 text-xs">Fecha de cobro</p>
                         <p className="font-medium">
-                          {String(venta?.fechaCobroVenta ?? "").slice(0, 10) || "-"}
+                          {String(venta?.fechaCobroVenta ?? "").slice(0, 10) ||
+                            "-"}
                         </p>
                       </div>
                     </div>
@@ -1160,7 +1267,9 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                       lineItems.map((d: any, idx: number) => {
                         const cant = Number(d.cantidad ?? 0);
                         const puBase = Number(
-                          d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
+                          d.precioUnit ??
+                            d.Producto?.precioVentaPublicoProducto ??
+                            0
                         );
                         const descPct = Number(d.descuentoItem ?? 0);
                         const puFinal = puBase * (1 - (descPct || 0) / 100);
@@ -1176,15 +1285,27 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                               {descPct > 0 ? (
                                 <div className="flex flex-col items-end">
                                   <span className="line-through text-gray-400">
-                                    ${fmtPrice(puBase, { minFraction: 2, maxFraction: 2 })}
+                                    $
+                                    {fmtPrice(puBase, {
+                                      minFraction: 2,
+                                      maxFraction: 2,
+                                    })}
                                   </span>
                                   <span className="text-green-700 font-medium">
-                                    ${fmtPrice(puFinal, { minFraction: 2, maxFraction: 2 })}
+                                    $
+                                    {fmtPrice(puFinal, {
+                                      minFraction: 2,
+                                      maxFraction: 2,
+                                    })}
                                   </span>
                                 </div>
                               ) : (
                                 <>
-                                  ${fmtPrice(puBase, { minFraction: 2, maxFraction: 2 })}
+                                  $
+                                  {fmtPrice(puBase, {
+                                    minFraction: 2,
+                                    maxFraction: 2,
+                                  })}
                                 </>
                               )}
                             </td>
@@ -1192,7 +1313,11 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                               {descPct > 0 ? `-${descPct}%` : "-"}
                             </td>
                             <td className="px-2 py-2 text-right">
-                              ${fmtPrice(subtotal, { minFraction: 2, maxFraction: 2 })}
+                              $
+                              {fmtPrice(subtotal, {
+                                minFraction: 2,
+                                maxFraction: 2,
+                              })}
                             </td>
                           </tr>
                         );
@@ -1227,8 +1352,15 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                   let baseArticulos: number;
                   let descuentoGeneralMonto = 0;
                   let recargoPagoMonto = 0;
-                  const descGPercent = Number(venta?.descuentoGeneralVenta ?? venta?.descuentoGeneral ?? 0) / 100;
-                  const recargoPercent = Number(venta?.recargoPagoVenta ?? venta?.recargoPago ?? 0) / 100;
+                  const descGPercent =
+                    Number(
+                      venta?.descuentoGeneralVenta ??
+                        venta?.descuentoGeneral ??
+                        0
+                    ) / 100;
+                  const recargoPercent =
+                    Number(venta?.recargoPagoVenta ?? venta?.recargoPago ?? 0) /
+                    100;
 
                   if (tot) {
                     subtotalSinIVA = Number(tot.importeNeto ?? 0);
@@ -1239,15 +1371,20 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                     const trasDescuento = baseArticulos * (1 - descGPercent);
                     recargoPagoMonto = trasDescuento * recargoPercent;
                   } else {
-                    const bruto = (lineItems ?? []).reduce((acc: number, d: any) => {
-                      const cant = Number(d.cantidad ?? 0);
-                      const puBase = Number(
-                        d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
-                      );
-                      const descPct = Number(d.descuentoItem ?? 0) / 100;
-                      const puFinal = puBase * (1 - descPct);
-                      return acc + cant * puFinal;
-                    }, 0);
+                    const bruto = (lineItems ?? []).reduce(
+                      (acc: number, d: any) => {
+                        const cant = Number(d.cantidad ?? 0);
+                        const puBase = Number(
+                          d.precioUnit ??
+                            d.Producto?.precioVentaPublicoProducto ??
+                            0
+                        );
+                        const descPct = Number(d.descuentoItem ?? 0) / 100;
+                        const puFinal = puBase * (1 - descPct);
+                        return acc + cant * puFinal;
+                      },
+                      0
+                    );
                     baseArticulos = bruto;
                     descuentoGeneralMonto = baseArticulos * descGPercent;
                     const trasDescuento = baseArticulos * (1 - descGPercent);
@@ -1261,29 +1398,55 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                   return (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
-                        <p className="text-sm text-gray-500">Subtotal (sin impuestos)</p>
-                        <p className="text-xl font-semibold">${fmtPrice(subtotalSinIVA)}</p>
+                        <p className="text-sm text-gray-500">
+                          Subtotal (sin impuestos)
+                        </p>
+                        <p className="text-xl font-semibold">
+                          ${fmtPrice(subtotalSinIVA)}
+                        </p>
                       </div>
                       <div>
                         <p className="text-sm text-gray-500">Impuestos (IVA)</p>
-                        <p className="text-xl font-semibold">${fmtPrice(impuestos)}</p>
+                        <p className="text-xl font-semibold">
+                          ${fmtPrice(impuestos)}
+                        </p>
                       </div>
                       <div>
                         <p className="text-sm text-gray-500">Total</p>
-                        <p className="text-xl font-semibold">${fmtPrice(totalFinal)}</p>
+                        <p className="text-xl font-semibold">
+                          ${fmtPrice(totalFinal)}
+                        </p>
                       </div>
                       <div className="sm:col-span-3 border-t pt-2 mt-2">
                         <div className="flex flex-wrap items-center justify-between text-xs">
-                          <span className="text-gray-600">Base artículos (con descuentos por ítem)</span>
-                          <span className="font-medium">${fmtPrice(baseArticulos)}</span>
+                          <span className="text-gray-600">
+                            Base artículos (con descuentos por ítem)
+                          </span>
+                          <span className="font-medium">
+                            ${fmtPrice(baseArticulos)}
+                          </span>
                         </div>
                         <div className="flex flex-wrap items-center justify-between text-xs mt-1">
-                          <span className="text-gray-600">Descuento general {descGPercent > 0 ? `(${Math.round(descGPercent*100)}%)` : ""}</span>
-                          <span className="font-medium text-green-700">−${fmtPrice(descuentoGeneralMonto)}</span>
+                          <span className="text-gray-600">
+                            Descuento general{" "}
+                            {descGPercent > 0
+                              ? `(${Math.round(descGPercent * 100)}%)`
+                              : ""}
+                          </span>
+                          <span className="font-medium text-green-700">
+                            −${fmtPrice(descuentoGeneralMonto)}
+                          </span>
                         </div>
                         <div className="flex flex-wrap items-center justify-between text-xs mt-1">
-                          <span className="text-gray-600">Recargo método de pago {recargoPercent > 0 ? `(${Math.round(recargoPercent*100)}%)` : ""}</span>
-                          <span className="font-medium text-orange-700">+${fmtPrice(recargoPagoMonto)}</span>
+                          <span className="text-gray-600">
+                            Recargo método de pago{" "}
+                            {recargoPercent > 0
+                              ? `(${Math.round(recargoPercent * 100)}%)`
+                              : ""}
+                          </span>
+                          <span className="font-medium text-orange-700">
+                            +${fmtPrice(recargoPagoMonto)}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -1308,19 +1471,33 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                   <tbody>
                     {loadingHist ? (
                       <tr>
-                        <td className="px-2 py-3 text-gray-600" colSpan={4}>Cargando…</td>
+                        <td className="px-2 py-3 text-gray-600" colSpan={4}>
+                          Cargando…
+                        </td>
                       </tr>
                     ) : hist.length === 0 ? (
                       <tr>
-                        <td className="px-2 py-3 text-gray-600" colSpan={4}>Sin movimientos de estado.</td>
+                        <td className="px-2 py-3 text-gray-600" colSpan={4}>
+                          Sin movimientos de estado.
+                        </td>
                       </tr>
                     ) : (
                       hist.map((ev, idx) => (
-                        <tr key={ev.id} className={idx % 2 ? "bg-gray-50" : undefined}>
+                        <tr
+                          key={ev.id}
+                          className={idx % 2 ? "bg-gray-50" : undefined}
+                        >
                           <td className="px-2 py-2">{ev.fecha}</td>
-                          <td className="px-2 py-2">{ev.desde ? `${ev.desde} → ${ev.hasta}` : ev.hasta}</td>
+                          <td className="px-2 py-2">
+                            {ev.desde ? `${ev.desde} → ${ev.hasta}` : ev.hasta}
+                          </td>
                           <td className="px-2 py-2">{ev.motivo ?? "-"}</td>
-                          <td className="px-2 py-2">{ev.usuario ? (ev.usuario.nombreUsuario || ev.usuario.emailUsuario) : "-"}</td>
+                          <td className="px-2 py-2">
+                            {ev.usuario
+                              ? ev.usuario.nombreUsuario ||
+                                ev.usuario.emailUsuario
+                              : "-"}
+                          </td>
                         </tr>
                       ))
                     )}
@@ -1396,8 +1573,46 @@ function ValidarPreventaModal({
   const isPendiente = estadoNorm === "pendiente";
   const isReservado = estadoNorm === "reservado";
   const isListoCaja = estadoNorm.includes("listocaja");
-  const puedeEditarListoCaja = isListoCaja && (hasRole("Administrador") || hasRole("Cajero"));
+  const puedeEditarListoCaja =
+    isListoCaja && (hasRole("Administrador") || hasRole("Cajero"));
   const canSave = puedeEditarListoCaja;
+
+  async function postergarReserva() {
+    if (!hasRole("Administrador") && !hasRole("Cajero")) return;
+    const idTarget = venta?.idVenta ?? id;
+    const fecha = await askText({
+      title: "Postergar reserva",
+      label: "Nueva fecha límite (YYYY-MM-DD)",
+      placeholder: "YYYY-MM-DD",
+      confirmText: "Postergar",
+      cancelText: "Volver",
+      required: true,
+    });
+    if (fecha === null) return;
+    const motivo = await askText({
+      title: "Motivo de postergación",
+      label: "Describe el motivo",
+      placeholder: "Ej: cliente solicita extender el retiro",
+      confirmText: "Aceptar",
+      cancelText: "Volver",
+      required: true,
+    });
+    if (motivo === null) return;
+    try {
+      await api.put(`/preventas/${idTarget}/reserva`, {
+        fechaReservaLimite: fecha.trim(),
+        motivo,
+      });
+      onClose();
+    } catch (err: any) {
+      await showAlert({
+        type: "error",
+        title: "Error",
+        message:
+          err?.response?.data?.error || err?.message || "No se pudo postergar",
+      });
+    }
+  }
 
   // sincronizar ventaId local con prop
   useEffect(() => {
@@ -1428,9 +1643,12 @@ function ValidarPreventaModal({
         setIdCliente(v.idCliente ?? v.Cliente?.idCliente ?? "");
         setIdTipoPago(v.idTipoPago ?? v.TipoPago?.idTipoPago ?? "");
         // Forzar ARS
-        const mons = (resMonedas.data ?? []) as { idMoneda: number; moneda: string }[];
+        const mons = (resMonedas.data ?? []) as {
+          idMoneda: number;
+          moneda: string;
+        }[];
         const ars = mons.find((m) => String(m.moneda).toUpperCase() === "ARS");
-        const idArs = ars?.idMoneda ?? (v.idMoneda ?? v.Moneda?.idMoneda ?? "");
+        const idArs = ars?.idMoneda ?? v.idMoneda ?? v.Moneda?.idMoneda ?? "";
         setIdMoneda(idArs);
 
         setFechaFacturacion(
@@ -1475,7 +1693,12 @@ function ValidarPreventaModal({
           const descuentoItem = Number(d.descuentoItem ?? 0);
           return { idProducto, cantidad, precioUnit, descuentoItem };
         })
-        .filter(Boolean) as { idProducto: number; cantidad: number; precioUnit: number; descuentoItem: number }[];
+        .filter(Boolean) as {
+        idProducto: number;
+        cantidad: number;
+        precioUnit: number;
+        descuentoItem: number;
+      }[];
 
       // Payload básico. En "guardar" NO enviar descuentoGeneral/ajuste/recargoPago.
       const payload: any = {
@@ -1487,7 +1710,8 @@ function ValidarPreventaModal({
         fechaFacturacion,
         fechaCobro,
         observacion,
-        ...(accion !== "cancelar" && comentarioCajero.trim().length > 0 && { comentarioCajero }),
+        ...(accion !== "cancelar" &&
+          comentarioCajero.trim().length > 0 && { comentarioCajero }),
       };
 
       if (accion === "cancelar") {
@@ -1503,7 +1727,7 @@ function ValidarPreventaModal({
           setSaving(false);
           return; // cancelado por usuario
         }
-        payload.motivoCancelacion = (motivo && motivo.length > 0) ? motivo : null;
+        payload.motivoCancelacion = motivo && motivo.length > 0 ? motivo : null;
       }
 
       await api.put(`/preventas/${ventaId}`, payload);
@@ -1528,13 +1752,26 @@ function ValidarPreventaModal({
               ]);
               const p = prodRes.data ?? {};
               const ofertaFlag = Boolean(p?.oferta ?? p?.ofertaProducto);
-              const pct = Number(p?.porcentajeOferta ?? p?.porcentajeOfertaProducto ?? 0);
-              const ini = p?.fechaInicioOferta ? new Date(p.fechaInicioOferta).getTime() : null;
-              const fin = p?.fechaFinOferta ? new Date(p.fechaFinOferta).getTime() : null;
+              const pct = Number(
+                p?.porcentajeOferta ?? p?.porcentajeOfertaProducto ?? 0
+              );
+              const ini = p?.fechaInicioOferta
+                ? new Date(p.fechaInicioOferta).getTime()
+                : null;
+              const fin = p?.fechaFinOferta
+                ? new Date(p.fechaFinOferta).getTime()
+                : null;
               const now = Date.now();
-              const activo = ofertaFlag && pct > 0 && (!ini || ini <= now) && (!fin || fin >= now);
+              const activo =
+                ofertaFlag &&
+                pct > 0 &&
+                (!ini || ini <= now) &&
+                (!fin || fin >= now);
               const stockActual = Number(
-                (stockRes.data ?? {})?.cantidadRealStock ?? (stockRes.data ?? {})?.real ?? p?.stock ?? 0
+                (stockRes.data ?? {})?.cantidadRealStock ??
+                  (stockRes.data ?? {})?.real ??
+                  p?.stock ??
+                  0
               );
               if (activo && stockActual === 0) {
                 await api.put(`/products/${idProducto}`, {
@@ -1546,7 +1783,10 @@ function ValidarPreventaModal({
             })
           );
         } catch (err) {
-          console.warn("No se pudo sincronizar cierre de oferta tras finalizar venta", err);
+          console.warn(
+            "No se pudo sincronizar cierre de oferta tras finalizar venta",
+            err
+          );
         }
       }
 
@@ -1583,7 +1823,9 @@ function ValidarPreventaModal({
         title: isReservado ? "Quitar reserva y pasar a caja" : "Pasar a caja",
         label: "Motivo",
         placeholder: "Ingresa un motivo (obligatorio)",
-        confirmText: isReservado ? "Quitar reserva y pasar a caja" : "Pasar a caja",
+        confirmText: isReservado
+          ? "Quitar reserva y pasar a caja"
+          : "Pasar a caja",
         cancelText: "Volver",
         required: true,
       });
@@ -1591,9 +1833,15 @@ function ValidarPreventaModal({
         setSaving(false);
         return;
       }
-      const putRes = await api.put(`/preventas/${targetId}`, { accion: "lock", motivoLock: motivo });
+      const putRes = await api.put(`/preventas/${targetId}`, {
+        accion: "lock",
+        motivoLock: motivo,
+      });
       const updated = putRes?.data;
-      console.log("LOCK put response", { status: (putRes as any)?.status, nuevoEstado: updated?.EstadoVenta?.nombreEstadoVenta });
+      console.log("LOCK put response", {
+        status: (putRes as any)?.status,
+        nuevoEstado: updated?.EstadoVenta?.nombreEstadoVenta,
+      });
       // Usar respuesta directa del PUT, que ya incluye EstadoVenta actualizado
       setVenta(updated);
       // Como refuerzo, disparar una lectura sin cache para sincronizar padre si hiciera falta
@@ -1645,14 +1893,16 @@ function ValidarPreventaModal({
   const [openStock, setOpenStock] = useState(false);
   const [stockLoading, setStockLoading] = useState(false);
   const [stockError, setStockError] = useState<string | null>(null);
-  const [stockData, setStockData] = useState<{
-    idProducto: number;
-    nombre: string;
-    real: number;
-    comprometido: number;
-    minimo: number;
-    actualizadoEn: string | null;
-  }[]>([]);
+  const [stockData, setStockData] = useState<
+    {
+      idProducto: number;
+      nombre: string;
+      real: number;
+      comprometido: number;
+      minimo: number;
+      actualizadoEn: string | null;
+    }[]
+  >([]);
 
   async function openStockForLoadedProducts() {
     const detalles = venta?.detalles ?? [];
@@ -1696,7 +1946,9 @@ function ValidarPreventaModal({
         <div className="mx-auto h-dvh md:h-[90vh] w-full max-w-4xl md:rounded-2xl border bg-white shadow-xl flex flex-col">
           {/* header */}
           <div className="flex items-center justify-between px-4 py-3 border-b">
-            <h3 className="text-base font-semibold">Validar Presupuesto #{id}</h3>
+            <h3 className="text-base font-semibold">
+              Validar Presupuesto #{id}
+            </h3>
             <button onClick={onClose} className="p-2 rounded hover:bg-gray-100">
               <X className="h-4 w-4" />
             </button>
@@ -1777,6 +2029,7 @@ function ValidarPreventaModal({
                         const v = e.target.value;
                         setIdTipoPago(v === "" ? "" : Number(v));
                       }}
+                      disabled={!puedeEditarListoCaja}
                     >
                       <option key="tp-none" value="">
                         Seleccionar...
@@ -1801,7 +2054,7 @@ function ValidarPreventaModal({
                         const v = e.target.value;
                         setIdMoneda(v === "" ? "" : Number(v));
                       }}
-                      disabled
+                      disabled={!puedeEditarListoCaja}
                     >
                       <option key="m-none" value="">
                         Seleccionar...
@@ -1831,7 +2084,9 @@ function ValidarPreventaModal({
 
                 {/* Comentario del cajero */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-sm font-medium">Comentario del cajero (opcional)</label>
+                  <label className="text-sm font-medium">
+                    Comentario del cajero (opcional)
+                  </label>
                   <textarea
                     className="w-full rounded border px-2 py-2 text-sm"
                     placeholder="Agrega un comentario si es necesario"
@@ -1881,7 +2136,9 @@ function ValidarPreventaModal({
                       className="w-full rounded border px-2 py-2 text-sm"
                       type="number"
                       value={recargoPago}
-                      onChange={(e) => setRecargoPago(Number(e.target.value || 0))}
+                      onChange={(e) =>
+                        setRecargoPago(Number(e.target.value || 0))
+                      }
                       disabled={!puedeEditarListoCaja}
                     />
                   </div>
@@ -1902,24 +2159,55 @@ function ValidarPreventaModal({
                     ) : stockData.length > 0 ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {stockData.map((s) => (
-                          <div key={s.idProducto} className="rounded-xl border bg-white p-3">
-                            <p className="text-gray-700 text-sm font-medium mb-2">{s.nombre}</p>
+                          <div
+                            key={s.idProducto}
+                            className="rounded-xl border bg-white p-3"
+                          >
+                            <p className="text-gray-700 text-sm font-medium mb-2">
+                              {s.nombre}
+                            </p>
                             <div className="grid grid-cols-2 gap-2">
                               <div>
                                 <p className="text-gray-500 text-xs">Real</p>
-                                <p className="font-medium">{fmtPrice(s.real, { minFraction: 2, maxFraction: 2 })} g</p>
+                                <p className="font-medium">
+                                  {fmtPrice(s.real, {
+                                    minFraction: 2,
+                                    maxFraction: 2,
+                                  })}{" "}
+                                  g
+                                </p>
                               </div>
                               <div>
-                                <p className="text-gray-500 text-xs">Comprometido</p>
-                                <p className="font-medium">{fmtPrice(s.comprometido, { minFraction: 2, maxFraction: 2 })} g</p>
+                                <p className="text-gray-500 text-xs">
+                                  Comprometido
+                                </p>
+                                <p className="font-medium">
+                                  {fmtPrice(s.comprometido, {
+                                    minFraction: 2,
+                                    maxFraction: 2,
+                                  })}{" "}
+                                  g
+                                </p>
                               </div>
                               <div>
                                 <p className="text-gray-500 text-xs">Mínimo</p>
-                                <p className="font-medium">{fmtPrice(s.minimo, { minFraction: 2, maxFraction: 2 })} g</p>
+                                <p className="font-medium">
+                                  {fmtPrice(s.minimo, {
+                                    minFraction: 2,
+                                    maxFraction: 2,
+                                  })}{" "}
+                                  g
+                                </p>
                               </div>
                               <div>
-                                <p className="text-gray-500 text-xs">Actualizado</p>
-                                <p className="font-medium">{s.actualizadoEn ? new Date(s.actualizadoEn).toLocaleString() : "-"}</p>
+                                <p className="text-gray-500 text-xs">
+                                  Actualizado
+                                </p>
+                                <p className="font-medium">
+                                  {s.actualizadoEn
+                                    ? new Date(s.actualizadoEn).toLocaleString()
+                                    : "-"}
+                                </p>
                               </div>
                             </div>
                           </div>
@@ -1952,33 +2240,48 @@ function ValidarPreventaModal({
                             const q = await askText({
                               title: "Agregar producto",
                               label: "Código/Nombre/ID",
-                              placeholder: "Escribe para buscar (mín. 2 caracteres)",
+                              placeholder:
+                                "Escribe para buscar (mín. 2 caracteres)",
                               confirmText: "Agregar",
                               cancelText: "Cancelar",
                               required: true,
                             });
                             if (!q) return;
                             try {
-                              const res = await api.get(`/products/search`, { params: { q } });
-                              const list = Array.isArray(res.data) ? res.data : [];
+                              const res = await api.get(`/products/search`, {
+                                params: { q },
+                              });
+                              const list = Array.isArray(res.data)
+                                ? res.data
+                                : [];
                               const p = list[0];
                               if (!p) {
                                 alert("No se encontró producto");
                                 return;
                               }
                               setVenta((prev: any) => {
-                                const detalles = Array.isArray(prev?.detalles) ? [...prev.detalles] : [];
+                                const detalles = Array.isArray(prev?.detalles)
+                                  ? [...prev.detalles]
+                                  : [];
                                 detalles.push({
                                   idProducto: Number(p.idProducto),
                                   cantidad: 1,
-                                  precioUnit: Number(p.precioVentaPublicoProducto ?? 0),
-                                  descuentoItem: Number(p.porcentajeOfertaProducto ?? 0) || 0,
+                                  precioUnit: Number(
+                                    p.precioVentaPublicoProducto ?? 0
+                                  ),
+                                  descuentoItem:
+                                    Number(p.porcentajeOfertaProducto ?? 0) ||
+                                    0,
                                   Producto: p,
                                 });
                                 return { ...prev, detalles };
                               });
                             } catch (e: any) {
-                              alert(e?.response?.data?.error || e?.message || "Error buscando producto");
+                              alert(
+                                e?.response?.data?.error ||
+                                  e?.message ||
+                                  "Error buscando producto"
+                              );
                             }
                           }}
                         >
@@ -2024,7 +2327,9 @@ function ValidarPreventaModal({
                           lineItems.map((d: any, idx: number) => {
                             const cant = Number(d.cantidad ?? 0);
                             const puBase = Number(
-                              d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
+                              d.precioUnit ??
+                                d.Producto?.precioVentaPublicoProducto ??
+                                0
                             );
                             const descPct = Number(d.descuentoItem ?? 0);
                             const puFinal = puBase * (1 - (descPct || 0) / 100);
@@ -2049,7 +2354,9 @@ function ValidarPreventaModal({
                             function eliminarDetalle() {
                               setVenta((prev: any) => {
                                 const detalles = Array.isArray(prev?.detalles)
-                                  ? prev.detalles.filter((_: any, i: number) => i !== idx)
+                                  ? prev.detalles.filter(
+                                      (_: any, i: number) => i !== idx
+                                    )
                                   : [];
                                 return { ...prev, detalles };
                               });
@@ -2057,7 +2364,9 @@ function ValidarPreventaModal({
 
                             return (
                               <tr
-                                key={`${d.idDetalleVenta ?? d.idProducto}-${idx}`}
+                                key={`${
+                                  d.idDetalleVenta ?? d.idProducto
+                                }-${idx}`}
                                 className="border-t"
                               >
                                 <td className="px-3 py-2">
@@ -2075,7 +2384,9 @@ function ValidarPreventaModal({
                                       type="number"
                                       value={cant}
                                       min={0}
-                                      onChange={(e) => setCantidad(Number(e.target.value))}
+                                      onChange={(e) =>
+                                        setCantidad(Number(e.target.value))
+                                      }
                                     />
                                   ) : (
                                     cant
@@ -2085,19 +2396,37 @@ function ValidarPreventaModal({
                                   {Number(descPct) > 0 ? (
                                     <div className="flex flex-col items-end">
                                       <span className="line-through text-gray-400">
-                                        ${fmtPrice(puBase, { minFraction: 2, maxFraction: 2 })}
+                                        $
+                                        {fmtPrice(puBase, {
+                                          minFraction: 2,
+                                          maxFraction: 2,
+                                        })}
                                       </span>
                                       <span className="text-green-700 font-medium">
-                                        ${fmtPrice(puFinal, { minFraction: 2, maxFraction: 2 })}
+                                        $
+                                        {fmtPrice(puFinal, {
+                                          minFraction: 2,
+                                          maxFraction: 2,
+                                        })}
                                       </span>
                                     </div>
                                   ) : (
                                     <>
-                                      ${fmtPrice(puBase, { minFraction: 2, maxFraction: 2 })}
+                                      $
+                                      {fmtPrice(puBase, {
+                                        minFraction: 2,
+                                        maxFraction: 2,
+                                      })}
                                     </>
                                   )}
                                 </td>
-                                <td className="px-3 py-2 text-right">${fmtPrice(tot, { minFraction: 2, maxFraction: 2 })}</td>
+                                <td className="px-3 py-2 text-right">
+                                  $
+                                  {fmtPrice(tot, {
+                                    minFraction: 2,
+                                    maxFraction: 2,
+                                  })}
+                                </td>
                                 {canSave && (
                                   <td className="px-3 py-2 text-right">
                                     <button
@@ -2123,32 +2452,64 @@ function ValidarPreventaModal({
                 <div className="rounded border bg-gray-50 p-3 text-xs text-gray-700 space-y-2">
                   <div className="flex justify-between">
                     <span>Subtotal (sin impuestos)</span>
-                    <span className="text-right">${fmtPrice(Number(subtotalSinIVA), { minFraction: 2, maxFraction: 2 })}</span>
+                    <span className="text-right">
+                      $
+                      {fmtPrice(Number(subtotalSinIVA), {
+                        minFraction: 2,
+                        maxFraction: 2,
+                      })}
+                    </span>
                   </div>
 
                   <div className="flex justify-between">
                     <span>Impuestos (IVA)</span>
-                    <span className="text-right">${fmtPrice(Number(impuestos), { minFraction: 2, maxFraction: 2 })}</span>
+                    <span className="text-right">
+                      $
+                      {fmtPrice(Number(impuestos), {
+                        minFraction: 2,
+                        maxFraction: 2,
+                      })}
+                    </span>
                   </div>
 
                   <div className="flex justify-between">
                     <span>Descuento general (%)</span>
-                    <span className="text-right">{Number(descuentoGeneral)}%</span>
+                    <span className="text-right">
+                      {Number(descuentoGeneral)}%
+                    </span>
                   </div>
 
                   <div className="flex justify-between">
                     <span>Ajuste (+ / -)</span>
-                    <span className="text-right">${fmtPrice(Number(ajuste), { minFraction: 2, maxFraction: 2 })}</span>
+                    <span className="text-right">
+                      $
+                      {fmtPrice(Number(ajuste), {
+                        minFraction: 2,
+                        maxFraction: 2,
+                      })}
+                    </span>
                   </div>
 
                   <div className="flex justify-between">
                     <span>Recargo crédito / QR</span>
-                    <span className="text-right">${fmtPrice(Number(recargoPago), { minFraction: 2, maxFraction: 2 })}</span>
+                    <span className="text-right">
+                      $
+                      {fmtPrice(Number(recargoPago), {
+                        minFraction: 2,
+                        maxFraction: 2,
+                      })}
+                    </span>
                   </div>
 
                   <div className="flex justify-between font-semibold">
                     <span>Total final</span>
-                    <span className="text-right">${fmtPrice(Number(totalConAjustes), { minFraction: 2, maxFraction: 2 })}</span>
+                    <span className="text-right">
+                      $
+                      {fmtPrice(Number(totalConAjustes), {
+                        minFraction: 2,
+                        maxFraction: 2,
+                      })}
+                    </span>
                   </div>
 
                   <div className="flex justify-between">
@@ -2169,7 +2530,9 @@ function ValidarPreventaModal({
               <button
                 type="button"
                 className="rounded-lg border border-gray-400 px-3 py-2 text-sm disabled:opacity-50"
-                disabled={saving || !canSave || (venta?.detalles?.length ?? 0) === 0}
+                disabled={
+                  saving || !canSave || (venta?.detalles?.length ?? 0) === 0
+                }
                 onClick={() => submit("guardar")}
               >
                 Guardar cambios
@@ -2177,13 +2540,26 @@ function ValidarPreventaModal({
             )}
 
             {/* Cerrar y pasar a caja (lock) desde Pendiente o quitar reserva */}
-            {(isPendiente || isReservado) && (
+            {(isPendiente || isReservado) &&
+              (hasRole("Administrador") || hasRole("Cajero")) && (
+                <button
+                  className="rounded-lg border border-blue-700 text-blue-700 px-3 py-2 text-sm disabled:opacity-50"
+                  disabled={saving}
+                  onClick={lock}
+                >
+                  {estadoNorm === "reservado"
+                    ? "Quitar reserva y pasar a caja"
+                    : "Cerrar y pasar a caja"}
+                </button>
+              )}
+
+            {isReservado && (hasRole("Administrador") || hasRole("Cajero")) && (
               <button
-                className="rounded-lg border border-blue-700 text-blue-700 px-3 py-2 text-sm disabled:opacity-50"
+                className="rounded-lg border border-gray-700 text-gray-700 px-3 py-2 text-sm disabled:opacity-50"
                 disabled={saving}
-                onClick={lock}
+                onClick={postergarReserva}
               >
-                {estadoNorm === "reservado" ? "Quitar reserva y pasar a caja" : "Cerrar y pasar a caja"}
+                Postergar reserva
               </button>
             )}
 

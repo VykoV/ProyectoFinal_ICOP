@@ -5,14 +5,14 @@ import cors from "cors";
 import session from "express-session";
 import pgSession from "connect-pg-simple";
 import bcrypt from "bcrypt";
-import { PrismaClient, Prisma, PapelEnVenta, TipoNotificacion, NivelNotificacion, DestinatarioNotificacion } from "@prisma/client";
+import { PrismaClient, Prisma, PapelEnVenta, TipoNotificacion, NivelNotificacion, DestinatarioNotificacion, EstadoCompra } from "@prisma/client";
+import { authorize } from "./middleware/authorize";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 import authRoutes from "./auth";
 import proveedores from "./routes/proveedores";
 import compras from "./routes/compras";
 import { requireAuth } from "./middleware/requireAuth";
-import { authorize } from "./middleware/authorize";
 
 const DEV = process.env.NODE_ENV !== "production";
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -603,6 +603,7 @@ app.post(
             : new Date(),
         },
       });
+      await ensureLowStockNotification(prisma as any, row.idProducto);
 
       // Registrar historial de oferta al crear (fechas con semántica local por día)
       const fi = fechaInicioOferta ? parseLocalDate(fechaInicioOferta, false) : null;
@@ -780,7 +781,6 @@ app.put("/api/products/:id", async (req, res) => {
       ultimaModificacionStock !== undefined
     ) {
       const s = await prisma.stock.findFirst({ where: { idProducto: id } });
-
       if (s) {
         await prisma.stock.update({
           where: { idStock: s.idStock },
@@ -796,6 +796,7 @@ app.put("/api/products/:id", async (req, res) => {
             }),
           },
         });
+        await ensureLowStockNotification(prisma as any, id);
       } else {
         await prisma.stock.create({
           data: {
@@ -808,6 +809,7 @@ app.put("/api/products/:id", async (req, res) => {
               : new Date(),
           },
         });
+        await ensureLowStockNotification(prisma as any, id);
       }
     }
 
@@ -1341,6 +1343,48 @@ async function getStockFila(tx: PrismaClient, idProducto: number) {
   };
 }
 
+async function ensureLowStockNotification(tx: PrismaClient, idProducto: number) {
+  const s = await tx.stock.findFirst({ where: { idProducto } });
+  if (!s) return;
+  const real = Number(s.cantidadRealStock || 0);
+  const comp = Number(s.stockComprometido || 0);
+  const min = Number(s.bajoMinimoStock || 0);
+  const disp = real - comp;
+  if (min <= 0) return;
+  const prod = await tx.producto.findUnique({ where: { idProducto }, select: { nombreProducto: true } });
+  const nombre = prod?.nombreProducto ?? `#${idProducto}`;
+  const msg = `Stock bajo: ${nombre} (#${idProducto})`;
+  if (disp < min) {
+    const exists = await tx.notificacion.findFirst({
+      where: {
+        tipo: TipoNotificacion.STOCK_BAJO,
+        mensaje: { contains: `#${idProducto}` },
+        leido: false,
+      },
+    });
+    if (!exists) {
+      await tx.notificacion.create({
+        data: {
+          tipo: TipoNotificacion.STOCK_BAJO,
+          mensaje: msg,
+          nivel: NivelNotificacion.WARN,
+          destinatario: DestinatarioNotificacion.ADMIN,
+          data: { code: 'STOCK_BAJO', idProducto },
+        },
+      });
+    }
+  } else {
+    await tx.notificacion.updateMany({
+      where: {
+        tipo: TipoNotificacion.STOCK_BAJO,
+        mensaje: { contains: `#${idProducto}` },
+        leido: false,
+      },
+      data: { leido: true },
+    });
+  }
+}
+
 async function validarDisponible(tx: PrismaClient, items: { idProducto: number; cantidad: number }[]) {
   for (const it of items) {
     const s = await getStockFila(tx, it.idProducto);
@@ -1370,6 +1414,7 @@ async function reservarComprometido(tx: PrismaClient, items: { idProducto: numbe
         ultimaModificacionStock: new Date(),
       },
     });
+    await ensureLowStockNotification(tx, it.idProducto);
   }
 }
 
@@ -1386,6 +1431,7 @@ async function liberarComprometido(tx: PrismaClient, items: { idProducto: number
         ultimaModificacionStock: new Date(),
       },
     });
+    await ensureLowStockNotification(tx, it.idProducto);
   }
 }
 
@@ -1404,6 +1450,7 @@ async function descontarRealYComprometido(tx: PrismaClient, items: { idProducto:
         ultimaModificacionStock: new Date(),
       },
     });
+    await ensureLowStockNotification(tx, it.idProducto);
   }
 }
 
@@ -1627,7 +1674,7 @@ app.post(
 
       // Permitir incluir productos en oferta en presupuestos pendientes.
 
-  const result = await prisma.$transaction(async (tx: any) => {
+      const result = await prisma.$transaction(async (tx: any) => {
         const idPend = await getEstadoId(tx, ESTADOS.PENDIENTE);
         const mARS = await tx.moneda.findFirst({ where: { moneda: { equals: "ARS" } }, select: { idMoneda: true } });
         const idMoneda = mARS?.idMoneda ?? (await tx.moneda.findFirst({ select: { idMoneda: true } }))?.idMoneda ?? 1;
@@ -1785,7 +1832,7 @@ app.get(
     const idUsuario = getUserId(req);
 
     // Expiración perezosa: si la preventa venció, marcarla como Vencida y liberar stock
-  await prisma.$transaction(async (tx: any) => {
+    await prisma.$transaction(async (tx: any) => {
       const ventaMini = await tx.venta.findUnique({
         where: { idVenta: id },
         select: { idEstadoVenta: true, fechaVencimiento: true },
@@ -1932,7 +1979,7 @@ app.put(
 
     // Expiración perezosa y bloqueo si ya está vencida
     try {
-  await prisma.$transaction(async (tx: any) => {
+      await prisma.$transaction(async (tx: any) => {
         const ventaMini = await tx.venta.findUnique({
           where: { idVenta: id },
           select: { idEstadoVenta: true, fechaVencimiento: true },
@@ -2071,7 +2118,7 @@ app.put(
       );
 
       // --- SOLO escrituras dentro de la transacción. Sin lecturas finales aquí.
-  await prisma.$transaction(async (tx: any) => {
+      await prisma.$transaction(async (tx: any) => {
 
         const idPend = await getEstadoId(tx, ESTADOS.PENDIENTE);
         const idRes = await getEstadoId(tx, ESTADOS.RESERVADO);
@@ -2089,17 +2136,18 @@ app.put(
             select: { idProducto: true, cantidad: true, precioUnit: true, descuentoItem: true, recargoItem: true },
           });
 
+          const esListoCaja = norm(estadoActualNombre) === norm(ESTADOS.LISTO_CAJA);
           const dataToUpdate: any = headerChanged
             ? {
               ...(idCliente !== undefined && idCliente !== null && idCliente !== "" && { idCliente: Number(idCliente) }),
-              ...(idTipoPago !== undefined && idTipoPago !== null && idTipoPago !== "" && { idTipoPago: Number(idTipoPago) }),
+              ...(esListoCaja && idTipoPago !== undefined && idTipoPago !== null && idTipoPago !== "" && { idTipoPago: Number(idTipoPago) }),
               ...(observacion !== undefined && { observacion }),
               ...(fFactIn !== undefined && !dateEq(fFactIn, ventaAntes.fechaVenta) && { fechaVenta: fFactIn }),
               ...(fCobroIn !== undefined && !dateEq(fCobroIn, ventaAntes.fechaCobroVenta) && { fechaCobroVenta: fCobroIn }),
-              ...(idMoneda !== undefined && idMoneda !== null && idMoneda !== "" && { idMoneda: Number(idMoneda) }),
-              ...(descuentoGeneral !== undefined && { descuentoGeneralVenta: new Prisma.Decimal(descuentoGeneral) }),
-              ...(ajuste !== undefined && { ajusteVenta: new Prisma.Decimal(ajuste) }),
-              ...(recargoPago !== undefined && { recargoPagoVenta: new Prisma.Decimal(recargoPago) }),
+              ...(esListoCaja && idMoneda !== undefined && idMoneda !== null && idMoneda !== "" && { idMoneda: Number(idMoneda) }),
+              ...(esListoCaja && descuentoGeneral !== undefined && { descuentoGeneralVenta: new Prisma.Decimal(descuentoGeneral) }),
+              ...(esListoCaja && ajuste !== undefined && { ajusteVenta: new Prisma.Decimal(ajuste) }),
+              ...(esListoCaja && recargoPago !== undefined && { recargoPagoVenta: new Prisma.Decimal(recargoPago) }),
             }
             : undefined;
           if (dataToUpdate && Object.keys(dataToUpdate).length) {
@@ -2265,6 +2313,35 @@ app.put(
         else if (accion === "reservar") {
           if (norm(estadoActualNombre) !== norm(ESTADOS.PENDIENTE))
             throw new Error("ESTADO_INVALIDO");
+
+          const itemsAct = await leerItemsVenta(tx, id);
+          if (itemsAct.length === 0) throw new Error("SIN_ITEMS");
+          const idsProd = itemsAct.map((i) => Number(i.idProducto)).filter((x) => Number(x));
+          if (idsProd.length > 0) {
+            const prods = await tx.producto.findMany({
+              where: { idProducto: { in: idsProd } },
+              select: {
+                idProducto: true,
+                ofertaProducto: true,
+                porcentajeOfertaProducto: true,
+                fechaInicioOferta: true,
+                fechaFinOferta: true,
+              },
+            });
+            const now = new Date(); now.setHours(0, 0, 0, 0);
+            const nowTs = now.getTime();
+            const hayOfertaActiva = prods.some((p) => {
+              const pct = Number(p.porcentajeOfertaProducto ?? 0);
+              const flag = p.ofertaProducto;
+              const ini = parseLocalDate(p.fechaInicioOferta, false);
+              const fin = parseLocalDate(p.fechaFinOferta, true);
+              const iniTs = ini ? ini.getTime() : null;
+              const finTs = fin ? fin.getTime() : null;
+              const dentro = (iniTs == null || nowTs >= iniTs) && (finTs == null || nowTs <= finTs);
+              return (flag === undefined ? pct > 0 : Boolean(flag)) && pct > 0 && dentro;
+            });
+            if (hayOfertaActiva) throw new Error("RESERVA_PRODUCTO_EN_OFERTA");
+          }
 
           await tx.venta.update({
             where: { idVenta: id },
@@ -2473,14 +2550,50 @@ app.delete("/api/preventas/:id", async (req, res) => {
 });
 
 // Reserva PREVENTA: actualizar fecha límite de reserva
-app.put("/api/preventas/:id/reserva", requireAuth, async (req, res) => {
+app.put("/api/preventas/:id/reserva", requireAuth, authorize(["Administrador", "Cajero"]), async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const { fechaReservaLimite } = req.body ?? {};
-    const data = {
-      fechaReservaLimite: fechaReservaLimite ? new Date(fechaReservaLimite) : null,
-    };
-    const pv = await prisma.venta.update({ where: { idVenta: id }, data });
+    const idUsuario = getUserId(req);
+    const { fechaReservaLimite, motivo } = req.body ?? {};
+    let fechaParsed: Date | null = null;
+    if (fechaReservaLimite) {
+      const s = String(fechaReservaLimite);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        fechaParsed = new Date(`${s}T00:00:00-03:00`);
+      } else {
+        fechaParsed = new Date(s);
+      }
+    }
+    const data = { fechaReservaLimite: fechaParsed };
+    const pv = await prisma.$transaction(async (tx: any) => {
+      const vBefore = await tx.venta.findUnique({ where: { idVenta: id }, select: { idEstadoVenta: true } });
+      let updated = await tx.venta.update({ where: { idVenta: id }, data });
+      if (motivo && String(motivo).trim().length > 0) {
+        await agregarComentario(tx, { idVenta: id, idUsuario, comentario: String(motivo) });
+      }
+      if (vBefore?.idEstadoVenta) {
+        if (!fechaParsed) {
+          const idRes = await getEstadoId(tx, ESTADOS.RESERVADO);
+          const idCan = await getEstadoId(tx, ESTADOS.CANCELADA);
+          if (vBefore.idEstadoVenta === idRes) {
+            const itemsAct = await leerItemsVenta(tx, id);
+            if (itemsAct.length) {
+              await liberarComprometido(tx, itemsAct);
+            }
+            updated = await tx.venta.update({ where: { idVenta: id }, data: { idEstadoVenta: idCan } });
+            await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: idRes, hastaId: idCan, motivo: String(motivo || 'reserva quitada') });
+            await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.ANULADOR });
+          } else {
+            await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: vBefore.idEstadoVenta, hastaId: vBefore.idEstadoVenta, motivo: 'reserva quitada' });
+            await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.EDITOR });
+          }
+        } else {
+          await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: vBefore.idEstadoVenta, hastaId: vBefore.idEstadoVenta, motivo: 'reserva postergada' });
+          await registrarActor(tx, { idVenta: id, idUsuario, papel: PapelEnVenta.EDITOR });
+        }
+      }
+      return updated;
+    });
     res.json(pv);
   } catch (err) {
     console.error("PUT /api/preventas/:id/reserva error", err);

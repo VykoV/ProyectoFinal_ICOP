@@ -8,33 +8,35 @@ import { fmtPrice } from "../lib/format";
 import Modal from "../components/Modal";
 import { getProductStock } from "../lib/api/products";
 import { askText, askConfirm, showAlert } from "../lib/alerts";
+import { useAuth } from "../context/AuthContext";
 
 /* ===== Tipos ===== */
-  type PreRow = {
-    id: number;
-    cliente: string;
-    fecha: string;
-    metodoPago?: string | null;
-    total: number;
-    estado: string; // "Pendiente" | "ListoCaja" | etc
-    fechaVencimiento?: string | null;
-    fechaReservaLimite?: string | null;
-  };
+type PreRow = {
+  id: number;
+  cliente: string;
+  fecha: string;
+  metodoPago?: string | null;
+  total: number;
+  estado: string; // "Pendiente" | "ListoCaja" | etc
+  fechaVencimiento?: string | null;
+  fechaReservaLimite?: string | null;
+};
 
- type Opt = { id: number; label: string };
- type ProdOpt = Opt & { precio: number; ofertaPct?: number };
- type Item = {
-   idProducto: number;
-   nombre: string;
-   cantidad: number;
-   precio: number;
-   descuento: number;
-   idDetalleVenta?: number;
-   recargo?: number;
- };
+type Opt = { id: number; label: string };
+type ProdOpt = Opt & { precio: number; ofertaPct?: number };
+type Item = {
+  idProducto: number;
+  nombre: string;
+  cantidad: number;
+  precio: number;
+  descuento: number;
+  idDetalleVenta?: number;
+  recargo?: number;
+};
 
 /* ===== Página listado ===== */
 export default function PreVentas() {
+  const { hasRole } = useAuth();
   const [rows, setRows] = useState<PreRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
@@ -51,10 +53,18 @@ export default function PreVentas() {
   // Modal de reserva (con calendario)
   const [openReservaId, setOpenReservaId] = useState<number | null>(null);
   const [reservaFecha, setReservaFecha] = useState<string>("");
+  const [openPostergarId, setOpenPostergarId] = useState<number | null>(null);
+  const [postergarFecha, setPostergarFecha] = useState<string>("");
 
   function normEstado(
     raw: string
-  ): "pendiente" | "reservado" | "listocaja" | "finalizada" | "cancelada" | "otro" {
+  ):
+    | "pendiente"
+    | "reservado"
+    | "listocaja"
+    | "finalizada"
+    | "cancelada"
+    | "otro" {
     const n = String(raw || "")
       .toLowerCase()
       .replace(/[\s_]+/g, "");
@@ -144,7 +154,8 @@ export default function PreVentas() {
             ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}`
             : "",
           fecha: String(v.fecha ?? v.fechaVenta ?? "").slice(0, 10),
-          fechaVencimiento: v.fechaVencimiento ?? v.fechaVencimientoVenta ?? null,
+          fechaVencimiento:
+            v.fechaVencimiento ?? v.fechaVencimientoVenta ?? null,
           fechaReservaLimite: v.fechaReservaLimite ?? null,
           metodoPago: v.metodoPago ?? v.TipoPago?.tipoPago ?? null,
           total: Number(v.total ?? 0),
@@ -207,7 +218,9 @@ export default function PreVentas() {
           }
         }
         return (
-          <span className={`inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs font-medium ${cls}`}>
+          <span
+            className={`inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs font-medium ${cls}`}
+          >
             <span>{raw}</span>
             {extra && (
               <span className="rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[10px]">
@@ -234,7 +247,8 @@ export default function PreVentas() {
         const estadoNorm = (row.original.estado || "")
           .toLowerCase()
           .replace(/[\s_]+/g, "");
-  const isEditable = estadoNorm === "pendiente"; // en Reservado ya no se edita
+        const isEditable = estadoNorm === "pendiente"; // en Reservado ya no se edita
+        // Acciones de reserva: el Vendedor puede marcar Pendiente → Reservado
 
         return (
           <div className="flex gap-2">
@@ -246,18 +260,62 @@ export default function PreVentas() {
               <Eye className="h-3.5 w-3.5" /> Ver
             </button>
 
-            {estadoNorm === "pendiente" && (
-              <button
-                className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
-                onClick={() => {
-                  setOpenReservaId(row.original.id);
-                  setReservaFecha("");
-                }}
-                title="Marcar como Reservado"
-              >
-                Reservar
-              </button>
-            )}
+            {isEditable &&
+              (hasRole("Vendedor") || hasRole("Administrador")) && (
+                <button
+                  className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+                  onClick={async () => {
+                    const ok = await askConfirm({
+                      title: "Reservar preventa",
+                      message:
+                        "¿Confirmás marcar esta preventa como Reservada?",
+                      confirmText: "Reservar",
+                      cancelText: "Volver",
+                      type: "question",
+                    });
+                    if (!ok) return;
+                    try {
+                      await api.put(`/preventas/${row.original.id}`, {
+                        accion: "reservar",
+                      });
+                      await load(q);
+                    } catch (e: any) {
+                      const code = e?.response?.data?.error;
+                      if (code === "RESERVA_PRODUCTO_EN_OFERTA") {
+                        await showAlert({
+                          type: "warning",
+                          title: "No permitido",
+                          message:
+                            "No se puede reservar una preventa con productos en oferta.",
+                        });
+                      } else if (code === "SIN_ITEMS") {
+                        await showAlert({
+                          type: "warning",
+                          title: "Validación",
+                          message:
+                            "El presupuesto no tiene productos cargados.",
+                        });
+                      } else if (code === "ESTADO_INVALIDO") {
+                        await showAlert({
+                          type: "warning",
+                          title: "Estado",
+                          message:
+                            "Solo se puede reservar desde estado Pendiente.",
+                        });
+                      } else {
+                        await showAlert({
+                          type: "error",
+                          title: "Error",
+                          message: e?.message || "No se pudo reservar",
+                        });
+                      }
+                    }
+                  }}
+                  title="Marcar como Reservado"
+                >
+                  Reservar
+                </button>
+              )}
 
             {isEditable && (
               <button
@@ -294,6 +352,8 @@ export default function PreVentas() {
                 <Trash2 className="h-3.5 w-3.5" /> Cancelar
               </button>
             )}
+
+            {/* Las acciones para reservas vencidas están en Ventas; aquí solo visualización. */}
           </div>
         );
       },
@@ -391,12 +451,16 @@ export default function PreVentas() {
                   onChange={(e) => {
                     const v = e.target.value;
                     const next =
-                      v === "todas" ? ["pendiente", "reservado", "listocaja"] : [v];
+                      v === "todas"
+                        ? ["pendiente", "reservado", "listocaja"]
+                        : [v];
                     setSelectedEstados(next);
                     setPage(1);
                   }}
                 >
-                  <option value="todas">Pendiente / Reservado / ListoCaja</option>
+                  <option value="todas">
+                    Pendiente / Reservado / ListoCaja
+                  </option>
                   <option value="pendiente">Solo Pendiente</option>
                   <option value="reservado">Solo Reservado</option>
                   <option value="listocaja">Solo ListoCaja</option>
@@ -595,6 +659,78 @@ export default function PreVentas() {
           </div>
         </div>
       )}
+
+      {/* Modal de Postergar reserva */}
+      {openPostergarId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-sm">
+            <div className="flex items-center justify-between border-b px-4 py-2">
+              <h2 className="text-sm font-medium">Postergar reserva</h2>
+              <button
+                className="rounded border px-2 py-1 text-xs"
+                onClick={() => setOpenPostergarId(null)}
+                title="Cerrar"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div>
+                <Label htmlFor="fechaPostergar">Nueva fecha límite</Label>
+                <input
+                  id="fechaPostergar"
+                  type="date"
+                  className="rounded border px-2 py-1 w-full"
+                  value={postergarFecha}
+                  onChange={(e) => setPostergarFecha(e.target.value)}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Esta acción requiere un motivo.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+              <button
+                className="rounded border px-3 py-1 text-sm"
+                onClick={() => setOpenPostergarId(null)}
+              >
+                Volver
+              </button>
+              <button
+                className="inline-flex items-center gap-1 rounded bg-black text-white px-3 py-1 text-sm"
+                onClick={async () => {
+                  const id = openPostergarId!;
+                  if (!postergarFecha || postergarFecha.trim().length === 0) {
+                    showAlert({
+                      type: "warning",
+                      title: "Falta fecha",
+                      message: "Selecciona una nueva fecha límite.",
+                    });
+                    return;
+                  }
+                  const motivo = await askText({
+                    title: "Motivo de postergación",
+                    label: "Describe el motivo",
+                    placeholder: "Ej: cliente solicita extender el retiro",
+                    confirmText: "Postergar",
+                    cancelText: "Volver",
+                    required: true,
+                  });
+                  if (motivo === null) return;
+                  await api.put(`/preventas/${id}/reserva`, {
+                    fechaReservaLimite: postergarFecha.trim(),
+                    motivo,
+                  });
+                  setOpenPostergarId(null);
+                  await load(q);
+                }}
+              >
+                Postergar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -664,9 +800,10 @@ function PreventaView({
   const estadoStr =
     venta?.EstadoVenta?.nombreEstadoVenta ??
     (venta?.idEstadoVenta ? `Estado ${venta.idEstadoVenta}` : "-");
-  const estadoEsReservado = String(estadoStr || "")
-    .toLowerCase()
-    .replace(/[\s_]+/g, "") === "reservado";
+  const estadoEsReservado =
+    String(estadoStr || "")
+      .toLowerCase()
+      .replace(/[\s_]+/g, "") === "reservado";
 
   // 2. Flag editable. Solo si está "Pendiente"
   const isEditable =
@@ -688,7 +825,8 @@ function PreventaView({
   async function terminarEdicion() {
     const ok = await askConfirm({
       title: "Finalizar edición",
-      message: "¿Confirmás finalizar la edición? Ya no vas a poder modificar ni eliminar este presupuesto.",
+      message:
+        "¿Confirmás finalizar la edición? Ya no vas a poder modificar ni eliminar este presupuesto.",
       confirmText: "Sí",
       cancelText: "No",
       type: "question",
@@ -703,9 +841,20 @@ function PreventaView({
 
       // Cerramos modal y pedimos reload al padre
       onClose(true);
-      await showAlert({ type: "success", title: "Éxito", message: "Edición finalizada" });
+      await showAlert({
+        type: "success",
+        title: "Éxito",
+        message: "Edición finalizada",
+      });
     } catch (e: any) {
-      await showAlert({ type: "error", title: "Error", message: e?.response?.data?.error || e?.message || "No se pudo finalizar la edición" });
+      await showAlert({
+        type: "error",
+        title: "Error",
+        message:
+          e?.response?.data?.error ||
+          e?.message ||
+          "No se pudo finalizar la edición",
+      });
     }
   }
 
@@ -791,7 +940,9 @@ function PreventaView({
                         (lineItems ?? []).reduce((acc: number, d: any) => {
                           const cant = Number(d.cantidad ?? 0);
                           const puBase = Number(
-                            d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
+                            d.precioUnit ??
+                              d.Producto?.precioVentaPublicoProducto ??
+                              0
                           );
                           const descPct = Number(d.descuentoItem ?? 0) / 100;
                           const puFinal = puBase * (1 - descPct);
@@ -870,7 +1021,9 @@ function PreventaView({
                       lineItems.map((d: any, idx: number) => {
                         const cant = Number(d.cantidad ?? 0);
                         const puBase = Number(
-                          d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
+                          d.precioUnit ??
+                            d.Producto?.precioVentaPublicoProducto ??
+                            0
                         );
                         const descPct = Number(d.descuentoItem ?? 0);
                         const puFinal = puBase * (1 - (descPct || 0) / 100);
@@ -889,15 +1042,27 @@ function PreventaView({
                               {descPct > 0 ? (
                                 <div className="flex flex-col items-end">
                                   <span className="line-through text-gray-400">
-                                    ${fmtPrice(puBase, { minFraction: 2, maxFraction: 2 })}
+                                    $
+                                    {fmtPrice(puBase, {
+                                      minFraction: 2,
+                                      maxFraction: 2,
+                                    })}
                                   </span>
                                   <span className="text-green-700 font-medium">
-                                    ${fmtPrice(puFinal, { minFraction: 2, maxFraction: 2 })}
+                                    $
+                                    {fmtPrice(puFinal, {
+                                      minFraction: 2,
+                                      maxFraction: 2,
+                                    })}
                                   </span>
                                 </div>
                               ) : (
                                 <>
-                                  ${fmtPrice(puBase, { minFraction: 2, maxFraction: 2 })}
+                                  $
+                                  {fmtPrice(puBase, {
+                                    minFraction: 2,
+                                    maxFraction: 2,
+                                  })}
                                 </>
                               )}
                             </td>
@@ -905,7 +1070,8 @@ function PreventaView({
                               {descPct > 0 ? `-${descPct}%` : "-"}
                             </td>
                             <td className="px-2 py-2 text-right">
-                              ${fmtPrice(subtotal, {
+                              $
+                              {fmtPrice(subtotal, {
                                 minFraction: 2,
                                 maxFraction: 2,
                               })}
@@ -943,8 +1109,15 @@ function PreventaView({
                   let baseArticulos: number; // total con descuentos por ítem, antes de descuento general y recargo
                   let descuentoGeneralMonto = 0;
                   let recargoPagoMonto = 0;
-                  const descGPercent = Number(venta?.descuentoGeneralVenta ?? venta?.descuentoGeneral ?? 0) / 100;
-                  const recargoPercent = Number(venta?.recargoPagoVenta ?? venta?.recargoPago ?? 0) / 100;
+                  const descGPercent =
+                    Number(
+                      venta?.descuentoGeneralVenta ??
+                        venta?.descuentoGeneral ??
+                        0
+                    ) / 100;
+                  const recargoPercent =
+                    Number(venta?.recargoPagoVenta ?? venta?.recargoPago ?? 0) /
+                    100;
 
                   if (tot) {
                     const total = Number(tot.totalFinal ?? 0);
@@ -958,15 +1131,20 @@ function PreventaView({
                     const trasDescuento = baseArticulos * (1 - descGPercent);
                     recargoPagoMonto = trasDescuento * recargoPercent;
                   } else {
-                    const bruto = (lineItems ?? []).reduce((acc: number, d: any) => {
-                      const cant = Number(d.cantidad ?? 0);
-                      const puBase = Number(
-                        d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
-                      );
-                      const descPct = Number(d.descuentoItem ?? 0) / 100;
-                      const puFinal = puBase * (1 - descPct);
-                      return acc + cant * puFinal;
-                    }, 0);
+                    const bruto = (lineItems ?? []).reduce(
+                      (acc: number, d: any) => {
+                        const cant = Number(d.cantidad ?? 0);
+                        const puBase = Number(
+                          d.precioUnit ??
+                            d.Producto?.precioVentaPublicoProducto ??
+                            0
+                        );
+                        const descPct = Number(d.descuentoItem ?? 0) / 100;
+                        const puFinal = puBase * (1 - descPct);
+                        return acc + cant * puFinal;
+                      },
+                      0
+                    );
                     baseArticulos = bruto;
                     descuentoGeneralMonto = baseArticulos * descGPercent;
                     const trasDescuento = baseArticulos * (1 - descGPercent);
@@ -980,35 +1158,55 @@ function PreventaView({
                   return (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
-                        <p className="text-sm text-gray-500">Subtotal (sin impuestos)</p>
-                        <p className="text-xl font-semibold">${fmtPrice(subtotalSinIVA)}</p>
+                        <p className="text-sm text-gray-500">
+                          Subtotal (sin impuestos)
+                        </p>
+                        <p className="text-xl font-semibold">
+                          ${fmtPrice(subtotalSinIVA)}
+                        </p>
                       </div>
                       <div>
                         <p className="text-sm text-gray-500">Impuestos (IVA)</p>
-                        <p className="text-xl font-semibold">${fmtPrice(impuestos)}</p>
+                        <p className="text-xl font-semibold">
+                          ${fmtPrice(impuestos)}
+                        </p>
                       </div>
                       <div>
                         <p className="text-sm text-gray-500">Total</p>
-                        <p className="text-xl font-semibold">${fmtPrice(totalFinal)}</p>
+                        <p className="text-xl font-semibold">
+                          ${fmtPrice(totalFinal)}
+                        </p>
                       </div>
                       <div className="sm:col-span-3 border-t pt-2 mt-2">
                         <div className="flex flex-wrap items-center justify-between text-xs">
                           <span className="text-gray-600">
                             Base artículos (con descuentos por ítem)
                           </span>
-                          <span className="font-medium">${fmtPrice(baseArticulos)}</span>
+                          <span className="font-medium">
+                            ${fmtPrice(baseArticulos)}
+                          </span>
                         </div>
                         <div className="flex flex-wrap items-center justify-between text-xs mt-1">
                           <span className="text-gray-600">
-                            Descuento general {descGPercent > 0 ? `(${Math.round(descGPercent*100)}%)` : ""}
+                            Descuento general{" "}
+                            {descGPercent > 0
+                              ? `(${Math.round(descGPercent * 100)}%)`
+                              : ""}
                           </span>
-                          <span className="font-medium text-green-700">−${fmtPrice(descuentoGeneralMonto)}</span>
+                          <span className="font-medium text-green-700">
+                            −${fmtPrice(descuentoGeneralMonto)}
+                          </span>
                         </div>
                         <div className="flex flex-wrap items-center justify-between text-xs mt-1">
                           <span className="text-gray-600">
-                            Recargo método de pago {recargoPercent > 0 ? `(${Math.round(recargoPercent*100)}%)` : ""}
+                            Recargo método de pago{" "}
+                            {recargoPercent > 0
+                              ? `(${Math.round(recargoPercent * 100)}%)`
+                              : ""}
                           </span>
-                          <span className="font-medium text-orange-700">+${fmtPrice(recargoPagoMonto)}</span>
+                          <span className="font-medium text-orange-700">
+                            +${fmtPrice(recargoPagoMonto)}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -1379,9 +1577,13 @@ function PreventaForm({
               d.Producto?.nombreProducto ?? ""
             }`,
             cantidad: Number(d.cantidad ?? 0),
-            precio: Number(d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0),
+            precio: Number(
+              d.precioUnit ?? d.Producto?.precioVentaPublicoProducto ?? 0
+            ),
             descuento: Number(d.descuentoItem ?? 0),
-            idDetalleVenta: Number(d.idDetalleVenta ?? d.idDetalle ?? d.id ?? undefined),
+            idDetalleVenta: Number(
+              d.idDetalleVenta ?? d.idDetalle ?? d.id ?? undefined
+            ),
             recargo: Number(d.recargoItem ?? 0),
           }))
         );
@@ -1441,7 +1643,9 @@ function PreventaForm({
         if (!raw) return null;
         if (typeof raw === "string" && raw.length === 10) {
           // YYYY-MM-DD como hora local
-          return new Date(`${raw}${isEnd ? "T23:59:59.999" : "T00:00:00"}`).getTime();
+          return new Date(
+            `${raw}${isEnd ? "T23:59:59.999" : "T00:00:00"}`
+          ).getTime();
         }
         const d = new Date(raw);
         return Number.isNaN(d.valueOf()) ? null : d.getTime();
@@ -1449,20 +1653,25 @@ function PreventaForm({
 
       const opts: ProdOpt[] = (data ?? []).map((p: any) => {
         const base = Number(p.precio ?? p.precioVentaPublicoProducto ?? 0);
-        const pct = Number(p.porcentajeOferta ?? p.porcentajeOfertaProducto ?? 0);
+        const pct = Number(
+          p.porcentajeOferta ?? p.porcentajeOfertaProducto ?? 0
+        );
         const ofertaFlag = p.oferta ?? p.ofertaProducto;
         const iniRaw = p.fechaInicioOferta ?? p.fechaInicioOfertaProducto;
         const finRaw = p.fechaFinOferta ?? p.fechaFinOfertaProducto;
         const ini = toTs(iniRaw, false);
         const fin = toTs(finRaw, true);
-        const dentroRango = (ini == null || todayTs >= ini) && (fin == null || todayTs <= fin);
+        const dentroRango =
+          (ini == null || todayTs >= ini) && (fin == null || todayTs <= fin);
         const activo =
           ofertaFlag === undefined
             ? pct > 0 && dentroRango
             : Boolean(ofertaFlag) && pct > 0 && dentroRango;
         return {
           id: p.id ?? p.idProducto,
-          label: `${p.sku ?? p.codigoProducto} — ${p.nombre ?? p.nombreProducto}`,
+          label: `${p.sku ?? p.codigoProducto} — ${
+            p.nombre ?? p.nombreProducto
+          }`,
           precio: base,
           ofertaPct: activo ? pct : 0,
         };
@@ -1524,8 +1733,6 @@ function PreventaForm({
     );
   }
 
-  
-
   /* ===== Cálculos de totales ===== */
   const bruto = items.reduce((a, i) => a + i.cantidad * i.precio, 0);
 
@@ -1554,15 +1761,27 @@ function PreventaForm({
     e?.preventDefault();
     console.log("CLICK GUARDAR", { isEdit, id, items });
     if (!idCliente) {
-      await showAlert({ type: "warning", title: "Validación", message: "Seleccioná un cliente válido." });
+      await showAlert({
+        type: "warning",
+        title: "Validación",
+        message: "Seleccioná un cliente válido.",
+      });
       return;
     }
     if (!idTipoPago) {
-      await showAlert({ type: "warning", title: "Validación", message: "Seleccioná método de pago." });
+      await showAlert({
+        type: "warning",
+        title: "Validación",
+        message: "Seleccioná método de pago.",
+      });
       return;
     }
     if (items.length === 0) {
-      await showAlert({ type: "warning", title: "Validación", message: "Agregá al menos un producto." });
+      await showAlert({
+        type: "warning",
+        title: "Validación",
+        message: "Agregá al menos un producto.",
+      });
       return;
     }
 
@@ -1580,7 +1799,8 @@ function PreventaForm({
             descuentoItem: Number(i.descuento) || 0,
             recargoItem: Number(i.recargo) || 0,
             // incluir idDetalleVenta solo en edición para updates granulares futuros
-            idDetalleVenta: i.idDetalleVenta != null ? Number(i.idDetalleVenta) : undefined,
+            idDetalleVenta:
+              i.idDetalleVenta != null ? Number(i.idDetalleVenta) : undefined,
           })),
           idCliente: Number(idCliente),
           idTipoPago: Number(idTipoPago),
@@ -1615,9 +1835,7 @@ function PreventaForm({
         await api.post("/preventas", payload);
       }
       onClose(true);
-    } catch (err: any) {
-      
-    }
+    } catch (err: any) {}
   }
 
   /* ===== UI modal crear/editar ===== */
@@ -1802,7 +2020,9 @@ function PreventaForm({
                           >
                             <span>{o.label}</span>
                             <span>
-                              {" "}— ${fmtPrice(o.precio, {
+                              {" "}
+                              — $
+                              {fmtPrice(o.precio, {
                                 minFraction: 2,
                                 maxFraction: 2,
                               })}
@@ -1963,15 +2183,27 @@ function PreventaForm({
                         {i.descuento > 0 ? (
                           <div className="flex flex-col items-end">
                             <span className="line-through text-gray-400">
-                              ${fmtPrice(i.precio, { minFraction: 2, maxFraction: 2 })}
+                              $
+                              {fmtPrice(i.precio, {
+                                minFraction: 2,
+                                maxFraction: 2,
+                              })}
                             </span>
                             <span className="text-green-700 font-medium">
-                              ${fmtPrice(i.precio * (1 - (i.descuento || 0) / 100), { minFraction: 2, maxFraction: 2 })}
+                              $
+                              {fmtPrice(
+                                i.precio * (1 - (i.descuento || 0) / 100),
+                                { minFraction: 2, maxFraction: 2 }
+                              )}
                             </span>
                           </div>
                         ) : (
                           <>
-                            ${fmtPrice(i.precio, { minFraction: 2, maxFraction: 2 })}
+                            $
+                            {fmtPrice(i.precio, {
+                              minFraction: 2,
+                              maxFraction: 2,
+                            })}
                           </>
                         )}
                       </td>

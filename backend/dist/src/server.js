@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+require("dotenv/config");
 const express_1 = __importDefault(require("express"));
 require("./jobs/cron");
 const cors_1 = __importDefault(require("cors"));
@@ -10,20 +11,25 @@ const express_session_1 = __importDefault(require("express-session"));
 const connect_pg_simple_1 = __importDefault(require("connect-pg-simple"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const client_1 = require("@prisma/client");
+const authorize_1 = require("./middleware/authorize");
 const pg_1 = require("pg");
 const adapter_pg_1 = require("@prisma/adapter-pg");
 const auth_1 = __importDefault(require("./auth"));
 const proveedores_1 = __importDefault(require("./routes/proveedores"));
 const compras_1 = __importDefault(require("./routes/compras"));
 const requireAuth_1 = require("./middleware/requireAuth");
-const authorize_1 = require("./middleware/authorize");
 const DEV = process.env.NODE_ENV !== "production";
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL || typeof DATABASE_URL !== 'string' || !DATABASE_URL.trim()) {
+    console.error("DATABASE_URL no está definido. Configure su conexión en backend/.env");
+    process.exit(1);
+}
 const app = (0, express_1.default)();
 // Prisma con logging para pruebas en desarrollo
 const prismaLogs = DEV
     ? [{ level: "query", emit: "event" }, { level: "error", emit: "event" }]
     : [];
-const pool = new pg_1.Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new pg_1.Pool({ connectionString: DATABASE_URL });
 const prisma = new client_1.PrismaClient({
     log: prismaLogs,
     adapter: new adapter_pg_1.PrismaPg(pool),
@@ -74,7 +80,7 @@ app.use((req, res, next) => {
 // ==========================
 app.use((0, express_session_1.default)({
     store: new PgSession({
-        conString: process.env.DATABASE_URL,
+        conString: DATABASE_URL,
         schemaName: "auth",
         tableName: "session",
         createTableIfMissing: false,
@@ -294,6 +300,46 @@ app.get("/api/products/:id/stock", async (req, res) => {
         res.status(400).json({ error: "STOCK_READ_FAILED" });
     }
 });
+app.get("/api/products/stock-minimo", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (_req, res) => {
+    try {
+        const stocks = await prisma.stock.findMany({
+            select: {
+                idProducto: true,
+                cantidadRealStock: true,
+                stockComprometido: true,
+                bajoMinimoStock: true,
+                ultimaModificacionStock: true,
+            },
+        });
+        const ids = Array.from(new Set(stocks.map((s) => Number(s.idProducto)).filter((x) => Number(x))));
+        const prods = await prisma.producto.findMany({
+            where: { idProducto: { in: ids } },
+            select: { idProducto: true, nombreProducto: true },
+        });
+        const mapNombre = new Map(prods.map((p) => [p.idProducto, p.nombreProducto]));
+        const list = stocks
+            .map((s) => {
+            const real = Number(s.cantidadRealStock || 0);
+            const comp = Number(s.stockComprometido || 0);
+            const minimo = Number(s.bajoMinimoStock || 0);
+            const disp = real - comp;
+            return {
+                idProducto: Number(s.idProducto),
+                nombreProducto: mapNombre.get(Number(s.idProducto)) || "",
+                disponible: disp,
+                minimo,
+                actualizadoEn: s.ultimaModificacionStock ?? null,
+            };
+        })
+            .filter((x) => x.minimo > 0 && x.disponible < x.minimo)
+            .sort((a, b) => a.disponible - b.disponible);
+        res.json(list);
+    }
+    catch (err) {
+        console.error("GET /api/products/stock-minimo error", err);
+        res.status(500).json({ error: "SERVER_ERROR" });
+    }
+});
 // HISTÓRICO DE PRECIO POR PRODUCTO (opcional filtro de proveedor y rango de fechas)
 app.get("/api/products/:id/historico-precio", async (req, res) => {
     const id = Number(req.params.id);
@@ -471,6 +517,7 @@ app.post("/api/products", requireAuth_1.requireAuth, (0, authorize_1.authorize)(
                     : new Date(),
             },
         });
+        await ensureLowStockNotification(prisma, row.idProducto);
         // Registrar historial de oferta al crear (fechas con semántica local por día)
         const fi = fechaInicioOferta ? parseLocalDate(fechaInicioOferta, false) : null;
         const ff = fechaFinOferta ? parseLocalDate(fechaFinOferta, true) : null;
@@ -638,6 +685,7 @@ app.put("/api/products/:id", async (req, res) => {
                         }),
                     },
                 });
+                await ensureLowStockNotification(prisma, id);
             }
             else {
                 await prisma.stock.create({
@@ -651,6 +699,7 @@ app.put("/api/products/:id", async (req, res) => {
                             : new Date(),
                     },
                 });
+                await ensureLowStockNotification(prisma, id);
             }
         }
         // Registrar histórico de precio si hubo cambio de precio
@@ -844,6 +893,8 @@ app.post("/api/usuarios", requireAuth_1.requireAuth, (0, authorize_1.authorize)(
 // ACTUALIZAR USUARIO
 app.put("/api/usuarios/:id", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (req, res) => {
     const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0)
+        return res.status(400).json({ error: "ID_INVALIDO" });
     const { nombreUsuario, emailUsuario, contrasenaUsuario, idRol } = req.body;
     const data = {};
     if (nombreUsuario !== undefined)
@@ -1121,6 +1172,50 @@ async function getStockFila(tx, idProducto) {
         comp: Number(s.stockComprometido || 0),
     };
 }
+async function ensureLowStockNotification(tx, idProducto) {
+    const s = await tx.stock.findFirst({ where: { idProducto } });
+    if (!s)
+        return;
+    const real = Number(s.cantidadRealStock || 0);
+    const comp = Number(s.stockComprometido || 0);
+    const min = Number(s.bajoMinimoStock || 0);
+    const disp = real - comp;
+    if (min <= 0)
+        return;
+    const prod = await tx.producto.findUnique({ where: { idProducto }, select: { nombreProducto: true } });
+    const nombre = prod?.nombreProducto ?? `#${idProducto}`;
+    const msg = `Stock bajo: ${nombre} (#${idProducto})`;
+    if (disp < min) {
+        const exists = await tx.notificacion.findFirst({
+            where: {
+                tipo: client_1.TipoNotificacion.STOCK_BAJO,
+                mensaje: { contains: `#${idProducto}` },
+                leido: false,
+            },
+        });
+        if (!exists) {
+            await tx.notificacion.create({
+                data: {
+                    tipo: client_1.TipoNotificacion.STOCK_BAJO,
+                    mensaje: msg,
+                    nivel: client_1.NivelNotificacion.WARN,
+                    destinatario: client_1.DestinatarioNotificacion.ADMIN,
+                    data: { code: 'STOCK_BAJO', idProducto },
+                },
+            });
+        }
+    }
+    else {
+        await tx.notificacion.updateMany({
+            where: {
+                tipo: client_1.TipoNotificacion.STOCK_BAJO,
+                mensaje: { contains: `#${idProducto}` },
+                leido: false,
+            },
+            data: { leido: true },
+        });
+    }
+}
 async function validarDisponible(tx, items) {
     for (const it of items) {
         const s = await getStockFila(tx, it.idProducto);
@@ -1153,6 +1248,7 @@ async function reservarComprometido(tx, items) {
                 ultimaModificacionStock: new Date(),
             },
         });
+        await ensureLowStockNotification(tx, it.idProducto);
     }
 }
 async function liberarComprometido(tx, items) {
@@ -1169,6 +1265,7 @@ async function liberarComprometido(tx, items) {
                 ultimaModificacionStock: new Date(),
             },
         });
+        await ensureLowStockNotification(tx, it.idProducto);
     }
 }
 async function descontarRealYComprometido(tx, items) {
@@ -1187,6 +1284,7 @@ async function descontarRealYComprometido(tx, items) {
                 ultimaModificacionStock: new Date(),
             },
         });
+        await ensureLowStockNotification(tx, it.idProducto);
     }
 }
 // — Auditoría helpers:
@@ -1492,8 +1590,10 @@ app.get("/api/preventas", requireAuth_1.requireAuth, (0, authorize_1.authorize)(
     res.json(out);
 });
 // Detalle PREVENTA
-app.get("/api/preventas/:id", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Vendedor", "Cajero"]), async (req, res) => {
+app.get("/api/preventas/:id(\\d+)", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Vendedor", "Cajero"]), async (req, res) => {
     const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0)
+        return res.status(400).json({ error: "ID_INVALIDO" });
     const idUsuario = getUserId(req);
     // Expiración perezosa: si la preventa venció, marcarla como Vencida y liberar stock
     await prisma.$transaction(async (tx) => {
@@ -1767,17 +1867,18 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
                     where: { idVenta: id },
                     select: { idProducto: true, cantidad: true, precioUnit: true, descuentoItem: true, recargoItem: true },
                 });
+                const esListoCaja = norm(estadoActualNombre) === norm(ESTADOS.LISTO_CAJA);
                 const dataToUpdate = headerChanged
                     ? {
                         ...(idCliente !== undefined && idCliente !== null && idCliente !== "" && { idCliente: Number(idCliente) }),
-                        ...(idTipoPago !== undefined && idTipoPago !== null && idTipoPago !== "" && { idTipoPago: Number(idTipoPago) }),
+                        ...(esListoCaja && idTipoPago !== undefined && idTipoPago !== null && idTipoPago !== "" && { idTipoPago: Number(idTipoPago) }),
                         ...(observacion !== undefined && { observacion }),
                         ...(fFactIn !== undefined && !dateEq(fFactIn, ventaAntes.fechaVenta) && { fechaVenta: fFactIn }),
                         ...(fCobroIn !== undefined && !dateEq(fCobroIn, ventaAntes.fechaCobroVenta) && { fechaCobroVenta: fCobroIn }),
-                        ...(idMoneda !== undefined && idMoneda !== null && idMoneda !== "" && { idMoneda: Number(idMoneda) }),
-                        ...(descuentoGeneral !== undefined && { descuentoGeneralVenta: new client_1.Prisma.Decimal(descuentoGeneral) }),
-                        ...(ajuste !== undefined && { ajusteVenta: new client_1.Prisma.Decimal(ajuste) }),
-                        ...(recargoPago !== undefined && { recargoPagoVenta: new client_1.Prisma.Decimal(recargoPago) }),
+                        ...(esListoCaja && idMoneda !== undefined && idMoneda !== null && idMoneda !== "" && { idMoneda: Number(idMoneda) }),
+                        ...(esListoCaja && descuentoGeneral !== undefined && { descuentoGeneralVenta: new client_1.Prisma.Decimal(descuentoGeneral) }),
+                        ...(esListoCaja && ajuste !== undefined && { ajusteVenta: new client_1.Prisma.Decimal(ajuste) }),
+                        ...(esListoCaja && recargoPago !== undefined && { recargoPagoVenta: new client_1.Prisma.Decimal(recargoPago) }),
                     }
                     : undefined;
                 if (dataToUpdate && Object.keys(dataToUpdate).length) {
@@ -1940,6 +2041,37 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
             else if (accion === "reservar") {
                 if (norm(estadoActualNombre) !== norm(ESTADOS.PENDIENTE))
                     throw new Error("ESTADO_INVALIDO");
+                const itemsAct = await leerItemsVenta(tx, id);
+                if (itemsAct.length === 0)
+                    throw new Error("SIN_ITEMS");
+                const idsProd = itemsAct.map((i) => Number(i.idProducto)).filter((x) => Number(x));
+                if (idsProd.length > 0) {
+                    const prods = await tx.producto.findMany({
+                        where: { idProducto: { in: idsProd } },
+                        select: {
+                            idProducto: true,
+                            ofertaProducto: true,
+                            porcentajeOfertaProducto: true,
+                            fechaInicioOferta: true,
+                            fechaFinOferta: true,
+                        },
+                    });
+                    const now = new Date();
+                    now.setHours(0, 0, 0, 0);
+                    const nowTs = now.getTime();
+                    const hayOfertaActiva = prods.some((p) => {
+                        const pct = Number(p.porcentajeOfertaProducto ?? 0);
+                        const flag = p.ofertaProducto;
+                        const ini = parseLocalDate(p.fechaInicioOferta, false);
+                        const fin = parseLocalDate(p.fechaFinOferta, true);
+                        const iniTs = ini ? ini.getTime() : null;
+                        const finTs = fin ? fin.getTime() : null;
+                        const dentro = (iniTs == null || nowTs >= iniTs) && (finTs == null || nowTs <= finTs);
+                        return (flag === undefined ? pct > 0 : Boolean(flag)) && pct > 0 && dentro;
+                    });
+                    if (hayOfertaActiva)
+                        throw new Error("RESERVA_PRODUCTO_EN_OFERTA");
+                }
                 await tx.venta.update({
                     where: { idVenta: id },
                     data: { idEstadoVenta: idRes, estadoPago: 'PENDIENTE' },
@@ -2056,7 +2188,11 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
         // Lectura final FUERA de la transacción
         const out = await prisma.venta.findUnique({
             where: { idVenta: id },
-            include: { EstadoVenta: true, detalles: { include: { Producto: true } } },
+            include: {
+                EstadoVenta: true,
+                Cliente: { select: { nombreCliente: true, apellidoCliente: true } },
+                detalles: { include: { Producto: true } },
+            },
         });
         try {
             const estadoResp = out?.EstadoVenta?.nombreEstadoVenta ?? null;
@@ -2068,6 +2204,23 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
             if (estadoResp && accionResp === "lock") {
                 res.set("x-notification", `Estado actualizado: ${estadoResp}`);
                 res.set("x-notification-type", "success");
+                try {
+                    const total = Number(await calcularTotal(id));
+                    const cliente = out?.Cliente ? `${out.Cliente.apellidoCliente}, ${out.Cliente.nombreCliente}` : String(out?.idCliente ?? "");
+                    await prisma.notificacion.create({
+                        data: {
+                            tipo: client_1.TipoNotificacion.OTRO,
+                            mensaje: `Lista para caja #${id} — ${cliente} — $${total.toFixed(2)} — ${new Date().toLocaleTimeString()}`,
+                            nivel: client_1.NivelNotificacion.INFO,
+                            destinatario: client_1.DestinatarioNotificacion.CAJERO,
+                            data: { code: "NUEVA_LISTA_CAJA", ventaId: id },
+                            idUsuario,
+                        },
+                    });
+                }
+                catch (e) {
+                    console.error("notificacion NUEVA_LISTA_CAJA error", e);
+                }
             }
         }
         catch { }
@@ -2121,14 +2274,53 @@ app.delete("/api/preventas/:id", async (req, res) => {
     }
 });
 // Reserva PREVENTA: actualizar fecha límite de reserva
-app.put("/api/preventas/:id/reserva", requireAuth_1.requireAuth, async (req, res) => {
+app.put("/api/preventas/:id/reserva", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (req, res) => {
     try {
         const id = Number(req.params.id);
-        const { fechaReservaLimite } = req.body ?? {};
-        const data = {
-            fechaReservaLimite: fechaReservaLimite ? new Date(fechaReservaLimite) : null,
-        };
-        const pv = await prisma.venta.update({ where: { idVenta: id }, data });
+        const idUsuario = getUserId(req);
+        const { fechaReservaLimite, motivo } = req.body ?? {};
+        let fechaParsed = null;
+        if (fechaReservaLimite) {
+            const s = String(fechaReservaLimite);
+            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+                fechaParsed = new Date(`${s}T00:00:00-03:00`);
+            }
+            else {
+                fechaParsed = new Date(s);
+            }
+        }
+        const data = { fechaReservaLimite: fechaParsed };
+        const pv = await prisma.$transaction(async (tx) => {
+            const vBefore = await tx.venta.findUnique({ where: { idVenta: id }, select: { idEstadoVenta: true } });
+            let updated = await tx.venta.update({ where: { idVenta: id }, data });
+            if (motivo && String(motivo).trim().length > 0) {
+                await agregarComentario(tx, { idVenta: id, idUsuario, comentario: String(motivo) });
+            }
+            if (vBefore?.idEstadoVenta) {
+                if (!fechaParsed) {
+                    const idRes = await getEstadoId(tx, ESTADOS.RESERVADO);
+                    const idCan = await getEstadoId(tx, ESTADOS.CANCELADA);
+                    if (vBefore.idEstadoVenta === idRes) {
+                        const itemsAct = await leerItemsVenta(tx, id);
+                        if (itemsAct.length) {
+                            await liberarComprometido(tx, itemsAct);
+                        }
+                        updated = await tx.venta.update({ where: { idVenta: id }, data: { idEstadoVenta: idCan } });
+                        await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: idRes, hastaId: idCan, motivo: String(motivo || 'reserva quitada') });
+                        await registrarActor(tx, { idVenta: id, idUsuario, papel: client_1.PapelEnVenta.ANULADOR });
+                    }
+                    else {
+                        await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: vBefore.idEstadoVenta, hastaId: vBefore.idEstadoVenta, motivo: 'reserva quitada' });
+                        await registrarActor(tx, { idVenta: id, idUsuario, papel: client_1.PapelEnVenta.EDITOR });
+                    }
+                }
+                else {
+                    await registrarEventoIds(tx, { idVenta: id, idUsuario, desdeId: vBefore.idEstadoVenta, hastaId: vBefore.idEstadoVenta, motivo: 'reserva postergada' });
+                    await registrarActor(tx, { idVenta: id, idUsuario, papel: client_1.PapelEnVenta.EDITOR });
+                }
+            }
+            return updated;
+        });
         res.json(pv);
     }
     catch (err) {
@@ -2158,6 +2350,223 @@ app.get("/api/preventas/reservas-vencidas", requireAuth_1.requireAuth, async (_r
     }
     catch (err) {
         console.error("GET /api/preventas/reservas-vencidas error", err);
+        res.status(500).json({ error: "SERVER_ERROR" });
+    }
+});
+app.get("/api/preventas/vencidas", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (_req, res) => {
+    try {
+        const idPend = await getEstadoId(prisma, ESTADOS.PENDIENTE);
+        if (!idPend)
+            return res.json([]);
+        const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const rows = await prisma.venta.findMany({
+            where: {
+                idEstadoVenta: idPend,
+                OR: [
+                    { fechaVenta: { lt: cutoff } },
+                    { fechaReservaLimite: { not: null, lt: new Date() } },
+                ],
+            },
+            orderBy: { fechaVenta: "asc" },
+            include: { Cliente: true },
+        });
+        const out = await Promise.all(rows.map(async (v) => ({
+            idVenta: v.idVenta,
+            cliente: v.Cliente ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}` : "",
+            fecha: v.fechaVenta,
+            total: Number(await calcularTotal(v.idVenta)),
+        })));
+        res.json(out);
+    }
+    catch (err) {
+        console.error("GET /api/preventas/vencidas error", err);
+        res.status(500).json({ error: "SERVER_ERROR" });
+    }
+});
+app.get("/api/preventas/reservas-hoy", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (_req, res) => {
+    try {
+        const idRes = await getEstadoId(prisma, ESTADOS.RESERVADO);
+        if (!idRes)
+            return res.json([]);
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        const { desde, hasta } = rangoDia(`${y}-${m}-${day}`);
+        const rows = await prisma.venta.findMany({
+            where: {
+                idEstadoVenta: idRes,
+                fechaReservaLimite: { gte: desde, lt: hasta },
+            },
+            orderBy: { fechaReservaLimite: "asc" },
+            include: { Cliente: true },
+        });
+        res.json(rows.map((v) => ({
+            idVenta: v.idVenta,
+            cliente: v.Cliente ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}` : "",
+            fechaReservaLimite: v.fechaReservaLimite,
+        })));
+    }
+    catch (err) {
+        console.error("GET /api/preventas/reservas-hoy error", err);
+        res.status(500).json({ error: "SERVER_ERROR" });
+    }
+});
+app.get("/api/ventas/pendientes-cobro", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (_req, res) => {
+    try {
+        const idLC = await getEstadoId(prisma, ESTADOS.LISTO_CAJA);
+        if (!idLC)
+            return res.json([]);
+        const rows = await prisma.venta.findMany({
+            where: {
+                idEstadoVenta: idLC,
+                estadoPago: { not: "PAGADO" },
+            },
+            include: { Cliente: true },
+            orderBy: { idVenta: "desc" },
+            take: 100,
+        });
+        const out = await Promise.all(rows.map(async (v) => ({
+            idVenta: v.idVenta,
+            cliente: v.Cliente ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}` : "",
+            fecha: v.fechaVenta,
+            total: Number(await calcularTotal(v.idVenta)),
+        })));
+        res.json(out);
+    }
+    catch (err) {
+        console.error("GET /api/ventas/pendientes-cobro error", err);
+        res.status(500).json({ error: "SERVER_ERROR" });
+    }
+});
+app.get("/api/cierres-caja/pending-today", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (_req, res) => {
+    try {
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        const { desde, hasta } = rangoDia(`${y}-${m}-${day}`);
+        const cierre = await prisma.cierreCaja.findFirst({ where: { fecha: { gte: desde, lt: hasta } } });
+        res.json({ pending: !cierre, fecha: desde });
+    }
+    catch (err) {
+        console.error("GET /api/cierres-caja/pending-today error", err);
+        res.status(500).json({ error: "SERVER_ERROR" });
+    }
+});
+function nivelFromType(t) {
+    const s = String(t || "").toLowerCase();
+    if (s === "error")
+        return client_1.NivelNotificacion.ERROR;
+    if (s === "warning" || s === "warn")
+        return client_1.NivelNotificacion.WARN;
+    return client_1.NivelNotificacion.INFO;
+}
+function tipoFromCode(code) {
+    const c = String(code || "").toUpperCase();
+    if (c.includes("STOCK"))
+        return client_1.TipoNotificacion.STOCK_BAJO;
+    if (c.includes("CIERRE_CAJA") && c.includes("PENDIENTE"))
+        return client_1.TipoNotificacion.CIERRE_CAJA_PENDIENTE;
+    if (c.includes("RESERVA") && c.includes("VENCIDA"))
+        return client_1.TipoNotificacion.RESERVA_VENCIDA;
+    if (c.includes("RESERVA"))
+        return client_1.TipoNotificacion.RESERVA_POR_VENCER;
+    if (c.includes("PRESUPUESTO"))
+        return client_1.TipoNotificacion.PRESUPUESTOS_PENDIENTES;
+    return client_1.TipoNotificacion.OTRO;
+}
+function destinatarioFromCode(code) {
+    const c = String(code || "").toUpperCase();
+    if (c.includes("RESERVA") || c.includes("VENTA_PENDIENTE_COBRO"))
+        return client_1.DestinatarioNotificacion.CAJERO;
+    if (c.includes("PRESUPUESTO"))
+        return client_1.DestinatarioNotificacion.VENDEDOR;
+    if (c.includes("CIERRE_CAJA") || c.includes("STOCK"))
+        return client_1.DestinatarioNotificacion.ADMIN;
+    return client_1.DestinatarioNotificacion.ADMIN;
+}
+async function getDestinatariosPermitidos(req) {
+    const uid = getUserId(req);
+    const roles = await prisma.usuarioRol.findMany({ where: { idUsuario: uid }, include: { Rol: true } });
+    const set = new Set([client_1.DestinatarioNotificacion.TODOS]);
+    for (const r of roles) {
+        const nombre = String(r.Rol?.nombreRol || "").toLowerCase();
+        if (nombre.includes("administrador"))
+            set.add(client_1.DestinatarioNotificacion.ADMIN);
+        if (nombre.includes("cajero"))
+            set.add(client_1.DestinatarioNotificacion.CAJERO);
+        if (nombre.includes("vendedor"))
+            set.add(client_1.DestinatarioNotificacion.VENDEDOR);
+    }
+    return Array.from(set);
+}
+app.get("/api/notificaciones", requireAuth_1.requireAuth, async (req, res) => {
+    try {
+        const permitidos = await getDestinatariosPermitidos(req);
+        const leidoRaw = req.query.leido;
+        const where = { destinatario: { in: permitidos } };
+        if (leidoRaw !== undefined) {
+            const v = String(leidoRaw).toLowerCase();
+            where.leido = v === "true" ? true : v === "false" ? false : undefined;
+        }
+        const rows = await prisma.notificacion.findMany({
+            where,
+            orderBy: { idNotificacion: "desc" },
+            take: 200,
+        });
+        res.json(rows);
+    }
+    catch (err) {
+        console.error("GET /api/notificaciones error", err);
+        res.status(500).json({ error: "SERVER_ERROR" });
+    }
+});
+app.post("/api/notificaciones", requireAuth_1.requireAuth, async (req, res) => {
+    try {
+        const { code, type, title, message, destinatario } = req.body ?? {};
+        const uid = getUserId(req);
+        const row = await prisma.notificacion.create({
+            data: {
+                tipo: tipoFromCode(code),
+                mensaje: String(message || ""),
+                nivel: nivelFromType(type),
+                data: { code: code ?? null, title: title ?? null },
+                idUsuario: uid,
+                destinatario: destinatario ? destinatario : destinatarioFromCode(code),
+            },
+        });
+        res.status(201).json(row);
+    }
+    catch (err) {
+        console.error("POST /api/notificaciones error", err);
+        res.status(500).json({ error: "SERVER_ERROR" });
+    }
+});
+app.put("/api/notificaciones/mark-all-read", requireAuth_1.requireAuth, async (req, res) => {
+    try {
+        const permitidos = await getDestinatariosPermitidos(req);
+        const out = await prisma.notificacion.updateMany({
+            where: { destinatario: { in: permitidos }, leido: false },
+            data: { leido: true },
+        });
+        res.json({ updated: out.count });
+    }
+    catch (err) {
+        console.error("PUT /api/notificaciones/mark-all-read error", err);
+        res.status(500).json({ error: "SERVER_ERROR" });
+    }
+});
+app.put("/api/notificaciones/:id/read", requireAuth_1.requireAuth, async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id) || id <= 0)
+            return res.status(400).json({ error: "BAD_ID" });
+        const row = await prisma.notificacion.update({ where: { idNotificacion: id }, data: { leido: true } });
+        res.json(row);
+    }
+    catch (err) {
+        console.error("PUT /api/notificaciones/:id/read error", err);
         res.status(500).json({ error: "SERVER_ERROR" });
     }
 });
@@ -2214,6 +2623,48 @@ app.get("/api/ventas", async (req, res) => {
         };
     }));
     res.json(out);
+});
+// Detalle de una venta por id (incluye items y totales)
+app.get("/api/ventas/:id", async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id))
+            return res.status(400).json({ error: "INVALID_ID" });
+        const v = await prisma.venta.findUnique({
+            where: { idVenta: id },
+            include: {
+                Cliente: true,
+                TipoPago: true,
+                EstadoVenta: true,
+                detalles: {
+                    include: { Producto: { select: { nombreProducto: true } } },
+                },
+            },
+        });
+        if (!v)
+            return res.status(404).json({ error: "NOT_FOUND" });
+        const totales = await calcularTotales(id);
+        const detalles = v.detalles.map(d => ({
+            producto: d.Producto?.nombreProducto ?? "",
+            cantidad: Number(d.cantidad ?? 0),
+            precioUnit: Number(d.precioUnit ?? 0),
+            descuentoItem: Number(d.descuentoItem ?? 0),
+            recargoItem: Number(d.recargoItem ?? 0),
+        }));
+        res.json({
+            id: v.idVenta,
+            cliente: v.Cliente ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}` : "",
+            fecha: v.fechaVenta?.toISOString().slice(0, 10) ?? "",
+            metodoPago: v.TipoPago?.tipoPago ?? null,
+            estado: v.EstadoVenta?.nombreEstadoVenta ?? "",
+            totales,
+            detalles,
+        });
+    }
+    catch (err) {
+        console.error("GET /api/ventas/:id error", err);
+        res.status(500).json({ error: "SERVER_ERROR" });
+    }
 });
 // — buscador de productos simple
 app.get("/api/products/search", async (req, res) => {
@@ -2612,11 +3063,27 @@ app.get("/api/stats/months", requireAuth_1.requireAuth, (0, authorize_1.authoriz
 /* ========================
    CIERRE DE CAJA (básico)
    ======================== */
-// Rango de un día calendario [00:00, siguiente 00:00)
+// Rango de un día calendario en Buenos Aires (UTC-3) [00:00 BA, siguiente 00:00 BA)
 function rangoDia(dateStr) {
-    const d = parseLocalDate(dateStr) ?? new Date();
-    const desde = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0);
-    const hasta = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0);
+    // Si viene en formato YYYY-MM-DD, usar esa fecha tal cual en zona BA
+    const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(String(dateStr || ""));
+    let y, mon, day;
+    if (m) {
+        y = Number(m[1]);
+        mon = Number(m[2]) - 1;
+        day = Number(m[3]);
+    }
+    else {
+        // Fallback: tomar "hoy" en zona BA a partir de la hora actual
+        const nowUtc = new Date();
+        const ba = new Date(nowUtc.getTime() - 3 * 3600 * 1000);
+        y = ba.getUTCFullYear();
+        mon = ba.getUTCMonth();
+        day = ba.getUTCDate();
+    }
+    // 00:00 BA ≡ 03:00 UTC
+    const desde = new Date(Date.UTC(y, mon, day, 3, 0, 0, 0));
+    const hasta = new Date(Date.UTC(y, mon, day + 1, 3, 0, 0, 0));
     return { desde, hasta };
 }
 // Calcula totales del día para cierre
@@ -2661,15 +3128,30 @@ async function calcularTotalesCierre(fechaStr) {
     });
     const totalCompras = compras.reduce((acc, c) => acc + Number(c.total ?? 0), 0);
     const comprasDelDia = compras.map((c) => ({ idCompra: Number(c.id), proveedor: c.Proveedor?.nombreProveedor ?? "-", total: Number(c.total ?? 0) }));
-    const totalCobros = totalVentas; // si no hay otros cobros
+    // Ingresos efectivos del día: solo ventas cobradas con método "Efectivo"
+    const ingresoEfectivo = Array.from(porMetodo.entries()).reduce((acc, [metodo, total]) => {
+        const isCash = String(metodo).toLowerCase().startsWith("efectivo");
+        return acc + (isCash ? Number(total) : 0);
+    }, 0);
+    const totalCobros = ingresoEfectivo; // solo efectivo impacta caja
     // Egresos del día
     const egresos = (await prisma.egresoCaja.findMany({
         where: { fecha: { gte: desde, lt: hasta } },
         select: { monto: true, comentario: true },
         orderBy: { createdAt: "asc" },
     }));
-    const totalEgresos = egresos.reduce((acc, e) => acc + Number(e.monto ?? 0), 0);
-    return { totalVentas, totalCobros, totalCompras, totalEgresos, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia };
+    // Los egresos deben considerar solo montos negativos (salidas de efectivo).
+    // Si hay ajustes positivos, no deben descontar egresos.
+    const totalEgresos = egresos.reduce((acc, e) => {
+        const n = Number(e.monto ?? 0);
+        return acc + (n < 0 ? Math.abs(n) : 0);
+    }, 0);
+    // Ingresos de caja (ajustes/entradas en efectivo fuera de ventas)
+    const ingresosCaja = egresos.reduce((acc, e) => {
+        const n = Number(e.monto ?? 0);
+        return acc + (n > 0 ? n : 0);
+    }, 0);
+    return { totalVentas, totalCobros, totalCompras, totalEgresos, ingresosCaja, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia };
 }
 // POST: generar cierre de caja
 app.post("/api/cierres-caja", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (req, res) => {
@@ -2687,7 +3169,7 @@ app.post("/api/cierres-caja", requireAuth_1.requireAuth, (0, authorize_1.authori
             return res.status(409).json({ error: "Ya existe un cierre para ese día" });
         }
         // calcular totales del día
-        const { totalVentas, totalCobros, totalCompras, totalEgresos } = await calcularTotalesCierre(String(fecha));
+        const { totalVentas, totalCobros, totalCompras, totalEgresos, ingresosCaja } = await calcularTotalesCierre(String(fecha));
         // saldo inicial (si no viene, tomar último cierre anterior)
         let saldoIni = Number(saldoInicial ?? 0);
         const motivoSaldoInicial = rawMotivoSaldoInicial != null ? String(rawMotivoSaldoInicial).trim() : undefined;
@@ -2709,8 +3191,8 @@ app.post("/api/cierres-caja", requireAuth_1.requireAuth, (0, authorize_1.authori
                 return res.status(400).json({ error: "Motivo requerido para modificar saldo inicial" });
             }
         }
-        // Saldo final centrado en efectivo (sin compras)
-        const saldoFinal = saldoIni + totalCobros - totalEgresos;
+        // Saldo teórico de caja (efectivo): saldoInicial + ingresosEfectivo - egresosEfectivo
+        const saldoFinal = saldoIni + totalCobros + ingresosCaja - totalEgresos;
         const cierre = await prisma.cierreCaja.create({
             data: {
                 fecha: desde,
@@ -2738,12 +3220,9 @@ app.get("/api/cierres-caja", requireAuth_1.requireAuth, (0, authorize_1.authoriz
     if (desde || hasta) {
         where.fecha = {};
         if (desde)
-            where.fecha.gte = new Date(String(desde));
-        if (hasta) {
-            const dHasta = new Date(String(hasta));
-            dHasta.setDate(dHasta.getDate() + 1);
-            where.fecha.lt = dHasta;
-        }
+            where.fecha.gte = parseLocalDate(String(desde)) ?? undefined;
+        if (hasta)
+            where.fecha.lt = parseLocalDate(String(hasta), true) ?? undefined;
     }
     const cierres = await prisma.cierreCaja.findMany({
         where,
@@ -2759,7 +3238,7 @@ app.get("/api/cierres-caja/preview", requireAuth_1.requireAuth, (0, authorize_1.
         if (!fecha)
             return res.status(400).json({ error: "Fecha requerida" });
         const { desde } = rangoDia(fecha);
-        const { totalVentas, totalCobros, totalCompras, totalEgresos, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia } = await calcularTotalesCierre(fecha);
+        const { totalVentas, totalCobros, totalCompras, totalEgresos, ingresosCaja, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia } = await calcularTotalesCierre(fecha);
         let saldoInicial = Number(req.query?.saldoInicial ?? 0);
         const saldoInicialProvided = req.query?.saldoInicial != null;
         let motivoSaldoInicial = String(req.query?.motivoSaldoInicial ?? "").trim();
@@ -2780,9 +3259,13 @@ app.get("/api/cierres-caja/preview", requireAuth_1.requireAuth, (0, authorize_1.
                 return res.status(400).json({ error: "Motivo requerido para modificar saldo inicial" });
             }
         }
-        // Saldo final enfocado en efectivo: saldoInicial + cobros - egresos (sin compras)
-        const saldoFinal = saldoInicial + totalCobros - totalEgresos;
-        res.json({ fecha: desde, totalVentas, totalCobros, totalCompras, totalEgresos, saldoInicial, saldoFinal, motivoSaldoInicial, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia });
+        // Saldo final teórico (efectivo): saldoInicial + ingresosEfectivo - egresosEfectivo
+        const saldoFinal = saldoInicial + totalCobros + ingresosCaja - totalEgresos;
+        // Saldo real contado y diferencia (opcional, informativo en preview)
+        const saldoRealParam = req.query?.saldoReal;
+        const saldoReal = saldoRealParam != null ? Number(saldoRealParam) : undefined;
+        const diferencia = saldoReal != null && isFinite(saldoReal) ? saldoReal - saldoFinal : undefined;
+        res.json({ fecha: desde, totalVentas, totalCobros, totalCompras, totalEgresos, ingresosCaja, saldoInicial, saldoFinal, motivoSaldoInicial, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia, saldoReal, diferencia });
     }
     catch (err) {
         console.error(err);
@@ -2877,8 +3360,17 @@ function parseLocalDate(raw, isEnd = false) {
     if (!raw)
         return null;
     if (typeof raw === "string" && raw.length === 10) {
-        // YYYY-MM-DD → interpretado como hora local (inicio 00:00, fin 23:59:59.999)
-        return new Date(`${raw}${isEnd ? "T23:59:59.999" : "T00:00:00"}`);
+        // Interpretar YYYY-MM-DD en zona Buenos Aires (UTC-3)
+        const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(raw);
+        if (!m)
+            return null;
+        const y = Number(m[1]);
+        const mon = Number(m[2]) - 1;
+        const day = Number(m[3]);
+        // 00:00 BA ≡ 03:00 UTC. Para fin de día, usar inicio del día siguiente 00:00 BA.
+        if (!isEnd)
+            return new Date(Date.UTC(y, mon, day, 3, 0, 0, 0));
+        return new Date(Date.UTC(y, mon, day + 1, 3, 0, 0, 0));
     }
     const d = new Date(raw);
     return Number.isNaN(d.valueOf()) ? null : d;

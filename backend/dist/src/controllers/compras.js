@@ -158,6 +158,40 @@ async function aplicarStock(req, res) {
                     ultimaModificacionStock: new Date(),
                 },
             });
+            const s = await tx.stock.findFirst({ where: { idProducto: d.idProducto } });
+            if (s) {
+                const real = Number(s.cantidadRealStock || 0);
+                const comp = Number(s.stockComprometido || 0);
+                const min = Number(s.bajoMinimoStock || 0);
+                const disp = real - comp;
+                if (min > 0) {
+                    const prod = await tx.producto.findUnique({ where: { idProducto: d.idProducto }, select: { nombreProducto: true } });
+                    const nombre = prod?.nombreProducto ?? `#${d.idProducto}`;
+                    const msg = `Stock bajo: ${nombre} (#${d.idProducto})`;
+                    if (disp >= min) {
+                        await tx.notificacion.updateMany({
+                            where: { tipo: client_1.TipoNotificacion.STOCK_BAJO, mensaje: { contains: `#${d.idProducto}` }, leido: false },
+                            data: { leido: true },
+                        });
+                    }
+                    else {
+                        const exists = await tx.notificacion.findFirst({
+                            where: { tipo: client_1.TipoNotificacion.STOCK_BAJO, mensaje: { contains: `#${d.idProducto}` }, leido: false },
+                        });
+                        if (!exists) {
+                            await tx.notificacion.create({
+                                data: {
+                                    tipo: client_1.TipoNotificacion.STOCK_BAJO,
+                                    mensaje: msg,
+                                    nivel: client_1.NivelNotificacion.WARN,
+                                    destinatario: client_1.DestinatarioNotificacion.ADMIN,
+                                    data: { code: 'STOCK_BAJO', idProducto: d.idProducto },
+                                },
+                            });
+                        }
+                    }
+                }
+            }
         }
         // 2) Registrar precio histórico proveedor-producto
         for (const d of c.detalles) {

@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import { PrismaClient, Prisma, PapelEnVenta, TipoNotificacion, NivelNotificacion, DestinatarioNotificacion } from "@prisma/client";
+import { PrismaClient, Prisma, PapelEnVenta, TipoNotificacion, NivelNotificacion, DestinatarioNotificacion, EstadoCompra } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 
@@ -101,27 +101,37 @@ async function calcularTotalBasico(idVenta: number): Promise<number> {
   return total;
 }
 
-// Aviso diario “revisar cotización” (11:00)
 cron.schedule("0 11 * * *", async () => {
   try {
+    const now = new Date();
+    const startToday = new Date(now); startToday.setHours(0, 0, 0, 0);
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const desactualizadas = await prisma.moneda.findMany({
       where: { updatedAt: { lt: cutoff } },
       select: { moneda: true },
     });
-    if (desactualizadas.length > 0) {
-      const msg = `Monedas para revisar: ${desactualizadas.map(m => m.moneda).join(", ")}`;
-      console.log(`[INFO] ${msg}`);
-      // Si luego agregas una tabla de logs, registra aquí
-      // await prisma.log.create({ data: { nivel: 'INFO', mensaje: msg } });
+    const exists = await prisma.notificacion.findFirst({
+      where: { tipo: TipoNotificacion.MONEDA_DESACTUALIZADA, createdAt: { gte: startToday } },
+    });
+    if (!exists) {
+      const msg = desactualizadas.length > 0
+        ? `Monedas para revisar: ${desactualizadas.map(m => m.moneda).join(", ")}`
+        : `Recordatorio: revisar cotización de monedas`;
+      await prisma.notificacion.create({
+        data: {
+          tipo: TipoNotificacion.MONEDA_DESACTUALIZADA,
+          mensaje: msg,
+          nivel: NivelNotificacion.INFO,
+          destinatario: DestinatarioNotificacion.ADMIN,
+        },
+      });
     }
   } catch (err) {
     console.error("cron 11:00 revisar cotización error", err);
   }
 });
 
-// Reservas vencidas (Cajero) — 08:30
-cron.schedule("30 8 * * *", async () => {
+cron.schedule("0 9 * * *", async () => {
   try {
     const { Reservado } = await getEstadoIds();
     if (Reservado == null) return;
@@ -152,8 +162,8 @@ cron.schedule("0 9 * * *", async () => {
   try {
     const { Reservado } = await getEstadoIds();
     if (Reservado == null) return;
-    const start = new Date(); start.setHours(0,0,0,0);
-    const end = new Date(); end.setHours(23,59,59,999);
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const end = new Date(); end.setHours(23, 59, 59, 999);
     const rows = await prisma.venta.findMany({
       where: {
         idEstadoVenta: Reservado,
@@ -202,7 +212,7 @@ cron.schedule("5 0 * * *", async () => {
       data: { ofertaProducto: false },
     });
 
-  for (const p of vencidos) {
+    for (const p of vencidos) {
       // Evitar duplicados: si el último registro coincide exactamente, no crear otro
       const last = await prisma.ofertaProductoHistorial.findFirst({
         where: { idProducto: p.idProducto },
@@ -294,10 +304,10 @@ cron.schedule("30 19 * * *", async () => {
   try {
     const systemUserId = await getSystemUserId();
     const now = new Date();
-    const startToday = new Date(now); startToday.setHours(0,0,0,0);
-    const endToday = new Date(now); endToday.setHours(23,59,59,999);
-    const y = new Date(now); y.setDate(y.getDate() - 1); y.setHours(0,0,0,0);
-    const yEnd = new Date(now); yEnd.setDate(yEnd.getDate() - 1); yEnd.setHours(23,59,59,999);
+    const startToday = new Date(now); startToday.setHours(0, 0, 0, 0);
+    const endToday = new Date(now); endToday.setHours(23, 59, 59, 999);
+    const y = new Date(now); y.setDate(y.getDate() - 1); y.setHours(0, 0, 0, 0);
+    const yEnd = new Date(now); yEnd.setDate(yEnd.getDate() - 1); yEnd.setHours(23, 59, 59, 999);
 
     const cierreHoy = await prisma.cierreCaja.findFirst({ where: { fecha: { gte: startToday, lte: endToday } } });
     if (!cierreHoy) {
@@ -305,7 +315,7 @@ cron.schedule("30 19 * * *", async () => {
         where: {
           tipo: TipoNotificacion.CIERRE_CAJA_PENDIENTE,
           createdAt: { gte: startToday },
-          mensaje: { equals: `Fecha sin cierre: ${startToday.toISOString().slice(0,10)}` },
+          mensaje: { equals: `Falta realizar el cierre de caja del día ${startToday.toLocaleDateString()}` },
         },
       });
       if (!exists) {
@@ -313,7 +323,7 @@ cron.schedule("30 19 * * *", async () => {
           await prisma.notificacion.create({
             data: {
               tipo: TipoNotificacion.CIERRE_CAJA_PENDIENTE,
-              mensaje: `Fecha sin cierre: ${startToday.toISOString().slice(0,10)}`,
+              mensaje: `Falta realizar el cierre de caja del día ${startToday.toLocaleDateString()}`,
               nivel: NivelNotificacion.WARN,
               idUsuario: systemUserId ?? null,
               destinatario: dest,
@@ -329,7 +339,7 @@ cron.schedule("30 19 * * *", async () => {
         where: {
           tipo: TipoNotificacion.CIERRE_CAJA_PENDIENTE,
           createdAt: { gte: startToday },
-          mensaje: { equals: `Cierre pendiente día anterior: ${y.toISOString().slice(0,10)}` },
+          mensaje: { equals: `Cierre pendiente día anterior: ${y.toLocaleDateString()}` },
         },
       });
       if (!existsPrev) {
@@ -337,7 +347,7 @@ cron.schedule("30 19 * * *", async () => {
           await prisma.notificacion.create({
             data: {
               tipo: TipoNotificacion.CIERRE_CAJA_PENDIENTE,
-              mensaje: `Cierre pendiente día anterior: ${y.toISOString().slice(0,10)}`,
+              mensaje: `Cierre pendiente día anterior: ${y.toLocaleDateString()}`,
               nivel: NivelNotificacion.WARN,
               idUsuario: systemUserId ?? null,
               destinatario: dest,
@@ -361,7 +371,7 @@ cron.schedule("30 19 * * *", async () => {
           const resumenParts: string[] = [];
           for (const v of top5) {
             const cliente = v.Cliente ? (v.Cliente.apellidoCliente + ", " + v.Cliente.nombreCliente) : String(v.idCliente);
-            const hora = v.fechaVenta ? new Date(v.fechaVenta).toTimeString().slice(0,5) : "";
+            const hora = v.fechaVenta ? new Date(v.fechaVenta).toTimeString().slice(0, 5) : "";
             const total = await calcularTotalBasico(v.idVenta);
             resumenParts.push(`#${v.idVenta} ${cliente} $${total.toFixed(2)} ${hora}`);
           }
@@ -375,31 +385,45 @@ cron.schedule("30 19 * * *", async () => {
               data: { code: "VENTA_PENDIENTE_COBRO_CAJERO" },
             },
           });
+          await prisma.notificacion.create({
+            data: {
+              tipo: TipoNotificacion.OTRO,
+              mensaje: `Ventas pendientes de cobro: ${ventasLC.length}. ${resumen}`,
+              nivel: NivelNotificacion.WARN,
+              destinatario: DestinatarioNotificacion.ADMIN,
+              data: { code: "VENTA_PENDIENTE_COBRO_ADMIN" },
+            },
+          });
         }
       }
     } catch (err) {
       console.error("cron 19:30 ventas pendientes cobro cajero error", err);
     }
 
-    // Presupuestos por vencer (Vendedor) — 19:30
+    // Presupuestos por vencer (Vendedor) — 19:30, evitar duplicados por día
     try {
       const estados = await getEstadoIds();
       const idPend = estados.Pendiente;
       if (idPend != null) {
-        const presupuestos = await prisma.venta.findMany({
-          where: { idEstadoVenta: idPend, fechaVenta: { gte: startToday, lte: endToday } },
-          select: { idVenta: true, idCliente: true, Cliente: { select: { nombreCliente: true, apellidoCliente: true } } },
+        const exists = await prisma.notificacion.findFirst({
+          where: { tipo: TipoNotificacion.PRESUPUESTOS_PENDIENTES, createdAt: { gte: startToday } },
         });
-        if (presupuestos.length > 0) {
-          const resumen = presupuestos.slice(0, 5).map((v) => `#${v.idVenta} ${(v.Cliente ? (v.Cliente.apellidoCliente + ", " + v.Cliente.nombreCliente) : String(v.idCliente))}`).join("; ");
-          await prisma.notificacion.create({
-            data: {
-              tipo: TipoNotificacion.PRESUPUESTOS_PENDIENTES,
-              mensaje: `Presupuestos por vencer hoy: ${presupuestos.length}. ${resumen}`,
-              nivel: NivelNotificacion.WARN,
-              destinatario: DestinatarioNotificacion.VENDEDOR,
-            },
+        if (!exists) {
+          const presupuestos = await prisma.venta.findMany({
+            where: { idEstadoVenta: idPend, fechaVenta: { gte: startToday, lte: endToday } },
+            select: { idVenta: true, idCliente: true, Cliente: { select: { nombreCliente: true, apellidoCliente: true } } },
           });
+          if (presupuestos.length > 0) {
+            const resumen = presupuestos.slice(0, 5).map((v) => `#${v.idVenta} ${(v.Cliente ? (v.Cliente.apellidoCliente + ", " + v.Cliente.nombreCliente) : String(v.idCliente))}`).join("; ");
+            await prisma.notificacion.create({
+              data: {
+                tipo: TipoNotificacion.PRESUPUESTOS_PENDIENTES,
+                mensaje: `Presupuestos por vencer hoy: ${presupuestos.length}. ${resumen}`,
+                nivel: NivelNotificacion.WARN,
+                destinatario: DestinatarioNotificacion.VENDEDOR,
+              },
+            });
+          }
         }
       }
     } catch (err) {
@@ -407,5 +431,55 @@ cron.schedule("30 19 * * *", async () => {
     }
   } catch (err) {
     console.error("cron 19:30 cierre caja pendiente error", err);
+  }
+});
+
+cron.schedule("0 8 * * *", async () => {
+  try {
+    const now = new Date();
+    const startToday = new Date(now); startToday.setHours(0, 0, 0, 0);
+    const estados = await getEstadoIds();
+    const idPend = estados.Pendiente;
+    if (idPend == null) return;
+    const rows = await prisma.venta.findMany({
+      where: { idEstadoVenta: idPend, fechaVenta: { lt: startToday } },
+      select: { idVenta: true },
+    });
+    if (rows.length > 0) {
+      await prisma.notificacion.create({
+        data: {
+          tipo: TipoNotificacion.OTRO,
+          mensaje: `Presupuestos vencidos: ${rows.length}`,
+          nivel: NivelNotificacion.WARN,
+          destinatario: DestinatarioNotificacion.ADMIN,
+          data: { code: 'PRESUPUESTOS_VENCIDOS' },
+        },
+      });
+    }
+  } catch (err) {
+    console.error('cron 08:00 presupuestos vencidos error', err);
+  }
+});
+
+cron.schedule("0 8 * * *", async () => {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const rows = await prisma.compra.findMany({
+      where: { estado: EstadoCompra.PendientePago, fechaComprobanteCompra: { lt: cutoff }, edicionBloqueada: false },
+      select: { id: true },
+    });
+    if (rows.length > 0) {
+      await prisma.notificacion.create({
+        data: {
+          tipo: TipoNotificacion.OTRO,
+          mensaje: `Compras pendientes de validar: ${rows.length}`,
+          nivel: NivelNotificacion.WARN,
+          destinatario: DestinatarioNotificacion.ADMIN,
+          data: { code: 'COMPRAS_PENDIENTES_VALIDAR' },
+        },
+      });
+    }
+  } catch (err) {
+    console.error('cron 08:00 compras pendientes de validar error', err);
   }
 });
