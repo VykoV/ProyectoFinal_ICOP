@@ -2505,7 +2505,7 @@ app.put(
       return res.json(out);
     } catch (err: any) {
       if (err.message === "NOT_FOUND") return res.status(404).json({ error: "NOT_FOUND" });
-      if (["STOCK_INEXISTENTE", "STOCK_INSUFICIENTE", "SIN_ITEMS", "ESTADO_INVALIDO", "ACCION_DESCONOCIDA", "MOTIVO_REQUERIDO"].includes(err.message))
+      if (["STOCK_INEXISTENTE", "STOCK_INSUFICIENTE", "SIN_ITEMS", "ESTADO_INVALIDO", "ACCION_DESCONOCIDA", "MOTIVO_REQUERIDO", "RESERVA_PRODUCTO_EN_OFERTA"].includes(err.message))
         return res.status(400).json({ error: err.message });
 
       if (err instanceof Prisma.PrismaClientKnownRequestError) {
@@ -2564,7 +2564,10 @@ app.put("/api/preventas/:id/reserva", requireAuth, authorize(["Administrador", "
         fechaParsed = new Date(s);
       }
     }
-    const data = { fechaReservaLimite: fechaParsed };
+    const data: any = { fechaReservaLimite: fechaParsed };
+    if (fechaParsed) {
+      data.fechaCobroVenta = fechaParsed;
+    }
     const pv = await prisma.$transaction(async (tx: any) => {
       const vBefore = await tx.venta.findUnique({ where: { idVenta: id }, select: { idEstadoVenta: true } });
       let updated = await tx.venta.update({ where: { idVenta: id }, data });

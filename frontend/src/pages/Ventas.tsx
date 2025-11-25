@@ -422,6 +422,8 @@ export default function Ventas() {
           cls = "bg-green-100 text-green-800"; // cerrado ok
         } else if (norm.includes("cancel")) {
           cls = "bg-red-100 text-red-800"; // cancelado
+        } else if (norm.includes("reserv")) {
+          cls = "bg-purple-100 text-purple-800"; // reservado
         }
 
         return (
@@ -1027,6 +1029,7 @@ function VentaPopup({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       </div>
+      {/* modal eliminado aquí; se añadió dentro de PreventaView */}
     </>
   );
 }
@@ -1134,9 +1137,27 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                       Fecha:{" "}
                       {String(venta?.fechaVenta ?? "").slice(0, 10) || "-"}
                     </span>
-                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
-                      Estado: {estadoStr}
-                    </span>
+                    {(() => {
+                      const est = (estadoStr || "").toLowerCase();
+                      let cls =
+                        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50";
+                      if (est.includes("reserv"))
+                        cls =
+                          "inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-purple-700 bg-purple-50";
+                      else if (est.includes("listocaja"))
+                        cls =
+                          "inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-blue-700 bg-blue-50";
+                      else if (est.includes("pend"))
+                        cls =
+                          "inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-yellow-800 bg-yellow-100";
+                      else if (est.includes("final"))
+                        cls =
+                          "inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-green-700 bg-green-50";
+                      else if (est.includes("cancel"))
+                        cls =
+                          "inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-red-700 bg-red-50";
+                      return <span className={cls}>Estado: {estadoStr}</span>;
+                    })()}
                   </div>
                 </div>
 
@@ -1519,6 +1540,7 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
           </div>
         </div>
       </div>
+      {/* Modal de postergar se maneja en ValidarPreventaModal */}
     </>
   );
 }
@@ -1576,19 +1598,26 @@ function ValidarPreventaModal({
   const puedeEditarListoCaja =
     isListoCaja && (hasRole("Administrador") || hasRole("Cajero"));
   const canSave = puedeEditarListoCaja;
+  const [openPostergar, setOpenPostergar] = useState(false);
+  const [postergarFecha, setPostergarFecha] = useState("");
 
   async function postergarReserva() {
     if (!hasRole("Administrador") && !hasRole("Cajero")) return;
+    setPostergarFecha("");
+    setOpenPostergar(true);
+  }
+
+  async function confirmarPostergar() {
+    if (!hasRole("Administrador") && !hasRole("Cajero")) return;
     const idTarget = venta?.idVenta ?? id;
-    const fecha = await askText({
-      title: "Postergar reserva",
-      label: "Nueva fecha límite (YYYY-MM-DD)",
-      placeholder: "YYYY-MM-DD",
-      confirmText: "Postergar",
-      cancelText: "Volver",
-      required: true,
-    });
-    if (fecha === null) return;
+    if (!postergarFecha || postergarFecha.trim() === "") {
+      await showAlert({
+        type: "warning",
+        title: "Falta fecha",
+        message: "Selecciona una nueva fecha límite.",
+      });
+      return;
+    }
     const motivo = await askText({
       title: "Motivo de postergación",
       label: "Describe el motivo",
@@ -1600,10 +1629,16 @@ function ValidarPreventaModal({
     if (motivo === null) return;
     try {
       await api.put(`/preventas/${idTarget}/reserva`, {
-        fechaReservaLimite: fecha.trim(),
+        fechaReservaLimite: postergarFecha.trim(),
         motivo,
       });
-      onClose();
+      setFechaCobro(postergarFecha.trim());
+      setOpenPostergar(false);
+      await showAlert({
+        type: "success",
+        title: "Reserva postergada",
+        message: `Nueva fecha: ${postergarFecha.trim()}. Se actualizó la fecha de cobro.`,
+      });
     } catch (err: any) {
       await showAlert({
         type: "error",
@@ -1791,7 +1826,16 @@ function ValidarPreventaModal({
       }
 
       if (accion === "guardar") {
-        // Mantener modal abierto; botones se recalculan con el estado actualizado
+        if (isListoCaja) {
+          await showAlert({
+            type: "success",
+            title: "Cambios guardados",
+            message: `Se guardaron cambios de caja. Total: $${fmtPrice(
+              totalConAjustes,
+              { minFraction: 2, maxFraction: 2 }
+            )}`,
+          });
+        }
         setSaving(false);
         return;
       }
@@ -2595,6 +2639,51 @@ function ValidarPreventaModal({
           </div>
         </div>
       </div>
+      {openPostergar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-sm">
+            <div className="flex items-center justify-between border-b px-4 py-2">
+              <h2 className="text-sm font-medium">Postergar reserva</h2>
+              <button
+                className="rounded border px-2 py-1 text-xs"
+                onClick={() => setOpenPostergar(false)}
+                title="Cerrar"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div>
+                <Label htmlFor="fechaPostergar">Nueva fecha límite</Label>
+                <input
+                  id="fechaPostergar"
+                  type="date"
+                  className="rounded border px-2 py-1 w-full"
+                  value={postergarFecha}
+                  onChange={(e) => setPostergarFecha(e.target.value)}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Se actualizará también la fecha de cobro a ese día.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+              <button
+                className="rounded border px-3 py-1 text-sm"
+                onClick={() => setOpenPostergar(false)}
+              >
+                Volver
+              </button>
+              <button
+                className="inline-flex items-center gap-1 rounded bg-black text-white px-3 py-1 text-sm"
+                onClick={confirmarPostergar}
+              >
+                Postergar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
