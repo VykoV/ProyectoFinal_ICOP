@@ -29,8 +29,17 @@ api.interceptors.response.use(
     try {
       const status = (err as any)?.response?.status;
       const data = (err as any)?.response?.data ?? {};
-      const message = data?.message || data?.error || (err as any)?.message || "Error en la solicitud";
-      const title = status ? `Error ${status}` : "Error de servidor";
+      const raw = String(data?.error || data?.message || (err as any)?.message || "Error en la solicitud");
+      let title = status ? `Error ${status}` : "Error de servidor";
+      let message = raw;
+      const code = raw.toUpperCase();
+      if (code === "SIN_ITEMS") {
+        title = "Revisá los datos";
+        message = "El presupuesto no tiene productos cargados. Agregá al menos uno.";
+      } else if (code === "STOCK_INSUFICIENTE") {
+        title = "Stock insuficiente";
+        message = "No hay stock suficiente para la cantidad solicitada. Ajustá la cantidad o el producto.";
+      }
       publish({ type: "error", title, message });
       showAlert({ type: "error", title, message });
     } catch {}

@@ -1553,9 +1553,18 @@ function PreventaForm({
   async function onSubmit(e?: React.FormEvent) {
     e?.preventDefault();
     console.log("CLICK GUARDAR", { isEdit, id, items });
-    if (!idCliente) return alert("Seleccioná un cliente válido.");
-    if (!idTipoPago) return alert("Seleccioná método de pago.");
-    if (items.length === 0) return alert("Agregá al menos un producto.");
+    if (!idCliente) {
+      await showAlert({ type: "warning", title: "Validación", message: "Seleccioná un cliente válido." });
+      return;
+    }
+    if (!idTipoPago) {
+      await showAlert({ type: "warning", title: "Validación", message: "Seleccioná método de pago." });
+      return;
+    }
+    if (items.length === 0) {
+      await showAlert({ type: "warning", title: "Validación", message: "Agregá al menos un producto." });
+      return;
+    }
 
     const today = new Date();
     const ventaDate = fechaFactura ? new Date(fechaFactura) : today;
@@ -1607,9 +1616,7 @@ function PreventaForm({
       }
       onClose(true);
     } catch (err: any) {
-      const msg =
-        err?.response?.data?.error || err?.message || "Error al guardar";
-      alert(`No se pudo guardar: ${msg}`);
+      
     }
   }
 
