@@ -17,9 +17,15 @@ import Estadisticas from "./pages/Estadisticas";
 import Notificaciones from "./pages/Notificaciones";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import AdminRoute from "./routes/AdminRoute";
+import { useAuth } from "./context/AuthContext";
 
 export default function App() {
     const isAuthenticated = false; // false al inicio: fuerza el login
+    function CajeroOrAdmin({ children }: { children: React.ReactElement }) {
+      const { loading, hasRole } = useAuth();
+      if (loading) return null;
+      return (hasRole("Administrador") || hasRole("Cajero")) ? children : <Navigate to="/dashboard" replace />;
+    }
 
     return (
         <Routes>
@@ -47,9 +53,10 @@ export default function App() {
       <Route path="/clientes" element={<Clientes />} />
       <Route path="/ventas" element={<Ventas />} />
       <Route path="/pre-ventas" element={<PreVentas />} />
-      {/* rutas solo administrador */}
+      {/* cierre de caja: Administrador o Cajero */}
+      <Route path="/cierres-caja" element={<CajeroOrAdmin><CierreCaja /></CajeroOrAdmin>} />
+      {/* monedas solo administrador */}
       <Route element={<AdminRoute />}> 
-        <Route path="/cierres-caja" element={<CierreCaja />} />
         <Route path="/monedas" element={<Monedas />} />
       </Route>
       <Route path="/usuarios" element={<Usuarios />} />

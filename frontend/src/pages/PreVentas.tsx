@@ -37,6 +37,9 @@ type Item = {
 /* ===== Página listado ===== */
 export default function PreVentas() {
   const { hasRole } = useAuth();
+  const [tab, setTab] = useState<"listado" | "reservas" | "vencidos">(
+    "listado"
+  );
   const [rows, setRows] = useState<PreRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
@@ -62,6 +65,7 @@ export default function PreVentas() {
     | "pendiente"
     | "reservado"
     | "listocaja"
+    | "vencido"
     | "finalizada"
     | "cancelada"
     | "otro" {
@@ -71,6 +75,7 @@ export default function PreVentas() {
     if (n.includes("pend")) return "pendiente";
     if (n.includes("reserv")) return "reservado";
     if (n.includes("listocaja")) return "listocaja";
+    if (n.includes("vencid")) return "vencido";
     if (n.includes("finaliz") || n.includes("cerrad")) return "finalizada";
     if (n.includes("cancel")) return "cancelada";
     return "otro";
@@ -100,7 +105,7 @@ export default function PreVentas() {
     const srt = sp.get("preSort") || "";
     setQ(q0);
     if (est) setSelectedEstados(est.split(",").filter(Boolean));
-    else setSelectedEstados(["pendiente", "reservado", "listocaja"]);
+    else setSelectedEstados(["pendiente", "reservado", "listocaja", "vencido"]);
     setPreDesde(dsd);
     setPreHasta(hst);
     setPreSort(srt === "asc" || srt === "desc" ? (srt as any) : "desc");
@@ -140,11 +145,16 @@ export default function PreVentas() {
   async function load(query?: string) {
     setLoading(true);
     try {
-      const { data } = soloVencidas
-        ? await api.get("/preventas/reservas-vencidas")
-        : await api.get("/preventas", {
-            params: { ...(query ? { q: query } : {}) },
-          });
+      let data: any[] = [];
+      if (tab === "vencidos") {
+        const res = await api.get("/preventas/vencidos");
+        data = res.data ?? [];
+      } else {
+        const res = await api.get("/preventas", {
+          params: { ...(query ? { q: query } : {}) },
+        });
+        data = res.data ?? [];
+      }
       setRows(
         (data ?? []).map((v: any) => ({
           id: v.id ?? v.idVenta,
@@ -178,7 +188,7 @@ export default function PreVentas() {
   useEffect(() => {
     const t = setTimeout(() => load(q), 350);
     return () => clearTimeout(t);
-  }, [q, soloVencidas]);
+  }, [q, tab]);
   useEffect(() => {
     writeParams();
   }, [q]);
@@ -205,16 +215,26 @@ export default function PreVentas() {
         else if (norm.includes("finaliz") || norm.includes("cerrad"))
           cls = "bg-green-100 text-green-800";
         else if (norm.includes("cancel")) cls = "bg-red-100 text-red-800";
-        // Indicar si la reserva está vencida
+        // Indicar estado de reserva según fecha límite
         let extra: string | null = null;
+        let extraCls = "";
         if (norm.includes("reserv")) {
-          const lim = row.original.fechaReservaLimite
-            ? new Date(row.original.fechaReservaLimite)
+          const limStr = row.original.fechaReservaLimite
+            ? String(row.original.fechaReservaLimite).slice(0, 10)
             : null;
-          const hoy = new Date();
-          hoy.setHours(0, 0, 0, 0);
-          if (lim && lim < hoy) {
+          const d = new Date();
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, "0");
+          const day = String(d.getDate()).padStart(2, "0");
+          const hoyYmd = `${y}-${m}-${day}`;
+          if (limStr && limStr < hoyYmd) {
             extra = "Reserva vencida";
+            extraCls =
+              "rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[10px]";
+          } else if (limStr && limStr === hoyYmd) {
+            extra = "Retiro del día";
+            extraCls =
+              "rounded-full bg-green-100 text-green-700 px-2 py-0.5 text-[10px]";
           }
         }
         return (
@@ -222,11 +242,7 @@ export default function PreVentas() {
             className={`inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs font-medium ${cls}`}
           >
             <span>{raw}</span>
-            {extra && (
-              <span className="rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[10px]">
-                {extra}
-              </span>
-            )}
+            {extra && <span className={extraCls}>{extra}</span>}
           </span>
         );
       },
@@ -401,7 +417,7 @@ export default function PreVentas() {
                 <select
                   className="rounded border px-2 py-1"
                   value={
-                    selectedEstados.length === 3
+                    selectedEstados.length >= 4
                       ? "todas"
                       : selectedEstados[0] || "todas"
                   }
@@ -409,18 +425,19 @@ export default function PreVentas() {
                     const v = e.target.value;
                     const next =
                       v === "todas"
-                        ? ["pendiente", "reservado", "listocaja"]
+                        ? ["pendiente", "reservado", "listocaja", "vencido"]
                         : [v];
                     setSelectedEstados(next);
                     setPage(1);
                   }}
                 >
                   <option value="todas">
-                    Pendiente / Reservado / ListoCaja
+                    Pendiente / Reservado / ListoCaja / Vencido
                   </option>
                   <option value="pendiente">Solo Pendiente</option>
                   <option value="reservado">Solo Reservado</option>
                   <option value="listocaja">Solo ListoCaja</option>
+                  <option value="vencido">Solo Vencido</option>
                 </select>
                 <span className="text-gray-600 ml-auto">Orden</span>
                 <select
@@ -470,7 +487,12 @@ export default function PreVentas() {
               <button
                 className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm"
                 onClick={() => {
-                  setSelectedEstados(["pendiente", "reservado", "listocaja"]);
+                  setSelectedEstados([
+                    "pendiente",
+                    "reservado",
+                    "listocaja",
+                    "vencido",
+                  ]);
                   setPreDesde("");
                   setPreHasta("");
                   setPreSort("desc");
@@ -490,6 +512,41 @@ export default function PreVentas() {
           </div>
         </div>
       )}
+
+      {/* Tabs */}
+      <div className="flex gap-2 border-b">
+        <button
+          onClick={() => {
+            setTab("listado");
+            setPage(1);
+            load();
+          }}
+          className={`px-4 py-2 text-sm font-medium ${
+            tab === "listado"
+              ? "border-b-2 border-black text-black"
+              : "text-gray-500"
+          }`}
+        >
+          Presupuestos
+        </button>
+        {/* Reservas vencidas se integran en Vencidos (Admin) */}
+        {hasRole("Administrador") && (
+          <button
+            onClick={() => {
+              setTab("vencidos");
+              setPage(1);
+              load();
+            }}
+            className={`px-4 py-2 text-sm font-medium ${
+              tab === "vencidos"
+                ? "border-b-2 border-black text-black"
+                : "text-gray-500"
+            }`}
+          >
+            Vencidos
+          </button>
+        )}
+      </div>
 
       {loading ? (
         <div className="rounded-xl border bg-white p-6 text-sm">Cargando…</div>
@@ -561,7 +618,7 @@ export default function PreVentas() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-sm">
             <div className="flex items-center justify-between border-b px-4 py-2">
-              <h2 className="text-sm font-medium">Reservar preventa</h2>
+              <h2 className="text-sm font-medium">Reservar presupuesto</h2>
               <button
                 className="rounded border px-2 py-1 text-xs"
                 onClick={() => setOpenReservaId(null)}
@@ -870,7 +927,7 @@ function PreventaView({
                           }`}
                         >
                           Estado: Reservado hasta {""}
-                          {new Date(venta.fechaReservaLimite).toLocaleString()}
+                          {String(venta.fechaReservaLimite).slice(0, 10)}
                         </span>
                       ) : (
                         <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">

@@ -161,6 +161,48 @@ node_cron_1.default.schedule("0 9 * * *", async () => {
         console.error("cron 08:30 reservas vencidas error", err);
     }
 });
+// Cancelación automática de reservas vencidas tras 1 día — 09:30
+node_cron_1.default.schedule("30 9 * * *", async () => {
+    try {
+        const { Reservado } = await getEstadoIds();
+        if (Reservado == null)
+            return;
+        const ahora = new Date();
+        const limite = new Date(ahora.getTime() - 24 * 60 * 60 * 1000);
+        const rows = await prisma.venta.findMany({
+            where: {
+                idEstadoVenta: Reservado,
+                fechaReservaLimite: { not: null, lt: limite },
+            },
+            select: { idVenta: true },
+        });
+        if (rows.length === 0)
+            return;
+        const { Cancelada } = await getEstadoIds();
+        if (Cancelada == null)
+            return;
+        const systemUserId = await getSystemUserId();
+        for (const v of rows) {
+            await liberarComprometidoVenta(v.idVenta);
+            await prisma.venta.update({ where: { idVenta: v.idVenta }, data: { idEstadoVenta: Cancelada, estadoPago: 'PENDIENTE' } });
+            if (systemUserId) {
+                await prisma.ventaEvento.create({
+                    data: {
+                        idVenta: v.idVenta,
+                        idUsuario: systemUserId,
+                        estadoDesde: Reservado,
+                        estadoHasta: Cancelada,
+                        motivo: 'reserva vencida auto-cancelada',
+                    },
+                });
+                await prisma.ventaActor.create({ data: { idVenta: v.idVenta, idUsuario: systemUserId, papel: client_1.PapelEnVenta.ANULADOR } });
+            }
+        }
+    }
+    catch (err) {
+        console.error("cron 09:30 auto-cancel reservas error", err);
+    }
+});
 // Reservas retiro hoy (Cajero) — 09:00
 node_cron_1.default.schedule("0 9 * * *", async () => {
     try {
@@ -268,7 +310,7 @@ node_cron_1.default.schedule("*/15 * * * *", async () => {
         const vencidas = await prisma.venta.findMany({
             where: {
                 fechaVencimiento: { not: null, lt: now },
-                idEstadoVenta: { in: [Pendiente, Reservado, ListoCaja] },
+                idEstadoVenta: { in: [Pendiente, Reservado] },
             },
             select: { idVenta: true, idEstadoVenta: true },
         });
@@ -300,6 +342,44 @@ node_cron_1.default.schedule("*/15 * * * *", async () => {
     }
     catch (err) {
         console.error("cron expirar preventas error", err);
+    }
+});
+// Aviso de ListoCaja pendiente de confirmar/cancelar (no debe vencerse) — 09:10
+node_cron_1.default.schedule("10 9 * * *", async () => {
+    try {
+        const estados = await prisma.estadoVenta.findMany({
+            select: { idEstadoVenta: true, nombreEstadoVenta: true },
+        });
+        const lc = estados.find(e => e.nombreEstadoVenta.toLowerCase() === "listocaja")?.idEstadoVenta ?? null;
+        if (lc == null)
+            return;
+        const rows = await prisma.venta.findMany({
+            where: { idEstadoVenta: lc, estadoPago: { not: "PAGADO" } },
+            select: { idVenta: true },
+        });
+        if (rows.length > 0) {
+            await prisma.notificacion.create({
+                data: {
+                    tipo: client_1.TipoNotificacion.OTRO,
+                    mensaje: `ListoCaja sin confirmar/cancelar: ${rows.length}`,
+                    nivel: client_1.NivelNotificacion.WARN,
+                    destinatario: client_1.DestinatarioNotificacion.CAJERO,
+                    data: { code: "LISTO_CAJA_PENDIENTE" },
+                },
+            });
+            await prisma.notificacion.create({
+                data: {
+                    tipo: client_1.TipoNotificacion.OTRO,
+                    mensaje: `ListoCaja sin confirmar/cancelar: ${rows.length}`,
+                    nivel: client_1.NivelNotificacion.WARN,
+                    destinatario: client_1.DestinatarioNotificacion.ADMIN,
+                    data: { code: "LISTO_CAJA_PENDIENTE" },
+                },
+            });
+        }
+    }
+    catch (err) {
+        console.error("cron 09:10 aviso ListoCaja pendiente error", err);
     }
 });
 node_cron_1.default.schedule("30 19 * * *", async () => {

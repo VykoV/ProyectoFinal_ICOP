@@ -1482,8 +1482,8 @@ app.post("/api/preventas", requireAuth_1.requireAuth, (0, authorize_1.authorize)
                 data: {
                     fechaVenta: fFactIn ?? new Date(),
                     fechaCobroVenta: fCobroIn ?? new Date(),
-                    // Vigencia: 1 día desde creación
-                    fechaVencimiento: new Date(Date.now() + 24 * 60 * 60 * 1000),
+                    // Vigencia: hasta las 09:00 (BA) del día siguiente
+                    fechaVencimiento: nextBuenosAiresNineAM(),
                     observacion: observacion ?? null,
                     idCliente: Number(idCliente),
                     idEstadoVenta: idPend,
@@ -1607,8 +1607,9 @@ app.get("/api/preventas/:id(\\d+)", requireAuth_1.requireAuth, (0, authorize_1.a
         const idVenc = await getEstadoId(tx, ESTADOS.VENCIDA);
         const idFin = await getEstadoId(tx, ESTADOS.FINALIZADA);
         const idCanc = await getEstadoId(tx, ESTADOS.CANCELADA);
+        const idLC = await getEstadoId(tx, ESTADOS.LISTO_CAJA);
         const vencida = ventaMini.fechaVencimiento && ventaMini.fechaVencimiento < now;
-        const esTerminal = [idVenc, idFin, idCanc].includes(ventaMini.idEstadoVenta);
+        const esTerminal = [idVenc, idFin, idCanc, idLC].includes(ventaMini.idEstadoVenta);
         if (vencida && !esTerminal) {
             await marcarPreventaComoVencida(tx, {
                 idVenta: id,
@@ -1705,6 +1706,35 @@ app.get("/api/preventas/:id/totales", requireAuth_1.requireAuth, (0, authorize_1
         totales: totals,
     });
 });
+// Listado de VENCIDOS (todas las preventas/reservas marcadas como Vencido) — solo Administrador
+app.get("/api/preventas/vencidos", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (_req, res) => {
+    try {
+        const idVenc = await getEstadoId(prisma, ESTADOS.VENCIDA);
+        if (!idVenc)
+            return res.json([]);
+        const rows = await prisma.venta.findMany({
+            where: { idEstadoVenta: idVenc },
+            orderBy: { idVenta: "desc" },
+            include: { Cliente: true, TipoPago: true, EstadoVenta: true },
+            take: 200,
+        });
+        const out = await Promise.all(rows.map(async (v) => ({
+            id: v.idVenta,
+            cliente: v.Cliente ? `${v.Cliente.apellidoCliente}, ${v.Cliente.nombreCliente}` : "",
+            fecha: v.fechaVenta,
+            fechaVencimiento: v.fechaVencimiento ?? null,
+            fechaReservaLimite: v.fechaReservaLimite ?? null,
+            metodoPago: v.TipoPago?.tipoPago ?? null,
+            estado: v.EstadoVenta?.nombreEstadoVenta ?? "",
+            total: Number(await calcularTotal(v.idVenta)),
+        })));
+        res.json(out);
+    }
+    catch (err) {
+        console.error("GET /api/preventas/vencidos error", err);
+        res.status(500).json({ error: "SERVER_ERROR" });
+    }
+});
 // Editar / Lock / Finalizar / Cancelar PREVENTA
 app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) => {
     const accion = String(req.body?.accion || "guardar").toLowerCase();
@@ -1714,7 +1744,7 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
         reservar: ["Administrador", "Vendedor", "Cajero"],
         lock: ["Administrador", "Vendedor", "Cajero"],
         finalizar: ["Administrador", "Cajero"],
-        cancelar: ["Administrador", "Cajero"],
+        cancelar: ["Administrador", "Cajero", "Vendedor"],
     };
     return (0, authorize_1.authorize)(allow[accion] || ["Administrador"])(req, res, next);
 }, async (req, res) => {
@@ -2274,7 +2304,7 @@ app.delete("/api/preventas/:id", async (req, res) => {
     }
 });
 // Reserva PREVENTA: actualizar fecha límite de reserva
-app.put("/api/preventas/:id/reserva", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (req, res) => {
+app.put("/api/preventas/:id/reserva", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero", "Vendedor"]), async (req, res) => {
     try {
         const id = Number(req.params.id);
         const idUsuario = getUserId(req);
@@ -2283,16 +2313,24 @@ app.put("/api/preventas/:id/reserva", requireAuth_1.requireAuth, (0, authorize_1
         if (fechaReservaLimite) {
             const s = String(fechaReservaLimite);
             if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-                fechaParsed = new Date(`${s}T00:00:00-03:00`);
+                // Interpretar día seleccionado como 09:00 Buenos Aires (UTC-3) para evitar desfasajes
+                const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(s);
+                if (m) {
+                    const y = Number(m[1]);
+                    const mon = Number(m[2]) - 1;
+                    const day = Number(m[3]);
+                    // 09:00 BA = 12:00 UTC
+                    fechaParsed = new Date(Date.UTC(y, mon, day, 12, 0, 0, 0));
+                }
+                else {
+                    fechaParsed = new Date(`${s}T09:00:00-03:00`);
+                }
             }
             else {
                 fechaParsed = new Date(s);
             }
         }
         const data = { fechaReservaLimite: fechaParsed };
-        if (fechaParsed) {
-            data.fechaCobroVenta = fechaParsed;
-        }
         const pv = await prisma.$transaction(async (tx) => {
             const vBefore = await tx.venta.findUnique({ where: { idVenta: id }, select: { idEstadoVenta: true } });
             let updated = await tx.venta.update({ where: { idVenta: id }, data });
@@ -3157,7 +3195,7 @@ async function calcularTotalesCierre(fechaStr) {
     return { totalVentas, totalCobros, totalCompras, totalEgresos, ingresosCaja, ventasPorMetodo, egresos, ventasDelDia, comprasDelDia };
 }
 // POST: generar cierre de caja
-app.post("/api/cierres-caja", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (req, res) => {
+app.post("/api/cierres-caja", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (req, res) => {
     try {
         const { fecha, saldoInicial, motivoSaldoInicial: rawMotivoSaldoInicial } = req.body ?? {};
         if (!fecha) {
@@ -3217,7 +3255,7 @@ app.post("/api/cierres-caja", requireAuth_1.requireAuth, (0, authorize_1.authori
     }
 });
 // GET: listado de cierres (rango opcional)
-app.get("/api/cierres-caja", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (req, res) => {
+app.get("/api/cierres-caja", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (req, res) => {
     const { desde, hasta } = req.query;
     const where = {};
     if (desde || hasta) {
@@ -3235,7 +3273,7 @@ app.get("/api/cierres-caja", requireAuth_1.requireAuth, (0, authorize_1.authoriz
     res.json(cierres);
 });
 // GET: preview de cierre (sin persistir)
-app.get("/api/cierres-caja/preview", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (req, res) => {
+app.get("/api/cierres-caja/preview", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (req, res) => {
     try {
         const fecha = String(req.query?.fecha ?? "");
         if (!fecha)
@@ -3347,7 +3385,7 @@ app.delete("/api/egresos-caja/:id", requireAuth_1.requireAuth, (0, authorize_1.a
     }
 });
 // GET: detalle de un cierre
-app.get("/api/cierres-caja/:id", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (req, res) => {
+app.get("/api/cierres-caja/:id", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Cajero"]), async (req, res) => {
     const id = Number(req.params.id);
     const cierre = await prisma.cierreCaja.findUnique({
         where: { idCierre: id },
@@ -3377,4 +3415,11 @@ function parseLocalDate(raw, isEnd = false) {
     }
     const d = new Date(raw);
     return Number.isNaN(d.valueOf()) ? null : d;
+}
+function nextBuenosAiresNineAM() {
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const m = now.getUTCMonth();
+    const d = now.getUTCDate();
+    return new Date(Date.UTC(y, m, d + 1, 12, 0, 0, 0));
 }

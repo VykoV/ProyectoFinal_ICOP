@@ -66,6 +66,7 @@ export default function Ventas() {
     | "pendiente"
     | "reservado"
     | "listocaja"
+    | "vencido"
     | "finalizada"
     | "cancelada"
     | "otro" {
@@ -75,6 +76,7 @@ export default function Ventas() {
     if (n.includes("pend")) return "pendiente";
     if (n.includes("reserv")) return "reservado";
     if (n.includes("listocaja")) return "listocaja";
+    if (n.includes("vencid")) return "vencido";
     if (n.includes("finaliz") || n.includes("cerrad")) return "finalizada";
     if (n.includes("cancel")) return "cancelada";
     return "otro";
@@ -113,7 +115,7 @@ export default function Ventas() {
     setPreEstados(
       preE
         ? preE.split(",").filter(Boolean)
-        : ["pendiente", "reservado", "listocaja"]
+        : ["pendiente", "reservado", "listocaja", "vencido"]
     );
     setPreDesde(preD);
     setPreHasta(preH);
@@ -429,14 +431,24 @@ export default function Ventas() {
         }
 
         let extra: string | null = null;
+        let extraCls = "";
         if (norm.includes("reserv")) {
-          const lim = row.original.fechaReservaLimite
-            ? new Date(row.original.fechaReservaLimite)
+          const limStr = row.original.fechaReservaLimite
+            ? String(row.original.fechaReservaLimite).slice(0, 10)
             : null;
-          const hoy = new Date();
-          hoy.setHours(0, 0, 0, 0);
-          if (lim && lim < hoy) {
+          const d = new Date();
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, "0");
+          const day = String(d.getDate()).padStart(2, "0");
+          const hoyYmd = `${y}-${m}-${day}`;
+          if (limStr && limStr < hoyYmd) {
             extra = "Reserva vencida";
+            extraCls =
+              "rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[10px]";
+          } else if (limStr && limStr === hoyYmd) {
+            extra = "Retiro del día";
+            extraCls =
+              "rounded-full bg-green-100 text-green-700 px-2 py-0.5 text-[10px]";
           }
         }
 
@@ -445,11 +457,7 @@ export default function Ventas() {
             className={`inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs font-medium ${cls}`}
           >
             <span>{raw}</span>
-            {extra && (
-              <span className="rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[10px]">
-                {extra}
-              </span>
-            )}
+            {extra && <span className={extraCls}>{extra}</span>}
           </span>
         );
       },
@@ -586,9 +594,18 @@ export default function Ventas() {
                   <div className="flex items-center gap-2">
                     <span className="text-gray-600">Estado</span>
                     {(() => {
-                      const preEstadoSel: "todas" | "pendiente" | "listocaja" =
+                      const preEstadoSel:
+                        | "todas"
+                        | "pendiente"
+                        | "reservado"
+                        | "listocaja"
+                        | "vencido" =
                         preEstados.length === 1
-                          ? (preEstados[0] as "pendiente" | "listocaja")
+                          ? (preEstados[0] as
+                              | "pendiente"
+                              | "reservado"
+                              | "listocaja"
+                              | "vencido")
                           : "todas";
                       return (
                         <>
@@ -599,18 +616,29 @@ export default function Ventas() {
                               const val = e.target.value as
                                 | "todas"
                                 | "pendiente"
-                                | "listocaja";
+                                | "reservado"
+                                | "listocaja"
+                                | "vencido";
                               const next =
                                 val === "todas"
-                                  ? ["pendiente", "listocaja"]
+                                  ? [
+                                      "pendiente",
+                                      "reservado",
+                                      "listocaja",
+                                      "vencido",
+                                    ]
                                   : [val];
                               setPreEstados(next);
                               setPrePage(1);
                             }}
                           >
-                            <option value="todas">Pendiente o ListoCaja</option>
+                            <option value="todas">
+                              Pendiente / Reservado / ListoCaja / Vencido
+                            </option>
                             <option value="pendiente">Solo Pendiente</option>
+                            <option value="reservado">Solo Reservado</option>
                             <option value="listocaja">Solo ListoCaja</option>
+                            <option value="vencido">Solo Vencido</option>
                           </select>
                           <span className="text-gray-600 ml-auto">Orden</span>
                           <select
@@ -714,7 +742,12 @@ export default function Ventas() {
                 className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm"
                 onClick={() => {
                   if (tab === "preventas") {
-                    setPreEstados(["pendiente", "listocaja"]);
+                    setPreEstados([
+                      "pendiente",
+                      "reservado",
+                      "listocaja",
+                      "vencido",
+                    ]);
                     setPreDesde("");
                     setPreHasta("");
                     setPrePage(1);
@@ -1123,8 +1156,13 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
   const reservaVencida = (() => {
     try {
       if (!venta?.fechaReservaLimite) return false;
-      const now = new Date();
-      return new Date(venta.fechaReservaLimite).getTime() < now.getTime();
+      const limStr = String(venta.fechaReservaLimite).slice(0, 10);
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      const hoyYmd = `${y}-${m}-${day}`;
+      return limStr < hoyYmd;
     } catch {
       return false;
     }
@@ -1182,7 +1220,7 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
                           }`}
                         >
                           Estado: Reservado hasta {""}
-                          {new Date(venta.fechaReservaLimite).toLocaleString()}
+                          {String(venta.fechaReservaLimite).slice(0, 10)}
                         </span>
                       ) : (
                         <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">

@@ -4,7 +4,11 @@ import { api } from "../lib/api";
 import toast from "react-hot-toast";
 import { askConfirm } from "../lib/alerts";
 
-const numberFormatter = new Intl.NumberFormat("es", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const numberFormatter = new Intl.NumberFormat("es-AR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+  useGrouping: true,
+});
 function fmt(n: number | string) {
   const num = Number(n);
   if (!isFinite(num)) return String(n);
@@ -21,7 +25,12 @@ type CierrePreview = {
   saldoFinal: number;
   ventasPorMetodo?: Array<{ metodo: string; total: number }>;
   egresos?: Array<{ monto: string | number; comentario?: string | null }>;
-  ventasDelDia?: Array<{ idVenta: number; cliente: string; metodoPago: string; total: number }>;
+  ventasDelDia?: Array<{
+    idVenta: number;
+    cliente: string;
+    metodoPago: string;
+    total: number;
+  }>;
   comprasDelDia?: Array<{ idCompra: number; proveedor: string; total: number }>;
 };
 
@@ -78,7 +87,6 @@ export default function CierreCajaPage() {
   const [egresoOpen, setEgresoOpen] = useState<boolean>(false);
   const [egresoMonto, setEgresoMonto] = useState<string>("");
   const [egresoMotivo, setEgresoMotivo] = useState<string>("");
-  
 
   async function calcular() {
     // Al recalcular, desbloquear acciones de movimientos
@@ -87,11 +95,16 @@ export default function CierreCajaPage() {
     try {
       const params = new URLSearchParams();
       params.set("fecha", fecha);
-      const res = await api.get(`/cierres-caja/preview?${params.toString()}`, { withCredentials: true });
+      const res = await api.get(`/cierres-caja/preview?${params.toString()}`, {
+        withCredentials: true,
+      });
       setPreview(res.data);
     } catch (err) {
       console.error(err);
-      const msg = (err as any)?.response?.data?.error || (err as any)?.message || "Error al calcular";
+      const msg =
+        (err as any)?.response?.data?.error ||
+        (err as any)?.message ||
+        "Error al calcular";
       toast.error(msg);
     } finally {
       setLoadingPrev(false);
@@ -126,7 +139,8 @@ export default function CierreCajaPage() {
         // Caso específico: el cierre ya existe para esa fecha
         toast.success("Ya se hizo el cierre de caja del día");
       } else {
-        const msg = serverMsg || (err as any)?.message || "Error al confirmar el cierre";
+        const msg =
+          serverMsg || (err as any)?.message || "Error al confirmar el cierre";
         toast.error(msg);
       }
     } finally {
@@ -136,7 +150,15 @@ export default function CierreCajaPage() {
 
   // Listado
   const [cierres, setCierres] = useState<CierreCaja[]>([]);
-  const [egresosDia, setEgresosDia] = useState<Array<{ idEgreso: number; fecha: string; monto: string | number; comentario?: string; Usuario?: { nombre?: string } }>>([]);
+  const [egresosDia, setEgresosDia] = useState<
+    Array<{
+      idEgreso: number;
+      fecha: string;
+      monto: string | number;
+      comentario?: string;
+      Usuario?: { nombre?: string };
+    }>
+  >([]);
   const [loadingList, setLoadingList] = useState(false);
   // Exportación por período (Listado)
   function firstDayOfMonthStr() {
@@ -162,7 +184,11 @@ export default function CierreCajaPage() {
   const totalIngresosEfectivo = useMemo(() => {
     return egresosDia.reduce((acc, e) => {
       const n = Number(e.monto);
-      const isIngreso = n > 0 || String(e.comentario || "").toLowerCase().includes("ajuste saldo inicial");
+      const isIngreso =
+        n > 0 ||
+        String(e.comentario || "")
+          .toLowerCase()
+          .includes("ajuste saldo inicial");
       return acc + (isIngreso ? n : 0);
     }, 0);
   }, [egresosDia]);
@@ -177,7 +203,10 @@ export default function CierreCajaPage() {
       setCierres(res.data);
     } catch (err) {
       console.error(err);
-      const msg = (err as any)?.response?.data?.error || (err as any)?.message || "Error al listar cierres";
+      const msg =
+        (err as any)?.response?.data?.error ||
+        (err as any)?.message ||
+        "Error al listar cierres";
       toast.error(msg);
     } finally {
       setLoadingList(false);
@@ -188,7 +217,9 @@ export default function CierreCajaPage() {
     try {
       const params = new URLSearchParams();
       params.set("fecha", fecha);
-      const res = await api.get(`/egresos-caja?${params.toString()}`, { withCredentials: true });
+      const res = await api.get(`/egresos-caja?${params.toString()}`, {
+        withCredentials: true,
+      });
       setEgresosDia(res.data);
     } catch (err) {
       console.error(err);
@@ -220,14 +251,25 @@ export default function CierreCajaPage() {
       return toast.error("Ingresa un motivo");
     }
     try {
-      await api.post(`/egresos-caja`, { fecha, monto: montoNum, comentario: `ajuste saldo inicial: ${ingresoMotivo}` }, { withCredentials: true });
+      await api.post(
+        `/egresos-caja`,
+        {
+          fecha,
+          monto: montoNum,
+          comentario: `ajuste saldo inicial: ${ingresoMotivo}`,
+        },
+        { withCredentials: true }
+      );
       toast.success("Ingreso registrado");
       setIngresoOpen(false);
       await cargarEgresosDelDia();
       await calcular();
     } catch (err) {
       console.error(err);
-      const msg = (err as any)?.response?.data?.error || (err as any)?.message || "Error al registrar ingreso";
+      const msg =
+        (err as any)?.response?.data?.error ||
+        (err as any)?.message ||
+        "Error al registrar ingreso";
       toast.error(msg);
     }
   }
@@ -256,22 +298,35 @@ export default function CierreCajaPage() {
     // Asegurar que sea negativo
     if (montoNum > 0) montoNum = -montoNum;
     try {
-      await api.post(`/egresos-caja`, { fecha, monto: montoNum, comentario: egresoMotivo }, { withCredentials: true });
+      await api.post(
+        `/egresos-caja`,
+        { fecha, monto: montoNum, comentario: egresoMotivo },
+        { withCredentials: true }
+      );
       toast.success("Egreso registrado");
       setEgresoOpen(false);
       await cargarEgresosDelDia();
       await calcular();
     } catch (err) {
       console.error(err);
-      const msg = (err as any)?.response?.data?.error || (err as any)?.message || "Error al registrar egreso";
+      const msg =
+        (err as any)?.response?.data?.error ||
+        (err as any)?.message ||
+        "Error al registrar egreso";
       toast.error(msg);
     }
   }
 
-  useEffect(() => { cargarListado(); }, []);
-  useEffect(() => { cargarEgresosDelDia(); }, [fecha]);
+  useEffect(() => {
+    cargarListado();
+  }, []);
+  useEffect(() => {
+    cargarEgresosDelDia();
+  }, [fecha]);
   // resetear páginas cuando cambia la fecha o se recalcula preview
-  useEffect(() => { setVentasPage(1); }, [fecha, preview]);
+  useEffect(() => {
+    setVentasPage(1);
+  }, [fecha, preview]);
 
   // ===== Export helpers =====
   function downloadFile(filename: string, content: string, mime: string) {
@@ -306,24 +361,51 @@ export default function CierreCajaPage() {
     if (s.includes("efect")) return "Efectivo";
     if (s.includes("trans")) return "Transferencia";
     if (s.includes("qr")) return "QR";
-    if (s.includes("cred") || s.includes("credit") || s.includes("tarjeta credito")) return "Crédito";
-    if (s.includes("deb") || s.includes("debit") || s.includes("tarjeta debito")) return "Débito";
+    if (
+      s.includes("cred") ||
+      s.includes("credit") ||
+      s.includes("tarjeta credito")
+    )
+      return "Crédito";
+    if (
+      s.includes("deb") ||
+      s.includes("debit") ||
+      s.includes("tarjeta debito")
+    )
+      return "Débito";
     return "Otros";
   }
   function sumPorMetodo(rows: Array<{ metodo: string; total: number }>) {
-    const acc = { Efectivo: 0, Transferencia: 0, QR: 0, Crédito: 0, Débito: 0 } as Record<string, number>;
+    const acc = {
+      Efectivo: 0,
+      Transferencia: 0,
+      QR: 0,
+      Crédito: 0,
+      Débito: 0,
+    } as Record<string, number>;
     for (const r of rows || []) {
       const key = normalizeMetodo(r.metodo);
       if (acc[key] != null) acc[key] += Number(r.total || 0);
     }
-    return acc as { Efectivo: number; Transferencia: number; QR: number; Crédito: number; Débito: number };
+    return acc as {
+      Efectivo: number;
+      Transferencia: number;
+      QR: number;
+      Crédito: number;
+      Débito: number;
+    };
   }
   async function obtenerVentasPorMetodo(fechaYmd: string) {
     try {
       const params = new URLSearchParams();
       params.set("fecha", fechaYmd);
-      const res = await api.get(`/cierres-caja/preview?${params.toString()}`, { withCredentials: true });
-      return (res.data?.ventasPorMetodo ?? []) as Array<{ metodo: string; total: number }>;
+      const res = await api.get(`/cierres-caja/preview?${params.toString()}`, {
+        withCredentials: true,
+      });
+      return (res.data?.ventasPorMetodo ?? []) as Array<{
+        metodo: string;
+        total: number;
+      }>;
     } catch {
       return [] as Array<{ metodo: string; total: number }>;
     }
@@ -333,20 +415,21 @@ export default function CierreCajaPage() {
     try {
       const params = new URLSearchParams();
       params.set("fecha", fechaYmd);
-      const res = await api.get(`/cierres-caja/preview?${params.toString()}`, { withCredentials: true });
+      const res = await api.get(`/cierres-caja/preview?${params.toString()}`, {
+        withCredentials: true,
+      });
       return Number(res.data?.ingresosCaja ?? 0);
     } catch {
       return 0;
     }
   }
 
-  
-
   function printHtml(title: string, html: string) {
     const w = window.open("", "_blank");
     if (!w) return;
     w.document.open();
-    w.document.write(`<!doctype html><html><head><meta charset=\"utf-8\"/><title>${title}</title>
+    w.document
+      .write(`<!doctype html><html><head><meta charset=\"utf-8\"/><title>${title}</title>
       <style>
         body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif; padding: 24px; }
         h1 { font-size: 18px; margin: 0 0 12px; }
@@ -360,8 +443,6 @@ export default function CierreCajaPage() {
     setTimeout(() => w.print(), 200);
   }
 
-  
-
   async function exportCierreCSV(c: CierreCaja) {
     const ventasMet = await obtenerVentasPorMetodo(toYmd((c as any).fecha));
     const byMet = sumPorMetodo(ventasMet);
@@ -372,16 +453,27 @@ export default function CierreCajaPage() {
     lines.push(toCsvLine(["Saldo inicial", Number(c.saldoInicial)]));
     lines.push(toCsvLine(["Total ventas del día", Number(c.totalVentas)]));
     lines.push(toCsvLine(["Ventas por método - Efectivo", byMet.Efectivo]));
-    lines.push(toCsvLine(["Ventas por método - Transferencia", byMet.Transferencia]));
+    lines.push(
+      toCsvLine(["Ventas por método - Transferencia", byMet.Transferencia])
+    );
     lines.push(toCsvLine(["Ventas por método - QR", byMet.QR]));
     lines.push(toCsvLine(["Ventas por método - Crédito", byMet.Crédito]));
     lines.push(toCsvLine(["Ventas por método - Débito", byMet.Débito]));
     lines.push(toCsvLine(["Total ingresos efectivo", ingresosCaja]));
     lines.push(toCsvLine(["Total egresos", Number(c.totalEgresos)]));
     lines.push(toCsvLine(["Saldo final teórico", Number(c.saldoFinal)]));
-    lines.push(toCsvLine(["Usuario", String(c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-")]));
+    lines.push(
+      toCsvLine([
+        "Usuario",
+        String(c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-"),
+      ])
+    );
     const csv = header + "\n" + lines.join("\n") + "\n";
-    downloadFile(`cierre_${toYmd((c as any).fecha)}.csv`, csv, "text/csv;charset=utf-8");
+    downloadFile(
+      `cierre_${toYmd((c as any).fecha)}.csv`,
+      csv,
+      "text/csv;charset=utf-8"
+    );
   }
 
   async function exportCierrePDF(c: CierreCaja) {
@@ -394,7 +486,9 @@ export default function CierreCajaPage() {
         <tbody>
           <tr><th>Fecha</th><td>${toYmd((c as any).fecha)}</td></tr>
           <tr><th>Saldo inicial</th><td>${fmt(Number(c.saldoInicial))}</td></tr>
-          <tr><th>Total ventas del día</th><td>${fmt(Number(c.totalVentas))}</td></tr>
+          <tr><th>Total ventas del día</th><td>${fmt(
+            Number(c.totalVentas)
+          )}</td></tr>
         </tbody>
       </table>
       <h1 style="margin-top:16px">Ventas por método</h1>
@@ -409,10 +503,16 @@ export default function CierreCajaPage() {
       </table>
       <table>
         <tbody>
-          <tr><th>Total ingresos efectivo</th><td>${fmt(Number(ingresosCaja))}</td></tr>
+          <tr><th>Total ingresos efectivo</th><td>${fmt(
+            Number(ingresosCaja)
+          )}</td></tr>
           <tr><th>Total egresos</th><td>${fmt(Number(c.totalEgresos))}</td></tr>
-          <tr><th>Saldo final teórico</th><td>${fmt(Number(c.saldoFinal))}</td></tr>
-          <tr><th>Usuario</th><td>${c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-"}</td></tr>
+          <tr><th>Saldo final teórico</th><td>${fmt(
+            Number(c.saldoFinal)
+          )}</td></tr>
+          <tr><th>Usuario</th><td>${
+            c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-"
+          }</td></tr>
         </tbody>
       </table>
     `;
@@ -468,28 +568,60 @@ export default function CierreCajaPage() {
       totQr = 0,
       totCr = 0,
       totDb = 0;
-    const body = (await Promise.all(rows.map(async (c) => {
-      const f = toYmd((c as any).fecha);
-      const ini = Number(c.saldoInicial) || 0;
-      const vta = Number(c.totalVentas) || 0;
-      const egr = Number(c.totalEgresos) || 0;
-      const fin = Number(c.saldoFinal) || 0;
-      totIni += ini;
-      totVentas += vta;
-      totEgresos += egr;
-      totFinal += fin;
-      const ventasMet = await obtenerVentasPorMetodo(f);
-      const byMet = sumPorMetodo(ventasMet);
-      const ingresosCaja = await obtenerIngresosCaja(f);
-      totIng += ingresosCaja;
-      totEf += byMet.Efectivo;
-      totTr += byMet.Transferencia;
-      totQr += byMet.QR;
-      totCr += byMet.Crédito;
-      totDb += byMet.Débito;
-      return toCsvLine([f, ini, vta, byMet.Efectivo, byMet.Transferencia, byMet.QR, byMet.Crédito, byMet.Débito, ingresosCaja, egr, fin, c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-"]);
-    }))).join("\n");
-    const footer = "\n" + toCsvLine(["Totales", totIni, totVentas, totEf, totTr, totQr, totCr, totDb, totIng, totEgresos, totFinal, "-"]);
+    const body = (
+      await Promise.all(
+        rows.map(async (c) => {
+          const f = toYmd((c as any).fecha);
+          const ini = Number(c.saldoInicial) || 0;
+          const vta = Number(c.totalVentas) || 0;
+          const egr = Number(c.totalEgresos) || 0;
+          const fin = Number(c.saldoFinal) || 0;
+          totIni += ini;
+          totVentas += vta;
+          totEgresos += egr;
+          totFinal += fin;
+          const ventasMet = await obtenerVentasPorMetodo(f);
+          const byMet = sumPorMetodo(ventasMet);
+          const ingresosCaja = await obtenerIngresosCaja(f);
+          totIng += ingresosCaja;
+          totEf += byMet.Efectivo;
+          totTr += byMet.Transferencia;
+          totQr += byMet.QR;
+          totCr += byMet.Crédito;
+          totDb += byMet.Débito;
+          return toCsvLine([
+            f,
+            ini,
+            vta,
+            byMet.Efectivo,
+            byMet.Transferencia,
+            byMet.QR,
+            byMet.Crédito,
+            byMet.Débito,
+            ingresosCaja,
+            egr,
+            fin,
+            c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-",
+          ]);
+        })
+      )
+    ).join("\n");
+    const footer =
+      "\n" +
+      toCsvLine([
+        "Totales",
+        totIni,
+        totVentas,
+        totEf,
+        totTr,
+        totQr,
+        totCr,
+        totDb,
+        totIng,
+        totEgresos,
+        totFinal,
+        "-",
+      ]);
     const csv = header + "\n" + body + footer + "\n";
     downloadFile(
       `cierres_${periodDesde}_a_${periodHasta}.csv`,
@@ -511,26 +643,28 @@ export default function CierreCajaPage() {
       totQr = 0,
       totCr = 0,
       totDb = 0;
-    const trs = (await Promise.all(rows.map(async (c) => {
-      const f = toYmd((c as any).fecha);
-      const ini = Number(c.saldoInicial) || 0;
-      const vta = Number(c.totalVentas) || 0;
-      const egr = Number(c.totalEgresos) || 0;
-      const fin = Number(c.saldoFinal) || 0;
-      totIni += ini;
-      totVentas += vta;
-      totEgresos += egr;
-      totFinal += fin;
-      const ventasMet = await obtenerVentasPorMetodo(f);
-      const byMet = sumPorMetodo(ventasMet);
-      const ingresosCaja = await obtenerIngresosCaja(f);
-      totIng += ingresosCaja;
-      totEf += byMet.Efectivo;
-      totTr += byMet.Transferencia;
-      totQr += byMet.QR;
-      totCr += byMet.Crédito;
-      totDb += byMet.Débito;
-      return `
+    const trs = (
+      await Promise.all(
+        rows.map(async (c) => {
+          const f = toYmd((c as any).fecha);
+          const ini = Number(c.saldoInicial) || 0;
+          const vta = Number(c.totalVentas) || 0;
+          const egr = Number(c.totalEgresos) || 0;
+          const fin = Number(c.saldoFinal) || 0;
+          totIni += ini;
+          totVentas += vta;
+          totEgresos += egr;
+          totFinal += fin;
+          const ventasMet = await obtenerVentasPorMetodo(f);
+          const byMet = sumPorMetodo(ventasMet);
+          const ingresosCaja = await obtenerIngresosCaja(f);
+          totIng += ingresosCaja;
+          totEf += byMet.Efectivo;
+          totTr += byMet.Transferencia;
+          totQr += byMet.QR;
+          totCr += byMet.Crédito;
+          totDb += byMet.Débito;
+          return `
         <tr>
           <td>${f}</td>
           <td>${fmt(ini)}</td>
@@ -545,7 +679,9 @@ export default function CierreCajaPage() {
           <td>${fmt(fin)}</td>
           <td>${c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-"}</td>
         </tr>`;
-    }))).join("");
+        })
+      )
+    ).join("");
     const html = `
       <h1>Informe de cierres de caja (${periodDesde} a ${periodHasta})</h1>
       <table>
@@ -591,9 +727,6 @@ export default function CierreCajaPage() {
     else await exportPeriodoPDF();
     setExportOpen(false);
   }
-  
-
-  
 
   const previewRows = useMemo(() => {
     if (!preview) return [] as Array<[string, string]>;
@@ -625,13 +758,17 @@ export default function CierreCajaPage() {
         <h1 className="text-xl font-semibold">Cierre de caja</h1>
         <div className="ml-auto flex items-center gap-2 text-sm">
           <button
-            className={`rounded border px-3 py-1 ${tab === "generar" ? "bg-gray-100" : ""}`}
+            className={`rounded border px-3 py-1 ${
+              tab === "generar" ? "bg-gray-100" : ""
+            }`}
             onClick={() => setTab("generar")}
           >
             Generar cierre
           </button>
           <button
-            className={`rounded border px-3 py-1 ${tab === "listado" ? "bg-gray-100" : ""}`}
+            className={`rounded border px-3 py-1 ${
+              tab === "listado" ? "bg-gray-100" : ""
+            }`}
             onClick={() => setTab("listado")}
           >
             Listado
@@ -647,9 +784,12 @@ export default function CierreCajaPage() {
                 <div className="flex flex-wrap items-end gap-3 mb-3">
                   <div className="space-y-1">
                     <label className="text-xs text-gray-600 block">Fecha</label>
-                    <input type="date" className="rounded border px-2 py-1 w-40"
+                    <input
+                      type="date"
+                      className="rounded border px-2 py-1 w-40"
                       value={fecha}
-                      onChange={(e)=> setFecha(e.target.value)} />
+                      onChange={(e) => setFecha(e.target.value)}
+                    />
                   </div>
                   <button
                     onClick={calcular}
@@ -661,19 +801,22 @@ export default function CierreCajaPage() {
                 </div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-medium">Resultado</h3>
-                  
                 </div>
                 {preview ? (
                   <div className="space-y-1 text-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-gray-600">Usuario</span>
-                      <span className="font-medium">{user?.nombre || user?.email || "-"}</span>
+                      <span className="font-medium">
+                        {user?.nombre || user?.email || "-"}
+                      </span>
                     </div>
                     {previewRows.map(([k, v]) => {
                       const numeric = rawByKey?.[k] ?? 0;
                       const conceptNegative = k === "Total Egresos Efectivo";
                       const isNegative = conceptNegative || numeric < 0;
-                      const hasVentasMetodo = k === "Total Ventas" && !!preview?.ventasPorMetodo?.length;
+                      const hasVentasMetodo =
+                        k === "Total Ventas" &&
+                        !!preview?.ventasPorMetodo?.length;
                       return (
                         <div key={k} className="space-y-1">
                           <div className={`flex items-center justify-between`}>
@@ -684,37 +827,77 @@ export default function CierreCajaPage() {
                                   type="button"
                                   className="text-xs leading-none cursor-pointer select-none"
                                   aria-label="Mostrar detalle por método"
-                                  onClick={() => setVentasDetalleOpen((b) => !b)}
+                                  onClick={() =>
+                                    setVentasDetalleOpen((b) => !b)
+                                  }
                                 >
                                   {ventasDetalleOpen ? "▾" : "▸"}
                                 </button>
                               )}
                             </span>
                             <div className="flex items-center gap-2">
-                              <span className={`font-medium ${k === "Total Ingresos Efectivo" ? "text-green-600" : isNegative ? "text-red-600" : ""}`}>{v}</span>
+                              <span
+                                className={`font-medium text-right ${
+                                  k === "Total Ingresos Efectivo"
+                                    ? "text-green-600"
+                                    : isNegative
+                                    ? "text-red-600"
+                                    : ""
+                                }`}
+                              >
+                                {v}
+                              </span>
                             </div>
                           </div>
                           {hasVentasMetodo && ventasDetalleOpen && (
                             <div className="pl-6 text-xs">
                               {(() => {
                                 // Construir resumen de totales por método
-                                const base = (preview?.ventasPorMetodo || []).map(r => ({ metodo: normalizeMetodo(r.metodo), total: Number(r.total || 0) }));
+                                const base = (
+                                  preview?.ventasPorMetodo || []
+                                ).map((r) => ({
+                                  metodo: normalizeMetodo(r.metodo),
+                                  total: Number(r.total || 0),
+                                }));
                                 // Fallback si no hay ventasPorMetodo
-                                const fallback = (preview?.ventasDelDia || []).map(v => ({ metodo: normalizeMetodo(v.metodoPago), total: Number(v.total || 0) }));
-                                const resumen = sumPorMetodo(base.length ? base : fallback);
-                                const items: Array<{label: string; value: number}> = [
-                                  { label: "Efectivo", value: resumen.Efectivo },
+                                const fallback = (
+                                  preview?.ventasDelDia || []
+                                ).map((v) => ({
+                                  metodo: normalizeMetodo(v.metodoPago),
+                                  total: Number(v.total || 0),
+                                }));
+                                const resumen = sumPorMetodo(
+                                  base.length ? base : fallback
+                                );
+                                const items: Array<{
+                                  label: string;
+                                  value: number;
+                                }> = [
+                                  {
+                                    label: "Efectivo",
+                                    value: resumen.Efectivo,
+                                  },
                                   { label: "Crédito", value: resumen.Crédito },
                                   { label: "Débito", value: resumen.Débito },
                                   { label: "QR", value: resumen.QR },
-                                  { label: "Transferencia", value: resumen.Transferencia },
+                                  {
+                                    label: "Transferencia",
+                                    value: resumen.Transferencia,
+                                  },
                                 ];
                                 return (
                                   <ul className="space-y-1">
-                                    {items.map(it => (
-                                      <li key={it.label} className="flex items-center justify-between">
-                                        <span className="text-gray-600">{it.label}</span>
-                                        <span className="font-medium">{fmt(it.value)}</span>
+                                    {items.map((it) => (
+                                      <li
+                                        key={it.label}
+                                        className="flex items-center justify-between"
+                                      >
+                                        <span className="text-gray-600">
+                                          {it.label}
+                                        </span>
+                                        <span className="font-medium text-right">
+                                          {fmt(it.value)}
+                                        </span>
                                       </li>
                                     ))}
                                   </ul>
@@ -727,8 +910,10 @@ export default function CierreCajaPage() {
                     })}
                   </div>
                 ) : (
-                <p className="text-sm text-gray-600">Sin cálculo. Seleccione fecha y presione Calcular.</p>
-              )}
+                  <p className="text-sm text-gray-600">
+                    Sin cálculo. Seleccione fecha y presione Calcular.
+                  </p>
+                )}
               </div>
 
               {/* Ventas del día */}
@@ -749,10 +934,18 @@ export default function CierreCajaPage() {
                     (() => {
                       const total = preview.ventasDelDia?.length ?? 0;
                       if (total === 0) {
-                        return <p className="text-sm text-gray-600">Sin ventas.</p>;
+                        return (
+                          <p className="text-sm text-gray-600">Sin ventas.</p>
+                        );
                       }
-                      const totalPages = Math.max(1, Math.ceil(total / pageSize));
-                      const safePage = Math.min(Math.max(1, ventasPage), totalPages);
+                      const totalPages = Math.max(
+                        1,
+                        Math.ceil(total / pageSize)
+                      );
+                      const safePage = Math.min(
+                        Math.max(1, ventasPage),
+                        totalPages
+                      );
                       const start = (safePage - 1) * pageSize;
                       const end = Math.min(start + pageSize, total);
                       const pageRows = preview.ventasDelDia!.slice(start, end);
@@ -764,7 +957,9 @@ export default function CierreCajaPage() {
                                 <th className="py-2 border-b">#</th>
                                 <th className="py-2 border-b">Cliente</th>
                                 <th className="py-2 border-b">Método</th>
-                                <th className="py-2 border-b">Total</th>
+                                <th className="py-2 border-b text-center">
+                                  Total
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
@@ -772,8 +967,12 @@ export default function CierreCajaPage() {
                                 <tr key={v.idVenta}>
                                   <td className="py-2 border-b">{v.idVenta}</td>
                                   <td className="py-2 border-b">{v.cliente}</td>
-                                  <td className="py-2 border-b">{v.metodoPago}</td>
-                                  <td className="py-2 border-b">{fmt(v.total)}</td>
+                                  <td className="py-2 border-b">
+                                    {v.metodoPago}
+                                  </td>
+                                  <td className="py-2 border-b text-right">
+                                    {fmt(v.total)}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -784,14 +983,20 @@ export default function CierreCajaPage() {
                               <div className="flex items-center gap-2">
                                 <button
                                   className="border px-2 py-1 rounded disabled:opacity-50"
-                                  onClick={() => setVentasPage((p) => Math.max(1, p - 1))}
+                                  onClick={() =>
+                                    setVentasPage((p) => Math.max(1, p - 1))
+                                  }
                                   disabled={safePage <= 1}
                                 >
                                   Anterior
                                 </button>
                                 <button
                                   className="border px-2 py-1 rounded disabled:opacity-50"
-                                  onClick={() => setVentasPage((p) => Math.min(totalPages, p + 1))}
+                                  onClick={() =>
+                                    setVentasPage((p) =>
+                                      Math.min(totalPages, p + 1)
+                                    )
+                                  }
                                   disabled={safePage >= totalPages}
                                 >
                                   Siguiente
@@ -806,7 +1011,13 @@ export default function CierreCajaPage() {
                                   max={totalPages}
                                   value={safePage}
                                   onChange={(e) => {
-                                    const v = Math.max(1, Math.min(totalPages, Number(e.target.value) || 1));
+                                    const v = Math.max(
+                                      1,
+                                      Math.min(
+                                        totalPages,
+                                        Number(e.target.value) || 1
+                                      )
+                                    );
                                     setVentasPage(v);
                                   }}
                                 />
@@ -819,18 +1030,20 @@ export default function CierreCajaPage() {
                     })()
                   ) : null
                 ) : (
-                  <p className="text-sm text-gray-600">Sin cálculo. Seleccione fecha y presione Calcular.</p>
+                  <p className="text-sm text-gray-600">
+                    Sin cálculo. Seleccione fecha y presione Calcular.
+                  </p>
                 )}
               </div>
 
               <div className="flex items-center gap-2">
-              <button
-                onClick={confirmar}
-                disabled={saving || !preview || bloqueado}
-                className="rounded-lg bg-black text-white px-3 py-2 text-sm"
-              >
-                {saving ? "Confirmando…" : "Confirmar cierre"}
-              </button>
+                <button
+                  onClick={confirmar}
+                  disabled={saving || !preview || bloqueado}
+                  className="rounded-lg bg-black text-white px-3 py-2 text-sm"
+                >
+                  {saving ? "Confirmando…" : "Confirmar cierre"}
+                </button>
               </div>
             </div>
 
@@ -860,25 +1073,63 @@ export default function CierreCajaPage() {
                 </div>
                 {ingresoOpen && (
                   <div className="fixed inset-0 z-50">
-                    <div className="absolute inset-0 bg-black/20" onClick={() => setIngresoOpen(false)} />
+                    <div
+                      className="absolute inset-0 bg-black/20"
+                      onClick={() => setIngresoOpen(false)}
+                    />
                     <div className="absolute inset-0 p-4 flex items-center justify-center">
                       <div className="w-full max-w-md rounded-xl border bg-white shadow-lg">
                         <div className="flex items-center justify-between px-4 py-3 border-b">
-                          <h3 className="text-sm font-semibold">Registrar ingreso</h3>
-                          <button className="p-2 rounded hover:bg-gray-100" onClick={() => setIngresoOpen(false)} aria-label="Cerrar">✕</button>
+                          <h3 className="text-sm font-semibold">
+                            Registrar ingreso
+                          </h3>
+                          <button
+                            className="p-2 rounded hover:bg-gray-100"
+                            onClick={() => setIngresoOpen(false)}
+                            aria-label="Cerrar"
+                          >
+                            ✕
+                          </button>
                         </div>
                         <div className="p-4 space-y-3 text-sm">
                           <div className="space-y-1">
-                            <label className="text-xs text-gray-600 block">Monto</label>
-                            <input type="number" step="0.01" className="rounded border px-2 py-1 w-full" value={ingresoMonto} onChange={(e) => setIngresoMonto(e.target.value)} placeholder="0.00" />
+                            <label className="text-xs text-gray-600 block">
+                              Monto
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              className="rounded border px-2 py-1 w-full"
+                              value={ingresoMonto}
+                              onChange={(e) => setIngresoMonto(e.target.value)}
+                              placeholder="0.00"
+                            />
                           </div>
                           <div className="space-y-1">
-                            <label className="text-xs text-gray-600 block">Motivo</label>
-                            <input type="text" className="rounded border px-2 py-1 w-full" value={ingresoMotivo} onChange={(e) => setIngresoMotivo(e.target.value)} placeholder="Ej: ajuste por conteo" />
+                            <label className="text-xs text-gray-600 block">
+                              Motivo
+                            </label>
+                            <input
+                              type="text"
+                              className="rounded border px-2 py-1 w-full"
+                              value={ingresoMotivo}
+                              onChange={(e) => setIngresoMotivo(e.target.value)}
+                              placeholder="Ej: ajuste por conteo"
+                            />
                           </div>
                           <div className="flex items-center justify-end gap-2 pt-2">
-                            <button className="text-xs border px-3 py-1 rounded" onClick={() => setIngresoOpen(false)}>Cancelar</button>
-                            <button className="text-xs border px-3 py-1 rounded bg-black text-white" onClick={submitIngreso}>Registrar</button>
+                            <button
+                              className="text-xs border px-3 py-1 rounded"
+                              onClick={() => setIngresoOpen(false)}
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              className="text-xs border px-3 py-1 rounded bg-black text-white"
+                              onClick={submitIngreso}
+                            >
+                              Registrar
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -887,25 +1138,63 @@ export default function CierreCajaPage() {
                 )}
                 {egresoOpen && (
                   <div className="fixed inset-0 z-50">
-                    <div className="absolute inset-0 bg-black/20" onClick={() => setEgresoOpen(false)} />
+                    <div
+                      className="absolute inset-0 bg-black/20"
+                      onClick={() => setEgresoOpen(false)}
+                    />
                     <div className="absolute inset-0 p-4 flex items-center justify-center">
                       <div className="w-full max-w-md rounded-xl border bg-white shadow-lg">
                         <div className="flex items-center justify-between px-4 py-3 border-b">
-                          <h3 className="text-sm font-semibold">Registrar egreso</h3>
-                          <button className="p-2 rounded hover:bg-gray-100" onClick={() => setEgresoOpen(false)} aria-label="Cerrar">✕</button>
+                          <h3 className="text-sm font-semibold">
+                            Registrar egreso
+                          </h3>
+                          <button
+                            className="p-2 rounded hover:bg-gray-100"
+                            onClick={() => setEgresoOpen(false)}
+                            aria-label="Cerrar"
+                          >
+                            ✕
+                          </button>
                         </div>
                         <div className="p-4 space-y-3 text-sm">
                           <div className="space-y-1">
-                            <label className="text-xs text-gray-600 block">Monto</label>
-                            <input type="number" step="0.01" className="rounded border px-2 py-1 w-full" value={egresoMonto} onChange={(e) => setEgresoMonto(e.target.value)} placeholder="0.00 (se convertirá a negativo)" />
+                            <label className="text-xs text-gray-600 block">
+                              Monto
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              className="rounded border px-2 py-1 w-full"
+                              value={egresoMonto}
+                              onChange={(e) => setEgresoMonto(e.target.value)}
+                              placeholder="0.00 (se convertirá a negativo)"
+                            />
                           </div>
                           <div className="space-y-1">
-                            <label className="text-xs text-gray-600 block">Motivo</label>
-                            <input type="text" className="rounded border px-2 py-1 w-full" value={egresoMotivo} onChange={(e) => setEgresoMotivo(e.target.value)} placeholder="Ej: compra de insumos" />
+                            <label className="text-xs text-gray-600 block">
+                              Motivo
+                            </label>
+                            <input
+                              type="text"
+                              className="rounded border px-2 py-1 w-full"
+                              value={egresoMotivo}
+                              onChange={(e) => setEgresoMotivo(e.target.value)}
+                              placeholder="Ej: compra de insumos"
+                            />
                           </div>
                           <div className="flex items-center justify-end gap-2 pt-2">
-                            <button className="text-xs border px-3 py-1 rounded" onClick={() => setEgresoOpen(false)}>Cancelar</button>
-                            <button className="text-xs border px-3 py-1 rounded bg-black text-white" onClick={submitEgreso}>Registrar</button>
+                            <button
+                              className="text-xs border px-3 py-1 rounded"
+                              onClick={() => setEgresoOpen(false)}
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              className="text-xs border px-3 py-1 rounded bg-black text-white"
+                              onClick={submitEgreso}
+                            >
+                              Registrar
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -914,34 +1203,39 @@ export default function CierreCajaPage() {
                 )}
                 <div className="overflow-auto">
                   <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left">
-                      <th className="py-2 border-b">Monto</th>
-                      <th className="py-2 border-b">Comentario</th>
-                      <th className="py-2 border-b">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {egresosDia.map((e) => (
-                      <EgresoRow
-                        key={e.idEgreso}
-                        egreso={e}
-                        movimientosBloqueados={bloqueado}
-                        onChanged={async () => {
-                          await cargarEgresosDelDia();
-                          await calcular();
-                        }}
-                      />
-                    ))}
-                    {egresosDia.length === 0 && (
-                      <tr>
-                         <td className="py-2 border-b text-gray-600" colSpan={3}>Sin movimientos.</td>
-                       </tr>
-                     )}
-                   </tbody>
-                 </table>
-               </div>
-               </div>
+                    <thead>
+                      <tr className="text-left">
+                        <th className="py-2 border-b">Monto</th>
+                        <th className="py-2 border-b">Comentario</th>
+                        <th className="py-2 border-b">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {egresosDia.map((e) => (
+                        <EgresoRow
+                          key={e.idEgreso}
+                          egreso={e}
+                          movimientosBloqueados={bloqueado}
+                          onChanged={async () => {
+                            await cargarEgresosDelDia();
+                            await calcular();
+                          }}
+                        />
+                      ))}
+                      {egresosDia.length === 0 && (
+                        <tr>
+                          <td
+                            className="py-2 border-b text-gray-600"
+                            colSpan={3}
+                          >
+                            Sin movimientos.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -961,41 +1255,97 @@ export default function CierreCajaPage() {
                 <>
                   {/* Encabezado y botón Exportar en una misma fila */}
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-base font-semibold">Historial de cierres</h3>
+                    <h3 className="text-base font-semibold">
+                      Historial de cierres
+                    </h3>
                     <div>
-                      <button className="text-xs border px-3 py-1 rounded" onClick={() => setExportOpen(true)}>Exportar</button>
+                      <button
+                        className="text-xs border px-3 py-1 rounded"
+                        onClick={() => setExportOpen(true)}
+                      >
+                        Exportar
+                      </button>
                     </div>
                   </div>
                   {exportOpen && (
                     <div className="fixed inset-0 z-50">
-                      <div className="absolute inset-0 bg-black/20" onClick={() => setExportOpen(false)} />
+                      <div
+                        className="absolute inset-0 bg-black/20"
+                        onClick={() => setExportOpen(false)}
+                      />
                       <div className="absolute inset-0 p-4 flex items-center justify-center">
                         <div className="w-full max-w-md rounded-xl border bg-white shadow-lg">
                           <div className="flex items-center justify-between px-4 py-3 border-b">
-                            <h3 className="text-sm font-semibold">Exportar cierres</h3>
-                            <button className="p-2 rounded hover:bg-gray-100" onClick={() => setExportOpen(false)} aria-label="Cerrar">✕</button>
+                            <h3 className="text-sm font-semibold">
+                              Exportar cierres
+                            </h3>
+                            <button
+                              className="p-2 rounded hover:bg-gray-100"
+                              onClick={() => setExportOpen(false)}
+                              aria-label="Cerrar"
+                            >
+                              ✕
+                            </button>
                           </div>
                           <div className="p-4 space-y-3 text-sm">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               <div className="space-y-1">
-                                <label className="text-xs text-gray-600 block">Desde</label>
-                                <input type="date" className="rounded border px-2 py-1 w-full" value={periodDesde} onChange={(e) => setPeriodDesde(e.target.value)} />
+                                <label className="text-xs text-gray-600 block">
+                                  Desde
+                                </label>
+                                <input
+                                  type="date"
+                                  className="rounded border px-2 py-1 w-full"
+                                  value={periodDesde}
+                                  onChange={(e) =>
+                                    setPeriodDesde(e.target.value)
+                                  }
+                                />
                               </div>
                               <div className="space-y-1">
-                                <label className="text-xs text-gray-600 block">Hasta</label>
-                                <input type="date" className="rounded border px-2 py-1 w-full" value={periodHasta} onChange={(e) => setPeriodHasta(e.target.value)} />
+                                <label className="text-xs text-gray-600 block">
+                                  Hasta
+                                </label>
+                                <input
+                                  type="date"
+                                  className="rounded border px-2 py-1 w-full"
+                                  value={periodHasta}
+                                  onChange={(e) =>
+                                    setPeriodHasta(e.target.value)
+                                  }
+                                />
                               </div>
                             </div>
                             <div className="space-y-1">
-                              <label className="text-xs text-gray-600 block">Formato</label>
-                              <select className="rounded border px-2 py-1 w-full" value={exportFormat} onChange={(e) => setExportFormat(e.target.value as ("csv"|"pdf"))}>
+                              <label className="text-xs text-gray-600 block">
+                                Formato
+                              </label>
+                              <select
+                                className="rounded border px-2 py-1 w-full"
+                                value={exportFormat}
+                                onChange={(e) =>
+                                  setExportFormat(
+                                    e.target.value as "csv" | "pdf"
+                                  )
+                                }
+                              >
                                 <option value="csv">CSV</option>
                                 <option value="pdf">PDF</option>
                               </select>
                             </div>
                             <div className="flex items-center justify-end gap-2 pt-2">
-                              <button className="text-xs border px-3 py-1 rounded" onClick={() => setExportOpen(false)}>Cancelar</button>
-                              <button className="text-xs border px-3 py-1 rounded bg-black text-white" onClick={generarExportPeriodo}>Generar</button>
+                              <button
+                                className="text-xs border px-3 py-1 rounded"
+                                onClick={() => setExportOpen(false)}
+                              >
+                                Cancelar
+                              </button>
+                              <button
+                                className="text-xs border px-3 py-1 rounded bg-black text-white"
+                                onClick={generarExportPeriodo}
+                              >
+                                Generar
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -1015,21 +1365,50 @@ export default function CierreCajaPage() {
                     <tbody>
                       {pageRows.map((c) => (
                         <tr key={c.idCierre}>
-                          <td className="py-2 border-b">{toYmd((c as any).fecha)}</td>
-                          <td className="py-2 border-b">{fmt(c.totalVentas)}</td>
-                          <td className={`py-2 border-b ${Number(c.saldoFinal) < 0 ? "text-red-600" : ""}`}>{fmt(c.saldoFinal)}</td>
-                          <td className="py-2 border-b">{c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-"}</td>
+                          <td className="py-2 border-b">
+                            {toYmd((c as any).fecha)}
+                          </td>
+                          <td className="py-2 border-b">
+                            {fmt(c.totalVentas)}
+                          </td>
+                          <td
+                            className={`py-2 border-b ${
+                              Number(c.saldoFinal) < 0 ? "text-red-600" : ""
+                            }`}
+                          >
+                            {fmt(c.saldoFinal)}
+                          </td>
+                          <td className="py-2 border-b">
+                            {c.Usuario?.nombreUsuario ||
+                              c.Usuario?.emailUsuario ||
+                              "-"}
+                          </td>
                           <td className="py-2 border-b">
                             <div className="flex items-center gap-2">
-                              <button className="text-xs border px-2 py-1 rounded" onClick={() => exportCierreCSV(c)}>CSV</button>
-                              <button className="text-xs border px-2 py-1 rounded" onClick={() => exportCierrePDF(c)}>PDF</button>
+                              <button
+                                className="text-xs border px-2 py-1 rounded"
+                                onClick={() => exportCierreCSV(c)}
+                              >
+                                CSV
+                              </button>
+                              <button
+                                className="text-xs border px-2 py-1 rounded"
+                                onClick={() => exportCierrePDF(c)}
+                              >
+                                PDF
+                              </button>
                             </div>
                           </td>
                         </tr>
                       ))}
                       {total === 0 && (
                         <tr>
-                          <td className="py-2 border-b text-gray-600" colSpan={4}>No hay cierres.</td>
+                          <td
+                            className="py-2 border-b text-gray-600"
+                            colSpan={4}
+                          >
+                            No hay cierres.
+                          </td>
                         </tr>
                       )}
                     </tbody>
@@ -1040,14 +1419,18 @@ export default function CierreCajaPage() {
                       <div className="flex items-center gap-2">
                         <button
                           className="border px-2 py-1 rounded disabled:opacity-50"
-                          onClick={() => setCierresPage((p) => Math.max(1, p - 1))}
+                          onClick={() =>
+                            setCierresPage((p) => Math.max(1, p - 1))
+                          }
                           disabled={safePage <= 1}
                         >
                           Anterior
                         </button>
                         <button
                           className="border px-2 py-1 rounded disabled:opacity-50"
-                          onClick={() => setCierresPage((p) => Math.min(totalPages, p + 1))}
+                          onClick={() =>
+                            setCierresPage((p) => Math.min(totalPages, p + 1))
+                          }
                           disabled={safePage >= totalPages}
                         >
                           Siguiente
@@ -1062,7 +1445,10 @@ export default function CierreCajaPage() {
                           max={totalPages}
                           value={safePage}
                           onChange={(e) => {
-                            const v = Math.max(1, Math.min(totalPages, Number(e.target.value) || 1));
+                            const v = Math.max(
+                              1,
+                              Math.min(totalPages, Number(e.target.value) || 1)
+                            );
                             setCierresPage(v);
                           }}
                         />
@@ -1080,9 +1466,19 @@ export default function CierreCajaPage() {
   );
 }
 
- 
-
-function EgresoRow({ egreso, onChanged, movimientosBloqueados }: { egreso: { idEgreso: number; monto: number | string; comentario?: string | null }; onChanged: () => void; movimientosBloqueados: boolean }) {
+function EgresoRow({
+  egreso,
+  onChanged,
+  movimientosBloqueados,
+}: {
+  egreso: {
+    idEgreso: number;
+    monto: number | string;
+    comentario?: string | null;
+  };
+  onChanged: () => void;
+  movimientosBloqueados: boolean;
+}) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const comentarioLc = (egreso.comentario ?? "").toLowerCase();
@@ -1091,7 +1487,9 @@ function EgresoRow({ egreso, onChanged, movimientosBloqueados }: { egreso: { idE
 
   // Modal de edición
   const [editOpen, setEditOpen] = useState(false);
-  const [editMonto, setEditMonto] = useState<string>(String(egreso.monto ?? ""));
+  const [editMonto, setEditMonto] = useState<string>(
+    String(egreso.monto ?? "")
+  );
   const [editMotivo, setEditMotivo] = useState<string>(egreso.comentario ?? "");
 
   function abrirEditar() {
@@ -1110,13 +1508,20 @@ function EgresoRow({ egreso, onChanged, movimientosBloqueados }: { egreso: { idE
     }
     setSaving(true);
     try {
-      await api.put(`/egresos-caja/${egreso.idEgreso}`, { monto: montoNum, comentario: editMotivo }, { withCredentials: true });
+      await api.put(
+        `/egresos-caja/${egreso.idEgreso}`,
+        { monto: montoNum, comentario: editMotivo },
+        { withCredentials: true }
+      );
       toast.success("Movimiento actualizado");
       setEditOpen(false);
       onChanged();
     } catch (err) {
       console.error(err);
-      const msg = (err as any)?.response?.data?.error || (err as any)?.message || "Error al actualizar movimiento";
+      const msg =
+        (err as any)?.response?.data?.error ||
+        (err as any)?.message ||
+        "Error al actualizar movimiento";
       toast.error(msg);
     } finally {
       setSaving(false);
@@ -1134,12 +1539,17 @@ function EgresoRow({ egreso, onChanged, movimientosBloqueados }: { egreso: { idE
     if (!ok) return;
     setDeleting(true);
     try {
-      await api.delete(`/egresos-caja/${egreso.idEgreso}`, { withCredentials: true });
+      await api.delete(`/egresos-caja/${egreso.idEgreso}`, {
+        withCredentials: true,
+      });
       toast.success("Egreso eliminado");
       onChanged();
     } catch (err) {
       console.error(err);
-      const msg = (err as any)?.response?.data?.error || (err as any)?.message || "Error al eliminar egreso";
+      const msg =
+        (err as any)?.response?.data?.error ||
+        (err as any)?.message ||
+        "Error al eliminar egreso";
       toast.error(msg);
     } finally {
       setDeleting(false);
@@ -1148,67 +1558,107 @@ function EgresoRow({ egreso, onChanged, movimientosBloqueados }: { egreso: { idE
 
   return (
     <>
-    <tr>
-      <td className={`py-2 border-b ${Number(egreso.monto) < 0 ? "text-red-600" : "text-green-600"}`}>
-        {fmt(egreso.monto)}
-      </td>
-      <td className="py-2 border-b">
-        <span className="flex items-center gap-1 text-gray-700">
-          {esRetiro && <span title="Retiro en efectivo caja">★</span>}
-          {esAjusteSaldoInicial && <span title="Ajuste saldo inicial">★</span>}
-          {egreso.comentario ?? "-"}
-        </span>
-      </td>
-      <td className="py-2 border-b">
-        <div className="flex items-center gap-2">
-          <button
-            className="border px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={abrirEditar}
-            disabled={saving || movimientosBloqueados}
-          >
-            {saving ? "Guardando…" : "Editar"}
-          </button>
-          <button
-            className="border px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={eliminar}
-            disabled={deleting || movimientosBloqueados}
-          >
-            {deleting ? "Eliminando…" : "Eliminar"}
-          </button>
-        </div>
-      </td>
-    </tr>
-    {editOpen && (
       <tr>
-        <td colSpan={3}>
-          <div className="fixed inset-0 z-50">
-            <div className="absolute inset-0 bg-black/20" onClick={() => setEditOpen(false)} />
-            <div className="absolute inset-0 p-4 flex items-center justify-center">
-              <div className="w-full max-w-md rounded-xl border bg-white shadow-lg">
-                <div className="flex items-center justify-between px-4 py-3 border-b">
-                  <h3 className="text-sm font-semibold">Editar movimiento</h3>
-                  <button className="p-2 rounded hover:bg-gray-100" onClick={() => setEditOpen(false)} aria-label="Cerrar">✕</button>
-                </div>
-                <div className="p-4 space-y-3 text-sm">
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-600 block">Monto</label>
-                    <input type="number" step="0.01" className="rounded border px-2 py-1 w-full" value={editMonto} onChange={(e) => setEditMonto(e.target.value)} />
+        <td
+          className={`py-2 border-b ${
+            Number(egreso.monto) < 0 ? "text-red-600" : "text-green-600"
+          }`}
+        >
+          {fmt(egreso.monto)}
+        </td>
+        <td className="py-2 border-b">
+          <span className="flex items-center gap-1 text-gray-700">
+            {esRetiro && <span title="Retiro en efectivo caja">★</span>}
+            {esAjusteSaldoInicial && (
+              <span title="Ajuste saldo inicial">★</span>
+            )}
+            {egreso.comentario ?? "-"}
+          </span>
+        </td>
+        <td className="py-2 border-b">
+          <div className="flex items-center gap-2">
+            <button
+              className="border px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={abrirEditar}
+              disabled={saving || movimientosBloqueados}
+            >
+              {saving ? "Guardando…" : "Editar"}
+            </button>
+            <button
+              className="border px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={eliminar}
+              disabled={deleting || movimientosBloqueados}
+            >
+              {deleting ? "Eliminando…" : "Eliminar"}
+            </button>
+          </div>
+        </td>
+      </tr>
+      {editOpen && (
+        <tr>
+          <td colSpan={3}>
+            <div className="fixed inset-0 z-50">
+              <div
+                className="absolute inset-0 bg-black/20"
+                onClick={() => setEditOpen(false)}
+              />
+              <div className="absolute inset-0 p-4 flex items-center justify-center">
+                <div className="w-full max-w-md rounded-xl border bg-white shadow-lg">
+                  <div className="flex items-center justify-between px-4 py-3 border-b">
+                    <h3 className="text-sm font-semibold">Editar movimiento</h3>
+                    <button
+                      className="p-2 rounded hover:bg-gray-100"
+                      onClick={() => setEditOpen(false)}
+                      aria-label="Cerrar"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-600 block">Motivo</label>
-                    <input type="text" className="rounded border px-2 py-1 w-full" value={editMotivo} onChange={(e) => setEditMotivo(e.target.value)} />
-                  </div>
-                  <div className="flex items-center justify-end gap-2 pt-2">
-                    <button className="text-xs border px-3 py-1 rounded" onClick={() => setEditOpen(false)}>Cancelar</button>
-                    <button className="text-xs border px-3 py-1 rounded bg-black text-white" onClick={submitEditar}>Guardar</button>
+                  <div className="p-4 space-y-3 text-sm">
+                    <div className="space-y-1">
+                      <label className="text-xs text-gray-600 block">
+                        Monto
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="rounded border px-2 py-1 w-full"
+                        value={editMonto}
+                        onChange={(e) => setEditMonto(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-gray-600 block">
+                        Motivo
+                      </label>
+                      <input
+                        type="text"
+                        className="rounded border px-2 py-1 w-full"
+                        value={editMotivo}
+                        onChange={(e) => setEditMotivo(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex items-center justify-end gap-2 pt-2">
+                      <button
+                        className="text-xs border px-3 py-1 rounded"
+                        onClick={() => setEditOpen(false)}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        className="text-xs border px-3 py-1 rounded bg-black text-white"
+                        onClick={submitEditar}
+                      >
+                        Guardar
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </td>
-      </tr>
-    )}
+          </td>
+        </tr>
+      )}
     </>
   );
 }

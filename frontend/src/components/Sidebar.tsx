@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { useUI } from "../store/ui";
 import { useAuth } from "../context/AuthContext";
- 
 
 const items = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
@@ -34,7 +33,6 @@ const items = [
 export default function Sidebar() {
   const { sidebarOpen } = useUI();
   const { hasRole } = useAuth();
-  
 
   const blocked = new Set<string>();
   if (hasRole("Vendedor")) {
@@ -57,7 +55,6 @@ export default function Sidebar() {
       "/monedas",
       "/pre-ventas",
       "/estadisticas",
-      "/cierres-caja",
     ].forEach((r) => blocked.add(r));
   }
 
@@ -71,23 +68,21 @@ export default function Sidebar() {
         {items
           .filter(({ to }) => !blocked.has(to))
           .map(({ to, icon: Icon, label }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2 rounded-md hover:bg-gray-100 ${
-                isActive ? "bg-gray-100 font-medium" : ""
-              }`
-            }
-          >
-            <Icon className="h-5 w-5" />
-            <span className={`${sidebarOpen ? "block" : "hidden"}`}>
-              {label}
-            </span>
-          </NavLink>
-        ))}
-
-        
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-md hover:bg-gray-100 ${
+                  isActive ? "bg-gray-100 font-medium" : ""
+                }`
+              }
+            >
+              <Icon className="h-5 w-5" />
+              <span className={`${sidebarOpen ? "block" : "hidden"}`}>
+                {label}
+              </span>
+            </NavLink>
+          ))}
       </nav>
     </aside>
   );
