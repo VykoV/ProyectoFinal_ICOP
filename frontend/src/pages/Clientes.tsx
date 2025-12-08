@@ -2,9 +2,19 @@ import { useEffect, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "../components/DataTable";
 import { Label, Input, FieldError, Select } from "../components/ui/Form";
-import { toast } from "react-hot-toast";
 import { askConfirm, showAlert } from "../lib/alerts";
-import { Search, Plus, Pencil, Trash, X, Eye, Phone, Mail, Info } from "lucide-react";
+import { toast } from "react-hot-toast";
+import {
+  Search,
+  Plus,
+  Pencil,
+  Trash,
+  X,
+  Eye,
+  Phone,
+  Mail,
+  Info,
+} from "lucide-react";
 import { useForm, type SubmitHandler } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -47,7 +57,7 @@ const schema = z.object({
     .string()
     .trim()
     .optional()
-    .refine(v => !v || /^\d{2}-?\d{8}-?\d$/.test(v), "CUIL/CUIT inválido"),
+    .refine((v) => !v || /^\d{2}-?\d{8}-?\d$/.test(v), "CUIL/CUIT inválido"),
   nombre: z.string().min(1, "Requerido"),
   apellido: z.string().min(1, "Requerido"),
   email: z.string().trim().min(1, "Requerido").email("Email inválido"),
@@ -57,13 +67,12 @@ const schema = z.object({
   nivelId: z.string().optional(),
   provinciaId: z.string().optional(),
   localidadId: z.string().optional(),
-  fechaRegistro: z
-    .string()
-    .refine(v => {
-      const d = new Date(v);
-      const hoyFin = new Date(); hoyFin.setHours(23, 59, 59, 999);
-      return d <= hoyFin;
-    }, "Debe ser hoy o anterior"),
+  fechaRegistro: z.string().refine((v) => {
+    const d = new Date(v);
+    const hoyFin = new Date();
+    hoyFin.setHours(23, 59, 59, 999);
+    return d <= hoyFin;
+  }, "Debe ser hoy o anterior"),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -80,35 +89,38 @@ export default function Clientes() {
   const [openFiltros, setOpenFiltros] = useState(false);
 
   useEffect(() => {
-    const h = setTimeout(() => { load(q); }, 300);
+    const h = setTimeout(() => {
+      load(q);
+    }, 300);
     return () => clearTimeout(h);
   }, [q]);
 
   async function load(query?: string) {
-  setLoading(true);
-  try {
-    const { data } = await api.get("/clientes", {
-      params: query ? { q: query } : undefined,
-    });
-    setRows(
-      (data ?? []).map((c: any) => ({
-        id: c.id ?? c.idCliente,
-        nombre: c.nombre ?? c.nombreCliente,
-        apellido: c.apellido ?? c.apellidoCliente,
-        cuil: c.cuil ?? null,
-        email: c.email ?? c.emailCliente ?? "",
-        telefono: c.telefono ?? c.telefonoCliente ?? "",
-      }))
-    );
-  } finally {
-    setLoading(false);
-  }
+    setLoading(true);
+    try {
+      const { data } = await api.get("/clientes", {
+        params: query ? { q: query } : undefined,
+      });
+      setRows(
+        (data ?? []).map((c: any) => ({
+          id: c.id ?? c.idCliente,
+          nombre: c.nombre ?? c.nombreCliente,
+          apellido: c.apellido ?? c.apellidoCliente,
+          cuil: c.cuil ?? null,
+          email: c.email ?? c.emailCliente ?? "",
+          telefono: c.telefono ?? c.telefonoCliente ?? "",
+        }))
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function confirmDelete(id: number, nombre?: string, apellido?: string) {
     const ok = await askConfirm({
       title: "¿Quiere eliminar cliente?",
-      message: nombre || apellido ? `${apellido ?? ""}, ${nombre ?? ""}`.trim() : "",
+      message:
+        nombre || apellido ? `${apellido ?? ""}, ${nombre ?? ""}`.trim() : "",
       confirmText: "Sí",
       cancelText: "No",
       type: "question",
@@ -119,7 +131,14 @@ export default function Clientes() {
       await load();
       await showAlert({ type: "success", message: "Cliente eliminado" });
     } catch (err: unknown) {
-      const resp = (err as { response?: { status?: number; data?: { error?: string; details?: { ventas?: number } } } }).response;
+      const resp = (
+        err as {
+          response?: {
+            status?: number;
+            data?: { error?: string; details?: { ventas?: number } };
+          };
+        }
+      ).response;
       const code: string | undefined = resp?.data?.error;
       const status: number | undefined = resp?.status;
       const details: { ventas?: number } | undefined = resp?.data?.details;
@@ -129,22 +148,27 @@ export default function Clientes() {
         const lines: string[] = [];
         if (ventas > 0) lines.push(`Ventas asociadas: ${ventas}`);
         message = lines.length
-          ? `No se puede eliminar el cliente porque tiene actividad registrada:\n${lines.join("\n")}`
+          ? `No se puede eliminar el cliente porque tiene actividad registrada:\n${lines.join(
+              "\n"
+            )}`
           : "No se puede eliminar el cliente porque tiene actividad registrada en el sistema.";
       } else if (status === 409 && code === "FK_CONSTRAINT_IN_USE") {
-        message = "No se puede eliminar el cliente porque está referenciado en el sistema.";
+        message =
+          "No se puede eliminar el cliente porque está referenciado en el sistema.";
       } else {
         message = resp?.data?.error || "Error al eliminar";
       }
-      await showAlert({ type: "error", title: "No se puede eliminar", message });
+      await showAlert({
+        type: "error",
+        title: "No se puede eliminar",
+        message,
+      });
     }
   }
 
   useEffect(() => {
     load();
   }, []);
-
-  
 
   const columns: ColumnDef<ClienteRow>[] = [
     { header: "ID", accessorKey: "id", size: 60 },
@@ -198,7 +222,13 @@ export default function Clientes() {
           {!(isVendedor || isCajero) && (
             <button
               className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-              onClick={() => confirmDelete(row.original.id, row.original.nombre, row.original.apellido)}
+              onClick={() =>
+                confirmDelete(
+                  row.original.id,
+                  row.original.nombre,
+                  row.original.apellido
+                )
+              }
               title="Eliminar"
             >
               <Trash className="h-3.5 w-3.5" /> Eliminar
@@ -234,11 +264,20 @@ export default function Clientes() {
             placeholder="Buscar por nombre, apellido, email o CUIL/Teléfono"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Escape") setQ(""); }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setQ("");
+            }}
           />
         </div>
-        <button className="rounded border px-3 py-2" onClick={() => setOpenFiltros(true)}>Filtros</button>
-        <span className="ml-auto text-xs text-gray-600">{`Mostrando ${rows.length === 0 ? 0 : 1}–${rows.length} de ${rows.length}`}</span>
+        <button
+          className="rounded border px-3 py-2"
+          onClick={() => setOpenFiltros(true)}
+        >
+          Filtros
+        </button>
+        <span className="ml-auto text-xs text-gray-600">{`Mostrando ${
+          rows.length === 0 ? 0 : 1
+        }–${rows.length} de ${rows.length}`}</span>
       </div>
 
       {loading ? (
@@ -267,7 +306,10 @@ export default function Clientes() {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg md:max-w-xl lg:max-w-2xl">
             <div className="flex items-center justify-between border-b px-4 py-2">
               <h2 className="text-sm font-medium">Filtros de Clientes</h2>
-              <button className="rounded border px-2 py-1 text-xs" onClick={() => setOpenFiltros(false)}>
+              <button
+                className="rounded border px-2 py-1 text-xs"
+                onClick={() => setOpenFiltros(false)}
+              >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -279,7 +321,10 @@ export default function Clientes() {
                   <option value="desc">Descendente (Apellido, Nombre)</option>
                 </select>
                 <span className="text-gray-600 ml-auto">Contacto</span>
-                <select className="rounded border px-2 py-1" defaultValue="todas">
+                <select
+                  className="rounded border px-2 py-1"
+                  defaultValue="todas"
+                >
                   <option value="todas">Todos</option>
                   <option value="con">Con Email/Teléfono</option>
                   <option value="sin">Sin Email/Teléfono</option>
@@ -287,10 +332,18 @@ export default function Clientes() {
               </div>
             </div>
             <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-              <button className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm" onClick={() => setQ("")}> 
+              <button
+                className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm"
+                onClick={() => setQ("")}
+              >
                 <X className="h-3.5 w-3.5" /> Borrar filtros
               </button>
-              <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenFiltros(false)}>Cerrar</button>
+              <button
+                className="rounded border px-3 py-1 text-sm"
+                onClick={() => setOpenFiltros(false)}
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
@@ -339,6 +392,12 @@ function ClienteFormModal({
   });
 
   const provinciaId = watch("provinciaId");
+  const emailVal = watch("email") || "";
+  function emailInvalid(v: string): boolean {
+    const s = (v || "").trim();
+    if (!s) return true;
+    return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
+  }
 
   useEffect(() => {
     (async () => {
@@ -434,7 +493,46 @@ function ClienteFormModal({
       : undefined;
 
     const tipoIdFinal = v.tipoId || (defaultTipo ? String(defaultTipo.id) : "");
-    const nivelIdFinal = v.nivelId || (defaultNivel ? String(defaultNivel.id) : "");
+    const nivelIdFinal =
+      v.nivelId || (defaultNivel ? String(defaultNivel.id) : "");
+
+    // Pre-chequeo de CUIL/CUIT duplicado o inválido
+    const cuilDigits = v.cuil ? onlyDigits(v.cuil) : "";
+    if (cuilDigits) {
+      if (!/^\d{11}$/.test(cuilDigits)) {
+        await showAlert({
+          type: "error",
+          title: "CUIL/CUIT inválido",
+          message: "El formato de CUIL/CUIT no es válido. Usá NN-NNNNNNNN-N.",
+        });
+        setShowErrors(true);
+        return;
+      }
+      try {
+        const { data } = await api.get("/clientes", {
+          params: { q: cuilDigits },
+          skipAlert: true,
+        } as any);
+        const list = Array.isArray(data) ? data : [];
+        const exists = list.some((c: any) => {
+          const idC = Number(c.id ?? c.idCliente ?? 0);
+          const cuilC = String(c.cuil ?? c.cuilCliente ?? "").replace(
+            /\D/g,
+            ""
+          );
+          return cuilC === cuilDigits && (!isEdit || idC !== Number(id));
+        });
+        if (exists) {
+          await showAlert({
+            type: "error",
+            title: "CUIL/CUIT en uso",
+            message: "El número de CUIL/CUIT ya está registrado. Ingresá otro.",
+          });
+          setShowErrors(true);
+          return;
+        }
+      } catch {}
+    }
 
     const payload = {
       cuil: v.cuil ? onlyDigits(v.cuil) : null,
@@ -446,21 +544,99 @@ function ClienteFormModal({
       idTipoCliente: tipoIdFinal ? Number(tipoIdFinal) : null,
       idNivelCliente: nivelIdFinal ? Number(nivelIdFinal) : null,
       idLocalidad: v.localidadId ? Number(v.localidadId) : null,
-      fechaRegistro: v.fechaRegistro ? v.fechaRegistro : new Date().toISOString().split("T")[0],
+      fechaRegistro: v.fechaRegistro
+        ? v.fechaRegistro
+        : new Date().toISOString().split("T")[0],
     };
-    if (isEdit) await api.put(`/clientes/${id}`, payload);
-    else await api.post("/clientes", payload);
-    onClose(true);
+    try {
+      if (isEdit)
+        await api.put(`/clientes/${id}`, payload, { skipAlert: true } as any);
+      else await api.post("/clientes", payload, { skipAlert: true } as any);
+      await showAlert({
+        type: "success",
+        title: "Éxito",
+        message: "Cliente creado con éxito",
+      });
+      onClose(true);
+    } catch (e: any) {
+      const status: number | undefined = e?.response?.status;
+      const data: any = e?.response?.data ?? {};
+      const code: string | undefined = data?.error;
+      const message: string | undefined = data?.message || e?.message;
+      const blob = `${String(code || "")} ${String(
+        message || ""
+      )} ${JSON.stringify(data)}`.toLowerCase();
+
+      // CUIL duplicado (409 o 400 con texto indicativo)
+      if (
+        (status === 409 || status === 400) &&
+        (blob.includes("cuil") || blob.includes("cuit")) &&
+        (blob.includes("exist") ||
+          blob.includes("duplic") ||
+          blob.includes("ya") ||
+          blob.includes("registr"))
+      ) {
+        await showAlert({
+          type: "error",
+          title: "CUIL/CUIT en uso",
+          message: "El número de CUIL/CUIT ya está registrado. Ingresá otro.",
+        });
+        setShowErrors(true);
+        return;
+      }
+      // Formato inválido reportado por backend
+      if (
+        status === 400 &&
+        (blob.includes("cuil") || blob.includes("cuit")) &&
+        (blob.includes("invalid") ||
+          blob.includes("inválid") ||
+          blob.includes("formato") ||
+          blob.includes("no válido"))
+      ) {
+        await showAlert({
+          type: "error",
+          title: "CUIL/CUIT inválido",
+          message: "El formato de CUIL/CUIT no es válido. Usá NN-NNNNNNNN-N.",
+        });
+        setShowErrors(true);
+        return;
+      }
+      const msgText =
+        message && !/^request failed/i.test(String(message))
+          ? message
+          : code || "Error al guardar";
+      await showAlert({
+        type: "error",
+        title: status ? `Error ${status}` : "Error",
+        message: String(msgText),
+      });
+    }
   };
 
   const onInvalid = (errs: any) => {
     setShowErrors(true);
+    // CUIL/CUIT inválido → SweetAlert con mensaje claro
+    if (errs?.cuil?.message) {
+      showAlert({
+        type: "error",
+        title: "CUIL/CUIT inválido",
+        message: String(errs.cuil.message),
+      });
+      return;
+    }
+    // Campos requeridos faltantes → react-hot-toast
     const faltantes: string[] = [];
     if (errs?.nombre) faltantes.push("Nombre");
     if (errs?.apellido) faltantes.push("Apellido");
-    if (errs?.email) faltantes.push("Email");
+    if (errs?.email && errs.email.type === "too_small") faltantes.push("Email");
     if (faltantes.length > 0) {
       toast.error(`Te faltó cargar: ${faltantes.join(", ")}`);
+      return;
+    }
+    // Email con formato inválido → toast con detalle
+    if (errs?.email?.message) {
+      toast.error(String(errs.email.message));
+      return;
     }
   };
 
@@ -477,7 +653,9 @@ function ClienteFormModal({
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-full bg-black text-white flex items-center justify-center font-semibold">
                 {(() => {
-                  const n = (watch("apellido") || watch("nombre") || "?") as string;
+                  const n = (watch("apellido") ||
+                    watch("nombre") ||
+                    "?") as string;
                   return n.trim().charAt(0).toUpperCase();
                 })()}
               </div>
@@ -486,8 +664,13 @@ function ClienteFormModal({
                   {(() => {
                     const nombre = watch("nombre");
                     const apellido = watch("apellido");
-                    const tieneNombre = (nombre && nombre.trim().length > 0) || (apellido && apellido.trim().length > 0);
-                    if (tieneNombre) return `${(apellido || "").trim() || "-"}, ${(nombre || "").trim() || "-"}`;
+                    const tieneNombre =
+                      (nombre && nombre.trim().length > 0) ||
+                      (apellido && apellido.trim().length > 0);
+                    if (tieneNombre)
+                      return `${(apellido || "").trim() || "-"}, ${
+                        (nombre || "").trim() || "-"
+                      }`;
                     return isEdit ? "Editar Cliente" : "Nuevo Cliente";
                   })()}
                 </h3>
@@ -506,12 +689,15 @@ function ClienteFormModal({
           <div className="p-4 overflow-auto flex-1">
             <form
               id="cliente-form"
+              noValidate
               onSubmit={handleSubmit(onSubmit, onInvalid)}
               className="grid gap-6"
             >
               {/* Identidad */}
               <div className="rounded-lg border p-4">
-                <div className="mb-3 text-sm font-medium text-gray-700">Identidad</div>
+                <div className="mb-3 text-sm font-medium text-gray-700">
+                  Identidad
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <Label htmlFor="cuil">CUIL/CUIT</Label>
@@ -527,9 +713,12 @@ function ClienteFormModal({
                     <Input
                       id="nombre"
                       placeholder="Juan"
-                      className={(showErrors && (errors.nombre || !(watch("nombre") || "").trim()))
-                        ? "border-red-500 focus:border-red-500 focus:ring-red-500"
-                        : "border-black focus:border-black focus:ring-black"}
+                      className={
+                        showErrors &&
+                        (errors.nombre || !(watch("nombre") || "").trim())
+                          ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                          : "border-black focus:border-black focus:ring-black"
+                      }
                       {...register("nombre")}
                     />
                     <FieldError message={errors.nombre?.message} />
@@ -539,9 +728,12 @@ function ClienteFormModal({
                     <Input
                       id="apellido"
                       placeholder="Pérez"
-                      className={(showErrors && (errors.apellido || !(watch("apellido") || "").trim()))
-                        ? "border-red-500 focus:border-red-500 focus:ring-red-500"
-                        : "border-black focus:border-black focus:ring-black"}
+                      className={
+                        showErrors &&
+                        (errors.apellido || !(watch("apellido") || "").trim())
+                          ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                          : "border-black focus:border-black focus:ring-black"
+                      }
                       {...register("apellido")}
                     />
                     <FieldError message={errors.apellido?.message} />
@@ -551,7 +743,9 @@ function ClienteFormModal({
 
               {/* Clasificación */}
               <div className="rounded-lg border p-4">
-                <div className="mb-3 text-sm font-medium text-gray-700">Clasificación</div>
+                <div className="mb-3 text-sm font-medium text-gray-700">
+                  Clasificación
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <Label htmlFor="tipo">Tipo de cliente</Label>
@@ -580,7 +774,9 @@ function ClienteFormModal({
 
               {/* Ubicación y fecha */}
               <div className="rounded-lg border p-4">
-                <div className="mb-3 text-sm font-medium text-gray-700">Ubicación y fecha</div>
+                <div className="mb-3 text-sm font-medium text-gray-700">
+                  Ubicación y fecha
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <Label htmlFor="provincia">Provincia</Label>
@@ -599,7 +795,8 @@ function ClienteFormModal({
                       <option value="">Seleccionar</option>
                       {localidades
                         .filter(
-                          (l) => String(l.provinciaId) === String(provinciaId || "")
+                          (l) =>
+                            String(l.provinciaId) === String(provinciaId || "")
                         )
                         .map((l) => (
                           <option key={l.id} value={String(l.id)}>
@@ -630,17 +827,23 @@ function ClienteFormModal({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <Label htmlFor="tel">Teléfono</Label>
-                    <Input id="tel" placeholder="1122334455" {...register("telefono")} />
+                    <Input
+                      id="tel"
+                      placeholder="1122334455"
+                      {...register("telefono")}
+                    />
                   </div>
                   <div className="md:col-span-2">
                     <Label htmlFor="email">Email</Label>
                     <Input
                       id="email"
-                      type="email"
+                      type="text"
                       placeholder="nombre@dominio.com"
-                      className={(showErrors && (errors.email || !(watch("email") || "").trim()))
-                        ? "border-red-500 focus:border-red-500 focus:ring-red-500"
-                        : "border-black focus:border-black focus:ring-black"}
+                      className={
+                        showErrors && emailInvalid(emailVal)
+                          ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+                          : "border-black focus:border-black focus:ring-black"
+                      }
                       {...register("email")}
                     />
                     <FieldError message={errors.email?.message as any} />
@@ -704,16 +907,30 @@ function ClienteView({ id, onClose }: { id: number; onClose: () => void }) {
           <div className="mx-auto w-full max-w-2xl md:rounded-2xl border bg-white shadow-xl">
             {/* Header estilizado */}
             <div className="relative px-6 py-5 border-b bg-gradient-to-r from-slate-50 to-white">
-              <button onClick={onClose} className="absolute right-3 top-3 p-2 rounded hover:bg-gray-100" aria-label="Cerrar">
+              <button
+                onClick={onClose}
+                className="absolute right-3 top-3 p-2 rounded hover:bg-gray-100"
+                aria-label="Cerrar"
+              >
                 <X className="h-4 w-4" />
               </button>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-full bg-black text-white flex items-center justify-center font-semibold">
-                  {((data?.apellidoCliente ?? data?.apellido ?? data?.nombreCliente ?? data?.nombre ?? "?") as string).charAt(0).toUpperCase()}
+                  {(
+                    (data?.apellidoCliente ??
+                      data?.apellido ??
+                      data?.nombreCliente ??
+                      data?.nombre ??
+                      "?") as string
+                  )
+                    .charAt(0)
+                    .toUpperCase()}
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold">
-                    {`${data?.apellidoCliente ?? data?.apellido ?? "-"}, ${data?.nombreCliente ?? data?.nombre ?? "-"}`}
+                    {`${data?.apellidoCliente ?? data?.apellido ?? "-"}, ${
+                      data?.nombreCliente ?? data?.nombre ?? "-"
+                    }`}
                   </h3>
                   <p className="text-xs text-gray-500">Cliente</p>
                 </div>
@@ -731,13 +948,18 @@ function ClienteView({ id, onClose }: { id: number; onClose: () => void }) {
                   </div>
                   {data?.telefonoCliente || data?.telefono ? (
                     <a
-                      href={`tel:${normPhone(data?.telefonoCliente ?? data?.telefono)}`}
+                      href={`tel:${normPhone(
+                        data?.telefonoCliente ?? data?.telefono
+                      )}`}
                       className="mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs text-gray-700 bg-gray-50"
                     >
-                      <Phone className="h-3 w-3" /> {fmtPhone(data?.telefonoCliente ?? data?.telefono)}
+                      <Phone className="h-3 w-3" />{" "}
+                      {fmtPhone(data?.telefonoCliente ?? data?.telefono)}
                     </a>
                   ) : (
-                    <p className="mt-2 text-sm text-gray-400">No especificado</p>
+                    <p className="mt-2 text-sm text-gray-400">
+                      No especificado
+                    </p>
                   )}
                 </div>
                 <div className="rounded-lg border p-4">
@@ -745,7 +967,13 @@ function ClienteView({ id, onClose }: { id: number; onClose: () => void }) {
                     <Mail className="h-4 w-4" />
                     <span className="text-sm font-medium">Email</span>
                   </div>
-                  <p className={`mt-2 text-sm ${data?.emailCliente || data?.email ? "text-gray-900" : "text-gray-400"}`}>
+                  <p
+                    className={`mt-2 text-sm ${
+                      data?.emailCliente || data?.email
+                        ? "text-gray-900"
+                        : "text-gray-400"
+                    }`}
+                  >
                     {data?.emailCliente ?? data?.email ?? "No especificado"}
                   </p>
                 </div>
@@ -757,27 +985,51 @@ function ClienteView({ id, onClose }: { id: number; onClose: () => void }) {
                   <div className="flex items-center gap-2 text-gray-700">
                     <span className="text-sm font-medium">CUIL/CUIT</span>
                   </div>
-                  <p className={`mt-2 text-sm ${data?.cuil ? "text-gray-900" : "text-gray-400"}`}>{data?.cuil ?? "No especificado"}</p>
+                  <p
+                    className={`mt-2 text-sm ${
+                      data?.cuil ? "text-gray-900" : "text-gray-400"
+                    }`}
+                  >
+                    {data?.cuil ?? "No especificado"}
+                  </p>
                 </div>
                 <div className="rounded-lg border p-4">
                   <div className="flex items-center gap-2 text-gray-700">
                     <span className="text-sm font-medium">Ubicación</span>
                   </div>
                   <p className="mt-2 text-sm text-gray-900">
-                    {`${data?.Localidad?.Provincia?.nombreProvincia ?? "-"} / ${data?.Localidad?.nombreLocalidad ?? "-"}`}
+                    {`${data?.Localidad?.Provincia?.nombreProvincia ?? "-"} / ${
+                      data?.Localidad?.nombreLocalidad ?? "-"
+                    }`}
                   </p>
                 </div>
                 <div className="rounded-lg border p-4">
                   <div className="flex items-center gap-2 text-gray-700">
                     <span className="text-sm font-medium">Tipo</span>
                   </div>
-                  <p className={`mt-2 text-sm ${data?.TipoCliente?.tipoCliente ? "text-gray-900" : "text-gray-400"}`}>{data?.TipoCliente?.tipoCliente ?? "No especificado"}</p>
+                  <p
+                    className={`mt-2 text-sm ${
+                      data?.TipoCliente?.tipoCliente
+                        ? "text-gray-900"
+                        : "text-gray-400"
+                    }`}
+                  >
+                    {data?.TipoCliente?.tipoCliente ?? "No especificado"}
+                  </p>
                 </div>
                 <div className="rounded-lg border p-4">
                   <div className="flex items-center gap-2 text-gray-700">
                     <span className="text-sm font-medium">Nivel</span>
                   </div>
-                  <p className={`mt-2 text-sm ${data?.NivelCliente?.indiceBeneficio ? "text-gray-900" : "text-gray-400"}`}>{data?.NivelCliente?.indiceBeneficio ?? "No especificado"}</p>
+                  <p
+                    className={`mt-2 text-sm ${
+                      data?.NivelCliente?.indiceBeneficio
+                        ? "text-gray-900"
+                        : "text-gray-400"
+                    }`}
+                  >
+                    {data?.NivelCliente?.indiceBeneficio ?? "No especificado"}
+                  </p>
                 </div>
               </div>
 
@@ -787,14 +1039,23 @@ function ClienteView({ id, onClose }: { id: number; onClose: () => void }) {
                   <Info className="h-4 w-4" />
                   <span className="text-sm font-medium">Observación</span>
                 </div>
-                <p className={`mt-2 text-sm ${data?.observacion ? "text-gray-900" : "text-gray-400"}`}>
+                <p
+                  className={`mt-2 text-sm ${
+                    data?.observacion ? "text-gray-900" : "text-gray-400"
+                  }`}
+                >
                   {data?.observacion ?? "Sin observaciones"}
                 </p>
               </div>
             </div>
 
             <div className="px-4 py-3 border-t bg-gray-50 flex justify-end">
-              <button onClick={onClose} className="rounded-lg border px-3 py-2 text-sm">Cerrar</button>
+              <button
+                onClick={onClose}
+                className="rounded-lg border px-3 py-2 text-sm"
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>

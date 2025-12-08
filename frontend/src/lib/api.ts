@@ -27,6 +27,9 @@ api.interceptors.response.use(
   },
   (err) => {
     try {
+      const cfg: any = (err as any)?.config || {};
+      const skip = cfg?.headers?.["x-skip-alert"] || cfg?.skipAlert;
+      if (skip) return Promise.reject(err);
       const status = (err as any)?.response?.status;
       const data = (err as any)?.response?.data ?? {};
       const raw = String(data?.error || data?.message || (err as any)?.message || "Error en la solicitud");
