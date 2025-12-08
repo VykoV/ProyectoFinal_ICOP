@@ -24,7 +24,11 @@ type VentaRow = {
 };
 
 export default function Ventas() {
-  const [tab, setTab] = useState<"ventas" | "preventas">("preventas");
+  const [tab, setTab] = useState<"ventas" | "preventas" | "vencidos">(
+    "preventas"
+  );
+  const { hasRole } = useAuth();
+  const canViewVencidos = hasRole("Administrador");
 
   // modal registrar venta nueva
   const [openNuevaVenta, setOpenNuevaVenta] = useState(false);
@@ -56,6 +60,7 @@ export default function Ventas() {
   const [venDesde, setVenDesde] = useState<string>("");
   const [venHasta, setVenHasta] = useState<string>("");
   const [venPage, setVenPage] = useState<number>(1);
+  const [vencPage, setVencPage] = useState<number>(1);
   const [preSort, setPreSort] = useState<"asc" | "desc">("desc");
   const [venSort, setVenSort] = useState<"asc" | "desc">("desc");
   const pageSize = 10;
@@ -109,13 +114,16 @@ export default function Ventas() {
     const venD = sp.get("venDesde") || "";
     const venH = sp.get("venHasta") || "";
     const venP = Number(sp.get("venPage") || "1");
+    const vencP = Number(sp.get("vencPage") || "1");
     const venS = sp.get("venSort") || "";
     if (tabQ === "ventas" || tabQ === "preventas") setTab(tabQ);
+    else if (tabQ === "vencidos")
+      setTab(canViewVencidos ? "vencidos" : "preventas");
     setQ(q0);
     setPreEstados(
       preE
         ? preE.split(",").filter(Boolean)
-        : ["pendiente", "reservado", "listocaja", "vencido"]
+        : ["pendiente", "reservado", "listocaja"]
     );
     setPreDesde(preD);
     setPreHasta(preH);
@@ -128,11 +136,12 @@ export default function Ventas() {
     setVenHasta(venH);
     setVenPage(Math.max(1, venP || 1));
     setVenSort(venS === "asc" || venS === "desc" ? (venS as any) : "desc");
+    setVencPage(Math.max(1, vencP || 1));
   }
 
   function writeParams(
     next?: Partial<{
-      tab: "ventas" | "preventas";
+      tab: "ventas" | "preventas" | "vencidos";
       q: string;
       preEstados: string[];
       preDesde: string;
@@ -144,6 +153,7 @@ export default function Ventas() {
       venHasta: string;
       venPage: number;
       venSort: "asc" | "desc";
+      vencPage: number;
     }>
   ) {
     const sp = new URLSearchParams(window.location.search);
@@ -158,6 +168,7 @@ export default function Ventas() {
     const vd = next?.venDesde ?? venDesde;
     const vh = next?.venHasta ?? venHasta;
     const vp = next?.venPage ?? venPage;
+    const vep = next?.vencPage ?? vencPage;
     const vs = next?.venSort ?? venSort;
     sp.set("tab", t);
     if (qv) sp.set("q", qv);
@@ -178,6 +189,7 @@ export default function Ventas() {
     else sp.delete("venHasta");
     sp.set("venPage", String(vp));
     sp.set("venSort", vs);
+    sp.set("vencPage", String(vep));
     window.history.replaceState(null, "", `?${sp.toString()}`);
   }
 
@@ -300,6 +312,7 @@ export default function Ventas() {
     venHasta,
     venPage,
     venSort,
+    vencPage,
   ]);
 
   // derived filtered + paginated datasets
@@ -307,6 +320,7 @@ export default function Ventas() {
     .filter((r) => matchesQuery(q, r.cliente, r.metodoPago))
     .filter((r) => {
       const k = normEstado(r.estado);
+      if (k === "vencido") return false;
       if (preEstados.length === 0) return true;
       return preEstados.includes(k);
     })
@@ -360,6 +374,30 @@ export default function Ventas() {
     venEstados.length === 1
       ? (venEstados[0] as "finalizada" | "cancelada")
       : "todas";
+
+  // presupuestos vencidos
+  const vencFiltered = preRows
+    .filter((r) => matchesQuery(q, r.cliente, r.metodoPago))
+    .filter((r) => normEstado(r.estado) === "vencido")
+    .filter((r) => {
+      const f = r.fecha;
+      if (preDesde && f < preDesde) return false;
+      if (preHasta && f > preHasta) return false;
+      return true;
+    });
+  const vencSorted = [...vencFiltered].sort((a, b) => {
+    const va = a.fecha;
+    const vb = b.fecha;
+    if (va === vb) return 0;
+    const cmp = va < vb ? -1 : 1;
+    return preSort === "asc" ? cmp : -cmp;
+  });
+  const vencTotal = vencSorted.length;
+  const vencTotalPages = Math.max(1, Math.ceil(vencTotal / pageSize));
+  const vencSafePage = Math.min(Math.max(1, vencPage), vencTotalPages);
+  const vencStart = (vencSafePage - 1) * pageSize;
+  const vencEnd = Math.min(vencStart + pageSize, vencTotal);
+  const vencPageRows = vencSorted.slice(vencStart, vencEnd);
 
   /* Columnas Ventas (finalizadas) */
   /* Columnas Ventas (finalizadas / canceladas) */
@@ -526,6 +564,18 @@ export default function Ventas() {
         >
           Presupuestos Pendientes
         </button>
+        {canViewVencidos && (
+          <button
+            onClick={() => setTab("vencidos")}
+            className={`px-4 py-2 text-sm font-medium ${
+              tab === "vencidos"
+                ? "border-b-2 border-black text-black"
+                : "text-gray-500"
+            }`}
+          >
+            Vencidos
+          </button>
+        )}
         <button
           onClick={() => setTab("ventas")}
           className={`px-4 py-2 text-sm font-medium ${
@@ -567,6 +617,10 @@ export default function Ventas() {
             ? `Mostrando ${
                 venTotal === 0 ? 0 : venStart + 1
               }–${venEnd} de ${venTotal}`
+            : tab === "vencidos"
+            ? `Mostrando ${
+                vencTotal === 0 ? 0 : vencStart + 1
+              }–${vencEnd} de ${vencTotal}`
             : `Mostrando ${
                 preTotal === 0 ? 0 : preStart + 1
               }–${preEnd} de ${preTotal}`}
@@ -623,24 +677,19 @@ export default function Ventas() {
                                 | "vencido";
                               const next =
                                 val === "todas"
-                                  ? [
-                                      "pendiente",
-                                      "reservado",
-                                      "listocaja",
-                                      "vencido",
-                                    ]
+                                  ? ["pendiente", "reservado", "listocaja"]
                                   : [val];
                               setPreEstados(next);
                               setPrePage(1);
                             }}
                           >
                             <option value="todas">
-                              Pendiente / Reservado / ListoCaja / Vencido
+                              Pendiente / Reservado / ListoCaja
                             </option>
                             <option value="pendiente">Solo Pendiente</option>
                             <option value="reservado">Solo Reservado</option>
                             <option value="listocaja">Solo ListoCaja</option>
-                            <option value="vencido">Solo Vencido</option>
+                            {/* "Vencido" no se muestra en esta pestaña */}
                           </select>
                           <span className="text-gray-600 ml-auto">Orden</span>
                           <select
@@ -680,7 +729,7 @@ export default function Ventas() {
                     />
                   </div>
                 </>
-              ) : (
+              ) : tab === "ventas" ? (
                 <>
                   <div className="flex items-center gap-2">
                     <span className="text-gray-600">Estado</span>
@@ -737,6 +786,42 @@ export default function Ventas() {
                     />
                   </div>
                 </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-600">Fecha desde</span>
+                    <input
+                      type="date"
+                      className="rounded border px-2 py-1"
+                      value={preDesde}
+                      onChange={(e) => {
+                        setPreDesde(e.target.value);
+                        setVencPage(1);
+                      }}
+                    />
+                    <span className="text-gray-600">hasta</span>
+                    <input
+                      type="date"
+                      className="rounded border px-2 py-1"
+                      value={preHasta}
+                      onChange={(e) => {
+                        setPreHasta(e.target.value);
+                        setVencPage(1);
+                      }}
+                    />
+                    <span className="text-gray-600 ml-auto">Orden</span>
+                    <select
+                      className="rounded border px-2 py-1"
+                      value={preSort}
+                      onChange={(e) =>
+                        setPreSort(e.target.value as "asc" | "desc")
+                      }
+                    >
+                      <option value="desc">Descendente</option>
+                      <option value="asc">Ascendente</option>
+                    </select>
+                  </div>
+                </>
               )}
             </div>
             <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
@@ -744,22 +829,22 @@ export default function Ventas() {
                 className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm"
                 onClick={() => {
                   if (tab === "preventas") {
-                    setPreEstados([
-                      "pendiente",
-                      "reservado",
-                      "listocaja",
-                      "vencido",
-                    ]);
+                    setPreEstados(["pendiente", "reservado", "listocaja"]);
                     setPreDesde("");
                     setPreHasta("");
                     setPrePage(1);
                     setPreSort("desc");
-                  } else {
+                  } else if (tab === "ventas") {
                     setVenEstados(["finalizada", "cancelada"]);
                     setVenDesde("");
                     setVenHasta("");
                     setVenPage(1);
                     setVenSort("desc");
+                  } else {
+                    setPreDesde("");
+                    setPreHasta("");
+                    setVencPage(1);
+                    setPreSort("desc");
                   }
                 }}
               >
@@ -782,7 +867,13 @@ export default function Ventas() {
       ) : (
         <DataTable
           columns={tab === "ventas" ? columnsVentas : columnsPreVentas}
-          data={tab === "ventas" ? venPageRows : prePageRows}
+          data={
+            tab === "ventas"
+              ? venPageRows
+              : tab === "vencidos" && canViewVencidos
+              ? vencPageRows
+              : prePageRows
+          }
         />
       )}
 
@@ -828,7 +919,7 @@ export default function Ventas() {
                 <span>de {preTotalPages}</span>
               </div>
             </>
-          ) : (
+          ) : tab === "ventas" ? (
             <>
               <div className="flex items-center gap-2">
                 <button
@@ -865,6 +956,45 @@ export default function Ventas() {
                   }}
                 />
                 <span>de {venTotalPages}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <button
+                  className="border px-2 py-1 rounded disabled:opacity-50"
+                  onClick={() => setVencPage((p) => Math.max(1, p - 1))}
+                  disabled={vencSafePage <= 1}
+                >
+                  Anterior
+                </button>
+                <button
+                  className="border px-2 py-1 rounded disabled:opacity-50"
+                  onClick={() =>
+                    setVencPage((p) => Math.min(vencTotalPages, p + 1))
+                  }
+                  disabled={vencSafePage >= vencTotalPages}
+                >
+                  Siguiente
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span>Página</span>
+                <input
+                  className="w-16 rounded border px-2 py-1"
+                  type="number"
+                  min={1}
+                  max={vencTotalPages}
+                  value={vencSafePage}
+                  onChange={(e) => {
+                    const v = Math.max(
+                      1,
+                      Math.min(vencTotalPages, Number(e.target.value) || 1)
+                    );
+                    setVencPage(v);
+                  }}
+                />
+                <span>de {vencTotalPages}</span>
               </div>
             </>
           )}

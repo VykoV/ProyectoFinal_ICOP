@@ -37,9 +37,7 @@ type Item = {
 /* ===== Página listado ===== */
 export default function PreVentas() {
   const { hasRole } = useAuth();
-  const [tab, setTab] = useState<"listado" | "reservas" | "vencidos">(
-    "listado"
-  );
+  const [tab, setTab] = useState<"listado" | "reservas">("listado");
   const [rows, setRows] = useState<PreRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
@@ -105,7 +103,7 @@ export default function PreVentas() {
     const srt = sp.get("preSort") || "";
     setQ(q0);
     if (est) setSelectedEstados(est.split(",").filter(Boolean));
-    else setSelectedEstados(["pendiente", "reservado", "listocaja", "vencido"]);
+    else setSelectedEstados(["pendiente", "reservado", "listocaja"]);
     setPreDesde(dsd);
     setPreHasta(hst);
     setPreSort(srt === "asc" || srt === "desc" ? (srt as any) : "desc");
@@ -146,15 +144,10 @@ export default function PreVentas() {
     setLoading(true);
     try {
       let data: any[] = [];
-      if (tab === "vencidos") {
-        const res = await api.get("/preventas/vencidos");
-        data = res.data ?? [];
-      } else {
-        const res = await api.get("/preventas", {
-          params: { ...(query ? { q: query } : {}) },
-        });
-        data = res.data ?? [];
-      }
+      const res = await api.get("/preventas", {
+        params: { ...(query ? { q: query } : {}) },
+      });
+      data = res.data ?? [];
       setRows(
         (data ?? []).map((v: any) => ({
           id: v.id ?? v.idVenta,
@@ -188,7 +181,7 @@ export default function PreVentas() {
   useEffect(() => {
     const t = setTimeout(() => load(q), 350);
     return () => clearTimeout(t);
-  }, [q, tab]);
+  }, [q]);
   useEffect(() => {
     writeParams();
   }, [q]);
@@ -339,6 +332,7 @@ export default function PreVentas() {
     .filter((r) => matchesQuery(q, r.cliente, r.metodoPago))
     .filter((r) => {
       const key = normEstado(r.estado);
+      if (key === "vencido") return false;
       if (selectedEstados.length === 0) return true;
       return selectedEstados.includes(key);
     })
@@ -418,7 +412,7 @@ export default function PreVentas() {
                 <select
                   className="rounded border px-2 py-1"
                   value={
-                    selectedEstados.length >= 4
+                    selectedEstados.length >= 3
                       ? "todas"
                       : selectedEstados[0] || "todas"
                   }
@@ -426,19 +420,18 @@ export default function PreVentas() {
                     const v = e.target.value;
                     const next =
                       v === "todas"
-                        ? ["pendiente", "reservado", "listocaja", "vencido"]
+                        ? ["pendiente", "reservado", "listocaja"]
                         : [v];
                     setSelectedEstados(next);
                     setPage(1);
                   }}
                 >
                   <option value="todas">
-                    Pendiente / Reservado / ListoCaja / Vencido
+                    Pendiente / Reservado / ListoCaja
                   </option>
                   <option value="pendiente">Solo Pendiente</option>
                   <option value="reservado">Solo Reservado</option>
                   <option value="listocaja">Solo ListoCaja</option>
-                  <option value="vencido">Solo Vencido</option>
                 </select>
                 <span className="text-gray-600 ml-auto">Orden</span>
                 <select
@@ -530,23 +523,6 @@ export default function PreVentas() {
         >
           Presupuestos
         </button>
-        {/* Reservas vencidas se integran en Vencidos (Admin) */}
-        {hasRole("Administrador") && (
-          <button
-            onClick={() => {
-              setTab("vencidos");
-              setPage(1);
-              load();
-            }}
-            className={`px-4 py-2 text-sm font-medium ${
-              tab === "vencidos"
-                ? "border-b-2 border-black text-black"
-                : "text-gray-500"
-            }`}
-          >
-            Vencidos
-          </button>
-        )}
       </div>
 
       {loading ? (
