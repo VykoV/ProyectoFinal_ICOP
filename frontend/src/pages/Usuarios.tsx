@@ -315,8 +315,18 @@ export default function Usuarios() {
     if (editId) {
       await api.put(`/usuarios/${editId}`, form);
       setEditId(null);
+      await showAlert({
+        type: "success",
+        title: "Éxito",
+        message: "Usuario actualizado con éxito",
+      });
     } else {
       await api.post("/usuarios", form);
+      await showAlert({
+        type: "success",
+        title: "Éxito",
+        message: "Usuario creado con éxito",
+      });
     }
     setForm({
       nombreUsuario: "",
@@ -377,7 +387,12 @@ export default function Usuarios() {
               if (!ok) return;
               try {
                 await api.delete(`/usuarios/${u.id}`);
-                loadUsers();
+                await loadUsers();
+                await showAlert({
+                  type: "success",
+                  title: "Éxito",
+                  message: "Usuario eliminado con éxito",
+                });
               } catch (err: unknown) {
                 const resp = (
                   err as {

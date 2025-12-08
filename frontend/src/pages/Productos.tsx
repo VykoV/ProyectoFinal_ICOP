@@ -773,8 +773,18 @@ function ProductoPopup({
     try {
       if (initial?.id) {
         await api.put(`/products/${initial.id}`, payload);
+        await showAlert({
+          type: "success",
+          title: "Éxito",
+          message: "Producto actualizado con éxito",
+        });
       } else {
         await api.post("/products", payload);
+        await showAlert({
+          type: "success",
+          title: "Éxito",
+          message: "Producto creado con éxito",
+        });
       }
       reset();
       onClose(true);

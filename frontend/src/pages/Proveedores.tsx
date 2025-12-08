@@ -4,7 +4,18 @@ import { DataTable } from "../components/DataTable";
 import { Label, Input } from "../components/ui/Form";
 import * as svc from "../lib/api/proveedores";
 import { Button } from "@/components/ui/button";
-import { X, Pencil, Trash2, Search, Plus, Eye, Phone, Mail, Info, IdCard } from "lucide-react";
+import {
+  X,
+  Pencil,
+  Trash2,
+  Search,
+  Plus,
+  Eye,
+  Phone,
+  Mail,
+  Info,
+  IdCard,
+} from "lucide-react";
 import { toast } from "react-hot-toast";
 import { showAlert, askConfirm } from "../lib/alerts";
 
@@ -54,14 +65,16 @@ export default function ProveedoresPage() {
     const letterMatch = s.match(/^[A-Za-z]/);
     const digits = s.replace(/[^0-9]/g, "");
     if (!digits) return s;
-    const group8 = (d: string) => `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}`;
+    const group8 = (d: string) =>
+      `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}`;
     if (letterMatch) {
       const l = letterMatch[0].toUpperCase();
       if (digits.length >= 8) return `${l}-${group8(digits.slice(0, 8))}`;
       return `${l}-${digits}`;
     }
     if (digits.length === 8) return group8(digits);
-    if (digits.length === 9) return `${group8(digits.slice(0, 8))}-${digits.slice(8)}`;
+    if (digits.length === 9)
+      return `${group8(digits.slice(0, 8))}-${digits.slice(8)}`;
     return s;
   }
 
@@ -163,11 +176,27 @@ export default function ProveedoresPage() {
     try {
       await svc.remove(item.idProveedor!);
       await load();
+      await showAlert({
+        type: "success",
+        title: "Éxito",
+        message: "Proveedor eliminado con éxito",
+      });
     } catch (err: unknown) {
-      const resp = (err as { response?: { status?: number; data?: { error?: string; details?: { productos?: number; compras?: number } } } }).response;
+      const resp = (
+        err as {
+          response?: {
+            status?: number;
+            data?: {
+              error?: string;
+              details?: { productos?: number; compras?: number };
+            };
+          };
+        }
+      ).response;
       const code: string | undefined = resp?.data?.error;
       const status: number | undefined = resp?.status;
-      const details: { productos?: number; compras?: number } | undefined = resp?.data?.details;
+      const details: { productos?: number; compras?: number } | undefined =
+        resp?.data?.details;
       let message: string;
       if (status === 409 && code === "PROVEEDOR_EN_USO") {
         const productos = Number(details?.productos ?? 0);
@@ -176,15 +205,22 @@ export default function ProveedoresPage() {
         if (productos > 0) lines.push(`Productos vinculados: ${productos}`);
         if (compras > 0) lines.push(`Compras realizadas: ${compras}`);
         message = lines.length
-          ? `No se puede eliminar el proveedor porque tiene actividad registrada:\n${lines.join("\n")}`
+          ? `No se puede eliminar el proveedor porque tiene actividad registrada:\n${lines.join(
+              "\n"
+            )}`
           : "No se puede eliminar el proveedor porque tiene actividad registrada en el sistema.";
       } else {
         const msg: string | undefined = resp?.data?.error;
-        message = status === 409 || (msg && /compra/i.test(String(msg)))
-          ? "No se puede eliminar el proveedor porque tiene compras realizadas."
-          : (msg || "No se pudo eliminar el proveedor");
+        message =
+          status === 409 || (msg && /compra/i.test(String(msg)))
+            ? "No se puede eliminar el proveedor porque tiene compras realizadas."
+            : msg || "No se pudo eliminar el proveedor";
       }
-      await showAlert({ type: "error", title: "No se puede eliminar", message });
+      await showAlert({
+        type: "error",
+        title: "No se puede eliminar",
+        message,
+      });
     }
   }
 
@@ -209,11 +245,15 @@ export default function ProveedoresPage() {
     const nombreKeyLower = nombreKey.toLowerCase();
     const emailKeyLower = (editing.mailProveedor || "").trim().toLowerCase();
     const conflictNombre = rows.some(
-      (r) => r.nombreProveedor.trim().toLowerCase() === nombreKeyLower && (editing.idProveedor ? r.idProveedor !== editing.idProveedor : true)
+      (r) =>
+        r.nombreProveedor.trim().toLowerCase() === nombreKeyLower &&
+        (editing.idProveedor ? r.idProveedor !== editing.idProveedor : true)
     );
     const conflictEmail = emailKeyLower
       ? rows.some(
-          (r) => (r.mailProveedor || "").trim().toLowerCase() === emailKeyLower && (editing.idProveedor ? r.idProveedor !== editing.idProveedor : true)
+          (r) =>
+            (r.mailProveedor || "").trim().toLowerCase() === emailKeyLower &&
+            (editing.idProveedor ? r.idProveedor !== editing.idProveedor : true)
         )
       : false;
     if (conflictNombre || conflictEmail) {
@@ -223,7 +263,11 @@ export default function ProveedoresPage() {
       ]
         .filter(Boolean)
         .join("\n");
-      await showAlert({ type: "error", title: "Datos duplicados", message: mensajes || "Nombre o correo ya registrados" });
+      await showAlert({
+        type: "error",
+        title: "Datos duplicados",
+        message: mensajes || "Nombre o correo ya registrados",
+      });
       return;
     }
     const payload = {
@@ -235,8 +279,18 @@ export default function ProveedoresPage() {
     try {
       if (editing.idProveedor) {
         await svc.update(editing.idProveedor, payload);
+        await showAlert({
+          type: "success",
+          title: "Éxito",
+          message: "Proveedor actualizado con éxito",
+        });
       } else {
         await svc.create(payload);
+        await showAlert({
+          type: "success",
+          title: "Éxito",
+          message: "Proveedor creado con éxito",
+        });
       }
       setShowModal(false);
       await load();
@@ -277,7 +331,12 @@ export default function ProveedoresPage() {
             }}
           />
         </div>
-        <button className="rounded border px-3 py-2" onClick={() => setOpenFiltros(true)}>Filtros</button>
+        <button
+          className="rounded border px-3 py-2"
+          onClick={() => setOpenFiltros(true)}
+        >
+          Filtros
+        </button>
         <span className="ml-auto text-xs text-gray-600">
           {(() => {
             const startIdx = (Math.max(1, page) - 1) * pageSize;
@@ -303,7 +362,10 @@ export default function ProveedoresPage() {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg md:max-w-xl lg:max-w-2xl">
             <div className="flex items-center justify-between border-b px-4 py-2">
               <h2 className="text-sm font-medium">Filtros de Proveedores</h2>
-              <button className="rounded border px-2 py-1 text-xs" onClick={() => setOpenFiltros(false)}>
+              <button
+                className="rounded border px-2 py-1 text-xs"
+                onClick={() => setOpenFiltros(false)}
+              >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -315,7 +377,10 @@ export default function ProveedoresPage() {
                   <option value="desc">Descendente (Nombre)</option>
                 </select>
                 <span className="text-gray-600 ml-auto">Email</span>
-                <select className="rounded border px-2 py-1" defaultValue="todas">
+                <select
+                  className="rounded border px-2 py-1"
+                  defaultValue="todas"
+                >
                   <option value="todas">Todos</option>
                   <option value="con">Con Email</option>
                   <option value="sin">Sin Email</option>
@@ -323,10 +388,18 @@ export default function ProveedoresPage() {
               </div>
             </div>
             <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-              <button className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm" onClick={() => {}}>
+              <button
+                className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm"
+                onClick={() => {}}
+              >
                 <X className="h-3.5 w-3.5" /> Borrar filtros
               </button>
-              <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenFiltros(false)}>Cerrar</button>
+              <button
+                className="rounded border px-3 py-1 text-sm"
+                onClick={() => setOpenFiltros(false)}
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
@@ -338,7 +411,9 @@ export default function ProveedoresPage() {
             <h2 className="text-xl font-semibold">
               {editing.idProveedor ? "Editar proveedor" : "Nuevo proveedor"}
             </h2>
-            {errors.form && <div className="text-red-600 text-sm">{errors.form}</div>}
+            {errors.form && (
+              <div className="text-red-600 text-sm">{errors.form}</div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -346,9 +421,14 @@ export default function ProveedoresPage() {
                 <Input
                   value={editing.nombreProveedor || ""}
                   onChange={(e) =>
-                    setEditing((s) => ({ ...s!, nombreProveedor: e.target.value }))
+                    setEditing((s) => ({
+                      ...s!,
+                      nombreProveedor: e.target.value,
+                    }))
                   }
-                  className={errors.nombreProveedor ? "border-red-500" : undefined}
+                  className={
+                    errors.nombreProveedor ? "border-red-500" : undefined
+                  }
                 />
               </div>
               <div>
@@ -356,7 +436,10 @@ export default function ProveedoresPage() {
                 <Input
                   value={editing.CIF_NIFProveedor?.toString() || ""}
                   onChange={(e) =>
-                    setEditing((s) => ({ ...s!, CIF_NIFProveedor: e.target.value }))
+                    setEditing((s) => ({
+                      ...s!,
+                      CIF_NIFProveedor: e.target.value,
+                    }))
                   }
                 />
               </div>
@@ -365,7 +448,10 @@ export default function ProveedoresPage() {
                 <Input
                   value={editing.telefonoProveedor?.toString() || ""}
                   onChange={(e) =>
-                    setEditing((s) => ({ ...s!, telefonoProveedor: e.target.value }))
+                    setEditing((s) => ({
+                      ...s!,
+                      telefonoProveedor: e.target.value,
+                    }))
                   }
                 />
               </div>
@@ -375,7 +461,10 @@ export default function ProveedoresPage() {
                   type="email"
                   value={editing.mailProveedor || ""}
                   onChange={(e) =>
-                    setEditing((s) => ({ ...s!, mailProveedor: e.target.value }))
+                    setEditing((s) => ({
+                      ...s!,
+                      mailProveedor: e.target.value,
+                    }))
                   }
                 />
               </div>
@@ -384,7 +473,10 @@ export default function ProveedoresPage() {
                 <Input
                   value={editing.observacionProveedor || ""}
                   onChange={(e) =>
-                    setEditing((s) => ({ ...s!, observacionProveedor: e.target.value }))
+                    setEditing((s) => ({
+                      ...s!,
+                      observacionProveedor: e.target.value,
+                    }))
                   }
                 />
               </div>
@@ -402,21 +494,32 @@ export default function ProveedoresPage() {
 
       {openView && viewItem && (
         <>
-          <div className="fixed inset-0 z-40 bg-black/20" onClick={() => setOpenView(false)} />
+          <div
+            className="fixed inset-0 z-40 bg-black/20"
+            onClick={() => setOpenView(false)}
+          />
           <div className="fixed inset-0 z-50 p-0 md:p-4">
             <div className="h-full flex items-center justify-center">
               <div className="mx-auto w-full max-w-2xl md:rounded-2xl border bg-white shadow-xl">
                 {/* Header estilizado */}
                 <div className="relative px-6 py-5 border-b bg-gradient-to-r from-slate-50 to-white">
-                  <button onClick={() => setOpenView(false)} className="absolute right-3 top-3 p-2 rounded hover:bg-gray-100" aria-label="Cerrar">
+                  <button
+                    onClick={() => setOpenView(false)}
+                    className="absolute right-3 top-3 p-2 rounded hover:bg-gray-100"
+                    aria-label="Cerrar"
+                  >
                     <X className="h-4 w-4" />
                   </button>
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-full bg-black text-white flex items-center justify-center font-semibold">
-                      {(viewItem.nombreProveedor || "?").charAt(0).toUpperCase()}
+                      {(viewItem.nombreProveedor || "?")
+                        .charAt(0)
+                        .toUpperCase()}
                     </div>
                     <div>
-                      <h3 className="text-lg font-semibold">{viewItem.nombreProveedor}</h3>
+                      <h3 className="text-lg font-semibold">
+                        {viewItem.nombreProveedor}
+                      </h3>
                       <div className="flex items-center gap-2">
                         <p className="text-xs text-gray-500">Proveedor</p>
                         {viewItem.CIF_NIFProveedor ? (
@@ -424,7 +527,8 @@ export default function ProveedoresPage() {
                             className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] text-gray-700 bg-gray-50 max-w-xs truncate"
                             title={String(fmtCifNif(viewItem.CIF_NIFProveedor))}
                           >
-                            <IdCard className="h-3 w-3" /> {fmtCifNif(viewItem.CIF_NIFProveedor)}
+                            <IdCard className="h-3 w-3" />{" "}
+                            {fmtCifNif(viewItem.CIF_NIFProveedor)}
                           </span>
                         ) : null}
                       </div>
@@ -442,13 +546,16 @@ export default function ProveedoresPage() {
                       </div>
                       {viewItem.telefonoProveedor ? (
                         <a
-                      href={`tel:${normPhone(viewItem.telefonoProveedor)}`}
-                      className="mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs text-gray-700 bg-gray-50"
-                      >
-                        <Phone className="h-3 w-3" /> {fmtPhone(viewItem.telefonoProveedor)}
-                      </a>
+                          href={`tel:${normPhone(viewItem.telefonoProveedor)}`}
+                          className="mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs text-gray-700 bg-gray-50"
+                        >
+                          <Phone className="h-3 w-3" />{" "}
+                          {fmtPhone(viewItem.telefonoProveedor)}
+                        </a>
                       ) : (
-                        <p className="mt-2 text-sm text-gray-400">No especificado</p>
+                        <p className="mt-2 text-sm text-gray-400">
+                          No especificado
+                        </p>
                       )}
                     </div>
                     <div className="rounded-lg border p-4">
@@ -457,8 +564,14 @@ export default function ProveedoresPage() {
                         <span className="text-sm font-medium">Email</span>
                       </div>
                       <p
-                        className={`mt-2 text-sm ${viewItem.mailProveedor ? "text-gray-900" : "text-gray-400"} break-words`}
-                        title={String(viewItem.mailProveedor || "No especificado")}
+                        className={`mt-2 text-sm ${
+                          viewItem.mailProveedor
+                            ? "text-gray-900"
+                            : "text-gray-400"
+                        } break-words`}
+                        title={String(
+                          viewItem.mailProveedor || "No especificado"
+                        )}
                       >
                         {viewItem.mailProveedor || "No especificado"}
                       </p>
@@ -471,8 +584,15 @@ export default function ProveedoresPage() {
                       <Info className="h-4 w-4" />
                       <span className="text-sm font-medium">Observación</span>
                     </div>
-                    <p className={`mt-2 text-sm ${viewItem.observacionProveedor ? "text-gray-900" : "text-gray-400"} break-words`}
-                      title={String(viewItem.observacionProveedor || "Sin observaciones")}
+                    <p
+                      className={`mt-2 text-sm ${
+                        viewItem.observacionProveedor
+                          ? "text-gray-900"
+                          : "text-gray-400"
+                      } break-words`}
+                      title={String(
+                        viewItem.observacionProveedor || "Sin observaciones"
+                      )}
                     >
                       {viewItem.observacionProveedor || "Sin observaciones"}
                     </p>

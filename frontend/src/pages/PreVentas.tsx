@@ -312,6 +312,11 @@ export default function PreVentas() {
                     motivoCancelacion:
                       motivo && motivo.length > 0 ? motivo : null,
                   });
+                  await showAlert({
+                    type: "success",
+                    title: "Éxito",
+                    message: "Presupuesto cancelado con éxito",
+                  });
                   await load(q);
                 }}
                 title="Cancelar presupuesto"
@@ -639,6 +644,11 @@ export default function PreVentas() {
                     }
                     setOpenReservaId(null);
                     await load(q);
+                    await showAlert({
+                      type: "success",
+                      title: "Éxito",
+                      message: "Presupuesto marcado como reservado",
+                    });
                   } catch (err) {
                     console.error(err);
                   }
@@ -1851,8 +1861,18 @@ function PreventaForm({
     try {
       if (isEdit) {
         await api.put(`/preventas/${id}`, payload);
+        await showAlert({
+          type: "success",
+          title: "Éxito",
+          message: "Presupuesto actualizado con éxito",
+        });
       } else {
         await api.post("/preventas", payload);
+        await showAlert({
+          type: "success",
+          title: "Éxito",
+          message: "Presupuesto creado con éxito",
+        });
       }
       onClose(true);
     } catch (err: any) {}

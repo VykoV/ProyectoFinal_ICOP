@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { fmtPrice } from "../lib/format";
 import { useAuth } from "../context/AuthContext";
-import { listMonedas, updateMoneda, createMoneda, deleteMoneda } from "../lib/api/monedas";
+import {
+  listMonedas,
+  updateMoneda,
+  createMoneda,
+  deleteMoneda,
+} from "../lib/api/monedas";
 import { showAlert, askConfirm } from "../lib/alerts";
 import type { MonedaRow } from "../lib/api/monedas";
 import Modal from "../components/Modal";
@@ -13,7 +18,11 @@ function HoursBadge({ updatedAt }: { updatedAt?: string | null }) {
   const diffMs = Date.now() - new Date(updatedAt).getTime();
   const hours = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
   return (
-    <span className={`rounded-full px-2 py-1 text-xs font-medium ${hours >= 24 ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"}`}>
+    <span
+      className={`rounded-full px-2 py-1 text-xs font-medium ${
+        hours >= 24 ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"
+      }`}
+    >
       Actualizada hace {hours} h
     </span>
   );
@@ -69,17 +78,35 @@ export default function Monedas() {
   }
 
   async function eliminarMoneda(r: MonedaRow) {
-    const ok = await askConfirm({ title: "Eliminar moneda", message: `¿Eliminar moneda ${r.nombre}?` });
+    const ok = await askConfirm({
+      title: "Eliminar moneda",
+      message: `¿Eliminar moneda ${r.nombre}?`,
+    });
     if (!ok) return;
     try {
       await deleteMoneda(r.id);
       await load();
-      await showAlert({ title: "Éxito", type: "success", message: "Moneda eliminada" });
+      await showAlert({
+        title: "Éxito",
+        type: "success",
+        message: "Moneda eliminada",
+      });
     } catch (err: unknown) {
-      const resp = (err as { response?: { status?: number; data?: { error?: string; details?: { compras?: number; ventas?: number } } } }).response;
+      const resp = (
+        err as {
+          response?: {
+            status?: number;
+            data?: {
+              error?: string;
+              details?: { compras?: number; ventas?: number };
+            };
+          };
+        }
+      ).response;
       const code: string | undefined = resp?.data?.error;
       const status: number | undefined = resp?.status;
-      const details: { compras?: number; ventas?: number } | undefined = resp?.data?.details;
+      const details: { compras?: number; ventas?: number } | undefined =
+        resp?.data?.details;
       let message: string;
       if (status === 409 && code === "MONEDA_EN_USO") {
         const compras = Number(details?.compras ?? 0);
@@ -88,12 +115,21 @@ export default function Monedas() {
         if (compras > 0) lines.push(`Compras asociadas: ${compras}`);
         if (ventas > 0) lines.push(`Ventas asociadas: ${ventas}`);
         message = lines.length
-          ? `No se puede eliminar la moneda porque tiene actividad registrada:\n${lines.join("\n")}`
+          ? `No se puede eliminar la moneda porque tiene actividad registrada:\n${lines.join(
+              "\n"
+            )}`
           : "No se puede eliminar la moneda porque tiene actividad registrada en el sistema.";
       } else {
-        message = resp?.data?.error || (err as any)?.message || "No se pudo eliminar la moneda";
+        message =
+          resp?.data?.error ||
+          (err as any)?.message ||
+          "No se pudo eliminar la moneda";
       }
-      await showAlert({ title: "No se puede eliminar", type: "error", message });
+      await showAlert({
+        title: "No se puede eliminar",
+        type: "error",
+        message,
+      });
     }
   }
 
@@ -125,18 +161,26 @@ export default function Monedas() {
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-3 py-3 text-gray-600" colSpan={4}>Cargando…</td>
+                <td className="px-3 py-3 text-gray-600" colSpan={4}>
+                  Cargando…
+                </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="px-3 py-3 text-gray-600" colSpan={4}>Sin monedas</td>
+                <td className="px-3 py-3 text-gray-600" colSpan={4}>
+                  Sin monedas
+                </td>
               </tr>
             ) : (
               rows.map((r) => (
                 <tr key={r.id} className="border-t">
                   <td className="px-3 py-2">{r.nombre}</td>
-                  <td className="px-3 py-2 text-right">${fmtPrice(r.precio, { minFraction: 2, maxFraction: 2 })}</td>
-                  <td className="px-3 py-2"><HoursBadge updatedAt={r.updatedAt} /></td>
+                  <td className="px-3 py-2 text-right">
+                    ${fmtPrice(r.precio, { minFraction: 2, maxFraction: 2 })}
+                  </td>
+                  <td className="px-3 py-2">
+                    <HoursBadge updatedAt={r.updatedAt} />
+                  </td>
                   <td className="px-3 py-2 text-center">
                     {hasRole("Administrador") ? (
                       <div className="flex items-center justify-center gap-2">
@@ -156,7 +200,9 @@ export default function Monedas() {
                         </button>
                       </div>
                     ) : (
-                      <span className="text-xs text-gray-500">Solo lectura</span>
+                      <span className="text-xs text-gray-500">
+                        Solo lectura
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -174,7 +220,10 @@ export default function Monedas() {
         centered
         footer={
           <div className="flex items-center justify-end gap-2">
-            <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenNew(false)}>
+            <button
+              className="rounded border px-3 py-1 text-sm"
+              onClick={() => setOpenNew(false)}
+            >
               Cancelar
             </button>
             <button
@@ -197,8 +246,17 @@ export default function Monedas() {
                   await createMoneda(nombre, precio);
                   setOpenNew(false);
                   await load();
+                  await showAlert({
+                    title: "Éxito",
+                    type: "success",
+                    message: "Moneda creada con éxito",
+                  });
                 } catch (e: any) {
-                  setErrNew(e?.response?.data?.error || e?.message || "No se pudo crear la moneda");
+                  setErrNew(
+                    e?.response?.data?.error ||
+                      e?.message ||
+                      "No se pudo crear la moneda"
+                  );
                 } finally {
                   setSavingNew(false);
                 }
@@ -212,11 +270,22 @@ export default function Monedas() {
         <form className="space-y-3" onSubmit={(e) => e.preventDefault()}>
           <div>
             <Label htmlFor="mNombre">Nombre</Label>
-            <Input id="mNombre" value={nombreNew} onChange={(e) => setNombreNew(e.target.value)} placeholder="Ej: USD" />
+            <Input
+              id="mNombre"
+              value={nombreNew}
+              onChange={(e) => setNombreNew(e.target.value)}
+              placeholder="Ej: USD"
+            />
           </div>
           <div>
             <Label htmlFor="mPrecio">Precio</Label>
-            <Input id="mPrecio" type="number" step="0.01" value={precioNew} onChange={(e) => setPrecioNew(e.target.value)} />
+            <Input
+              id="mPrecio"
+              type="number"
+              step="0.01"
+              value={precioNew}
+              onChange={(e) => setPrecioNew(e.target.value)}
+            />
           </div>
           <FieldError message={errNew ?? undefined} />
         </form>
@@ -230,7 +299,10 @@ export default function Monedas() {
         centered
         footer={
           <div className="flex items-center justify-end gap-2">
-            <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenEdit(false)}>
+            <button
+              className="rounded border px-3 py-1 text-sm"
+              onClick={() => setOpenEdit(false)}
+            >
               Cancelar
             </button>
             <button
@@ -254,8 +326,17 @@ export default function Monedas() {
                   await updateMoneda(current.id, { nombre, precio });
                   setOpenEdit(false);
                   await load();
+                  await showAlert({
+                    title: "Éxito",
+                    type: "success",
+                    message: "Moneda actualizada con éxito",
+                  });
                 } catch (e: any) {
-                  setErrEdit(e?.response?.data?.error || e?.message || "No se pudo actualizar la moneda");
+                  setErrEdit(
+                    e?.response?.data?.error ||
+                      e?.message ||
+                      "No se pudo actualizar la moneda"
+                  );
                 } finally {
                   setSavingEdit(false);
                 }
@@ -269,11 +350,21 @@ export default function Monedas() {
         <form className="space-y-3" onSubmit={(e) => e.preventDefault()}>
           <div>
             <Label htmlFor="eNombre">Nombre</Label>
-            <Input id="eNombre" value={editNombre} onChange={(e) => setEditNombre(e.target.value)} />
+            <Input
+              id="eNombre"
+              value={editNombre}
+              onChange={(e) => setEditNombre(e.target.value)}
+            />
           </div>
           <div>
             <Label htmlFor="ePrecio">Precio</Label>
-            <Input id="ePrecio" type="number" step="0.01" value={editPrecio} onChange={(e) => setEditPrecio(e.target.value)} />
+            <Input
+              id="ePrecio"
+              type="number"
+              step="0.01"
+              value={editPrecio}
+              onChange={(e) => setEditPrecio(e.target.value)}
+            />
           </div>
           <FieldError message={errEdit ?? undefined} />
         </form>

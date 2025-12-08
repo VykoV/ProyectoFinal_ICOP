@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { Eye, Search, Plus, Trash2, X, Pencil, Check, Lock } from "lucide-react";
+import {
+  Eye,
+  Search,
+  Plus,
+  Trash2,
+  X,
+  Pencil,
+  Check,
+  Lock,
+} from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "../components/DataTable";
 import { Label, Input, Select } from "../components/ui/Form";
@@ -12,7 +21,7 @@ import { showAlert, askConfirm } from "../lib/alerts";
 type CompraRow = {
   id: number;
   proveedor: string;
-  fecha: string;            // fechaComprobanteCompra YYYY-MM-DD
+  fecha: string; // fechaComprobanteCompra YYYY-MM-DD
   nroFactura: string;
   metodoPago?: string | null;
   moneda?: string | null;
@@ -35,7 +44,7 @@ export default function Compras() {
   const [rows, setRows] = useState<CompraRow[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const [q, setQ] = useState("");                 // busca proveedor o nro factura
+  const [q, setQ] = useState(""); // busca proveedor o nro factura
   const [desde, setDesde] = useState<string>("");
   const [hasta, setHasta] = useState<string>("");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -54,16 +63,27 @@ export default function Compras() {
     setSortDir((sp.get("cSort") as any) === "asc" ? "asc" : "desc");
     setPage(Math.max(1, Number(sp.get("cPage")) || 1));
   }
-  function writeParams(next?: Partial<{ q: string; cDesde: string; cHasta: string; cSort: "asc" | "desc"; cPage: number }>) {
+  function writeParams(
+    next?: Partial<{
+      q: string;
+      cDesde: string;
+      cHasta: string;
+      cSort: "asc" | "desc";
+      cPage: number;
+    }>
+  ) {
     const sp = new URLSearchParams(window.location.search);
     const qv = next?.q ?? q;
     const dsd = next?.cDesde ?? desde;
     const hst = next?.cHasta ?? hasta;
     const srt = next?.cSort ?? sortDir;
-    const pg  = next?.cPage ?? page;
-    if (qv) sp.set("q", qv); else sp.delete("q");
-    if (dsd) sp.set("cDesde", dsd); else sp.delete("cDesde");
-    if (hst) sp.set("cHasta", hst); else sp.delete("cHasta");
+    const pg = next?.cPage ?? page;
+    if (qv) sp.set("q", qv);
+    else sp.delete("q");
+    if (dsd) sp.set("cDesde", dsd);
+    else sp.delete("cDesde");
+    if (hst) sp.set("cHasta", hst);
+    else sp.delete("cHasta");
     sp.set("cSort", srt);
     sp.set("cPage", String(pg));
     window.history.replaceState(null, "", `?${sp.toString()}`);
@@ -107,146 +127,222 @@ export default function Compras() {
     }
   }
 
-  useEffect(() => { readParams(); load(); }, []);
-  useEffect(() => { writeParams(); }, [q, desde, hasta, sortDir, page]);
+  useEffect(() => {
+    readParams();
+    load();
+  }, []);
+  useEffect(() => {
+    writeParams();
+  }, [q, desde, hasta, sortDir, page]);
 
-  const columns: ColumnDef<CompraRow>[] = useMemo(() => [
-    { header: "N°", accessorKey: "id", size: 60 },
-    { header: "Proveedor", accessorKey: "proveedor" },
-    { header: "Fecha", accessorKey: "fecha" },
-    { header: "Factura", accessorKey: "nroFactura", meta: { cellAlign: "right" } },
-    { header: "Método de pago", accessorKey: "metodoPago" },
-    { header: "Moneda", accessorKey: "moneda" },
-    {
-      header: "Estado",
-      cell: ({ row }) => {
-        const raw = row.original.estado || "PendientePago";
-        const n = raw.toLowerCase();
-        const cls = n.includes("pend") ? "bg-yellow-100 text-yellow-800"
-                 : n.includes("final") ? "bg-green-100 text-green-800"
-                 : "bg-gray-100 text-gray-800";
-        return <span className={`rounded-full px-2 py-1 text-xs font-medium ${cls}`}>{raw}</span>;
-      }
-    },
-    {
-      header: "Total",
-      meta: { headerAlign: "right" },
-      cell: ({ row }) => (
-        <span className="block text-right">${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}</span>
-      ),
-    },
-    {
-      header: "Acciones",
-      id: "acciones",
-      size: 280,
-      cell: ({ row }) => {
-        const isPendiente = (row.original.estado || "").toLowerCase().includes("pend");
-        const canEdit = isPendiente && !row.original.bloqueada;
-        return (
-          <div className="flex items-center gap-2">
-            <button className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-              onClick={() => setOpenView(row.original.id)} title="Ver">
-              <Eye className="h-3.5 w-3.5" /> Ver
-            </button>
-
-            {canEdit && (
-              <button className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
-                onClick={() => setOpenForm(row.original.id)} title="Editar">
-                <Pencil className="h-3.5 w-3.5" /> Editar
+  const columns: ColumnDef<CompraRow>[] = useMemo(
+    () => [
+      { header: "N°", accessorKey: "id", size: 60 },
+      { header: "Proveedor", accessorKey: "proveedor" },
+      { header: "Fecha", accessorKey: "fecha" },
+      {
+        header: "Factura",
+        accessorKey: "nroFactura",
+        meta: { cellAlign: "right" },
+      },
+      { header: "Método de pago", accessorKey: "metodoPago" },
+      { header: "Moneda", accessorKey: "moneda" },
+      {
+        header: "Estado",
+        cell: ({ row }) => {
+          const raw = row.original.estado || "PendientePago";
+          const n = raw.toLowerCase();
+          const cls = n.includes("pend")
+            ? "bg-yellow-100 text-yellow-800"
+            : n.includes("final")
+            ? "bg-green-100 text-green-800"
+            : "bg-gray-100 text-gray-800";
+          return (
+            <span
+              className={`rounded-full px-2 py-1 text-xs font-medium ${cls}`}
+            >
+              {raw}
+            </span>
+          );
+        },
+      },
+      {
+        header: "Total",
+        meta: { headerAlign: "right" },
+        cell: ({ row }) => (
+          <span className="block text-right">
+            ${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}
+          </span>
+        ),
+      },
+      {
+        header: "Acciones",
+        id: "acciones",
+        size: 280,
+        cell: ({ row }) => {
+          const isPendiente = (row.original.estado || "")
+            .toLowerCase()
+            .includes("pend");
+          const canEdit = isPendiente && !row.original.bloqueada;
+          return (
+            <div className="flex items-center gap-2">
+              <button
+                className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                onClick={() => setOpenView(row.original.id)}
+                title="Ver"
+              >
+                <Eye className="h-3.5 w-3.5" /> Ver
               </button>
-            )}
 
-            {canEdit && (
-              <button className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
-                onClick={async () => {
-                  const ok = await askConfirm({
-                    title: "Finalizar edición",
-                    message: "¿Finalizar edición y aplicar stock? Se bloqueará la edición y NO se modificará el estado.",
-                    confirmText: "Sí",
-                    cancelText: "No",
-                  });
-                  if (!ok) return;
-                  try {
-                    await api.post(`/compras/${row.original.id}/aplicar-stock`, {});
-                    await showAlert({ type: "success", message: "Edición finalizada y stock aplicado" });
-                    await load();
-                  } catch (e: any) {
-                    await showAlert({ type: "error", message: e?.response?.data?.error || e?.message || "No se pudo finalizar la edición y aplicar stock" });
-                  }
-                }}
-                title="Finalizar edición">
-                <Lock className="h-3.5 w-3.5" /> Finalizar edición
-              </button>
-            )}
+              {canEdit && (
+                <button
+                  className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+                  onClick={() => setOpenForm(row.original.id)}
+                  title="Editar"
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Editar
+                </button>
+              )}
 
-            {isPendiente && row.original.bloqueada && (
-              <button className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
-                onClick={async () => {
-                  const ok = await askConfirm({
-                    title: "Pago finalizado",
-                    message: "Marcar pago finalizado (solo cambia estado).",
-                    confirmText: "Sí",
-                    cancelText: "No",
-                  });
-                  if (!ok) return;
-                  try {
-                    await api.post(`/compras/${row.original.id}/confirmar`, {});
-                    await showAlert({ type: "success", message: "Compra marcada como finalizada" });
-                    await load();
-                  } catch (e:any) {
-                    await showAlert({ type: "error", message: e?.response?.data?.error || e?.message || "No se pudo confirmar el pago" });
-                  }
-                }}
-                title="Pago finalizado">
-                <Check className="h-3.5 w-3.5" /> Pago finalizado
-              </button>
-            )}
+              {canEdit && (
+                <button
+                  className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+                  onClick={async () => {
+                    const ok = await askConfirm({
+                      title: "Finalizar edición",
+                      message:
+                        "¿Finalizar edición y aplicar stock? Se bloqueará la edición y NO se modificará el estado.",
+                      confirmText: "Sí",
+                      cancelText: "No",
+                    });
+                    if (!ok) return;
+                    try {
+                      await api.post(
+                        `/compras/${row.original.id}/aplicar-stock`,
+                        {}
+                      );
+                      await showAlert({
+                        type: "success",
+                        message: "Edición finalizada y stock aplicado",
+                      });
+                      await load();
+                    } catch (e: any) {
+                      await showAlert({
+                        type: "error",
+                        message:
+                          e?.response?.data?.error ||
+                          e?.message ||
+                          "No se pudo finalizar la edición y aplicar stock",
+                      });
+                    }
+                  }}
+                  title="Finalizar edición"
+                >
+                  <Lock className="h-3.5 w-3.5" /> Finalizar edición
+                </button>
+              )}
 
-            {canEdit && (
-              <button className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
-                onClick={async () => {
-                  const ok = await askConfirm({
-                    title: "Eliminar compra",
-                    message: "¿Eliminar compra en Pendiente de pago?",
-                    confirmText: "Sí",
-                    cancelText: "No",
-                  });
-                  if (!ok) return;
-                  try {
-                    await api.delete(`/compras/${row.original.id}`);
-                    await showAlert({ type: "success", message: "Compra eliminada" });
-                    await load();
-                  } catch (e:any) {
-                    await showAlert({ type: "error", message: e?.response?.data?.error || e?.message || "No se pudo eliminar la compra" });
-                  }
-                }}
-                title="Eliminar compra">
-                <Trash2 className="h-3.5 w-3.5" /> Eliminar
-              </button>
-            )}
-          </div>
-        );
-      }
-    }
-  ], []); // eslint-disable-line
+              {isPendiente && row.original.bloqueada && (
+                <button
+                  className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+                  onClick={async () => {
+                    const ok = await askConfirm({
+                      title: "Pago finalizado",
+                      message: "Marcar pago finalizado (solo cambia estado).",
+                      confirmText: "Sí",
+                      cancelText: "No",
+                    });
+                    if (!ok) return;
+                    try {
+                      await api.post(
+                        `/compras/${row.original.id}/confirmar`,
+                        {}
+                      );
+                      await showAlert({
+                        type: "success",
+                        message: "Compra marcada como finalizada",
+                      });
+                      await load();
+                    } catch (e: any) {
+                      await showAlert({
+                        type: "error",
+                        message:
+                          e?.response?.data?.error ||
+                          e?.message ||
+                          "No se pudo confirmar el pago",
+                      });
+                    }
+                  }}
+                  title="Pago finalizado"
+                >
+                  <Check className="h-3.5 w-3.5" /> Pago finalizado
+                </button>
+              )}
+
+              {canEdit && (
+                <button
+                  className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+                  onClick={async () => {
+                    const ok = await askConfirm({
+                      title: "Eliminar compra",
+                      message: "¿Eliminar compra en Pendiente de pago?",
+                      confirmText: "Sí",
+                      cancelText: "No",
+                    });
+                    if (!ok) return;
+                    try {
+                      await api.delete(`/compras/${row.original.id}`);
+                      await showAlert({
+                        type: "success",
+                        message: "Compra eliminada",
+                      });
+                      await load();
+                    } catch (e: any) {
+                      await showAlert({
+                        type: "error",
+                        message:
+                          e?.response?.data?.error ||
+                          e?.message ||
+                          "No se pudo eliminar la compra",
+                      });
+                    }
+                  }}
+                  title="Eliminar compra"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Eliminar
+                </button>
+              )}
+            </div>
+          );
+        },
+      },
+    ],
+    []
+  ); // eslint-disable-line
 
   // filtros y paginado en cliente como preventas
-  const rowsFiltered = rows.filter(r => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return true;
-    const hay = [r.proveedor, r.nroFactura, r.metodoPago, r.moneda].some(f =>
-      String(f || "").toLowerCase().includes(needle)
-    );
-    return hay;
-  }).filter(r => {
-    const f = String(r.fecha || "").slice(0, 10);
-    if (desde && f < desde) return false;
-    if (hasta && f > hasta) return false;
-    return true;
-  });
+  const rowsFiltered = rows
+    .filter((r) => {
+      const needle = q.trim().toLowerCase();
+      if (!needle) return true;
+      const hay = [r.proveedor, r.nroFactura, r.metodoPago, r.moneda].some(
+        (f) =>
+          String(f || "")
+            .toLowerCase()
+            .includes(needle)
+      );
+      return hay;
+    })
+    .filter((r) => {
+      const f = String(r.fecha || "").slice(0, 10);
+      if (desde && f < desde) return false;
+      if (hasta && f > hasta) return false;
+      return true;
+    });
 
-  const rowsSorted = [...rowsFiltered].sort((a,b) => {
-    const va = a.fecha, vb = b.fecha;
+  const rowsSorted = [...rowsFiltered].sort((a, b) => {
+    const va = a.fecha,
+      vb = b.fecha;
     if (va === vb) return 0;
     const cmp = va < vb ? -1 : 1;
     return sortDir === "asc" ? cmp : -cmp;
@@ -279,11 +375,18 @@ export default function Compras() {
             placeholder="Buscar por proveedor, factura, pago o moneda…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Escape") setQ(""); }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setQ("");
+            }}
           />
         </div>
 
-        <button className="rounded border px-3 py-2" onClick={() => setOpenFiltros(true)}>Filtros</button>
+        <button
+          className="rounded border px-3 py-2"
+          onClick={() => setOpenFiltros(true)}
+        >
+          Filtros
+        </button>
         <span className="ml-auto text-xs text-gray-600">
           Mostrando {total === 0 ? 0 : startIdx + 1}–{endIdx} de {total}
         </span>
@@ -294,24 +397,41 @@ export default function Compras() {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg md:max-w-xl lg:max-w-2xl">
             <div className="flex items-center justify-between border-b px-4 py-2">
               <h2 className="text-sm font-medium">Filtros de Compras</h2>
-              <button className="rounded border px-2 py-1 text-xs" onClick={() => setOpenFiltros(false)}>
+              <button
+                className="rounded border px-2 py-1 text-xs"
+                onClick={() => setOpenFiltros(false)}
+              >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
             <div className="p-4 space-y-4">
               <div className="flex items-center gap-2">
                 <span className="text-gray-600">Fecha desde</span>
-                <input type="date" className="rounded border px-2 py-1"
+                <input
+                  type="date"
+                  className="rounded border px-2 py-1"
                   value={desde}
-                  onChange={(e)=>{ setDesde(e.target.value); setPage(1); }} />
+                  onChange={(e) => {
+                    setDesde(e.target.value);
+                    setPage(1);
+                  }}
+                />
                 <span className="text-gray-600">hasta</span>
-                <input type="date" className="rounded border px-2 py-1"
+                <input
+                  type="date"
+                  className="rounded border px-2 py-1"
                   value={hasta}
-                  onChange={(e)=>{ setHasta(e.target.value); setPage(1); }} />
+                  onChange={(e) => {
+                    setHasta(e.target.value);
+                    setPage(1);
+                  }}
+                />
                 <span className="text-gray-600 ml-auto">Orden</span>
-                <select className="rounded border px-2 py-1"
+                <select
+                  className="rounded border px-2 py-1"
                   value={sortDir}
-                  onChange={(e)=> setSortDir(e.target.value as "asc"|"desc")}>
+                  onChange={(e) => setSortDir(e.target.value as "asc" | "desc")}
+                >
                   <option value="desc">Descendente</option>
                   <option value="asc">Ascendente</option>
                 </select>
@@ -320,11 +440,22 @@ export default function Compras() {
             <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
               <button
                 className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm"
-                onClick={() => { setDesde(""); setHasta(""); setSortDir("desc"); setPage(1); setQ(""); }}
+                onClick={() => {
+                  setDesde("");
+                  setHasta("");
+                  setSortDir("desc");
+                  setPage(1);
+                  setQ("");
+                }}
               >
                 <X className="h-3.5 w-3.5" /> Borrar filtros
               </button>
-              <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenFiltros(false)}>Cerrar</button>
+              <button
+                className="rounded border px-3 py-1 text-sm"
+                onClick={() => setOpenFiltros(false)}
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
@@ -337,14 +468,18 @@ export default function Compras() {
           <DataTable columns={columns} data={pageRows} />
           <div className="flex items-center justify-between mt-2 text-sm">
             <div className="flex items-center gap-2">
-              <button className="border px-2 py-1 rounded disabled:opacity-50"
+              <button
+                className="border px-2 py-1 rounded disabled:opacity-50"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={safePage <= 1}>
+                disabled={safePage <= 1}
+              >
                 Anterior
               </button>
-              <button className="border px-2 py-1 rounded disabled:opacity-50"
+              <button
+                className="border px-2 py-1 rounded disabled:opacity-50"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={safePage >= totalPages}>
+                disabled={safePage >= totalPages}
+              >
                 Siguiente
               </button>
             </div>
@@ -352,10 +487,15 @@ export default function Compras() {
               <span>Página</span>
               <input
                 className="w-16 rounded border px-2 py-1"
-                type="number" min={1} max={totalPages}
+                type="number"
+                min={1}
+                max={totalPages}
                 value={safePage}
                 onChange={(e) => {
-                  const v = Math.max(1, Math.min(totalPages, Number(e.target.value) || 1));
+                  const v = Math.max(
+                    1,
+                    Math.min(totalPages, Number(e.target.value) || 1)
+                  );
                   setPage(v);
                 }}
               />
@@ -388,7 +528,13 @@ export default function Compras() {
 }
 
 /* ===== Modal Ver ===== */
-function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) => void; }) {
+function CompraView({
+  id,
+  onClose,
+}: {
+  id: number;
+  onClose: (reload?: boolean) => void;
+}) {
   const [compra, setCompra] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -401,7 +547,9 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
       setLoading(false);
     }
   }
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    load();
+  }, [id]);
 
   const items: any[] = compra?.detalles ?? [];
 
@@ -413,13 +561,15 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
     return { base, iva };
   }
   const resumen = useMemo(() => {
-    let base = 0, iva = 0, bruto = 0;
-    items.forEach((d:any) => {
+    let base = 0,
+      iva = 0,
+      bruto = 0;
+    items.forEach((d: any) => {
       const cant = Number(d.cantidad ?? 0);
       const pu = Number(d.precioUnit ?? 0);
       const s = splitIVA(pu, IVA_PCT_DEFAULT);
       base += cant * s.base;
-      iva  += cant * s.iva;
+      iva += cant * s.iva;
       bruto += cant * pu;
     });
     return { base, iva, bruto };
@@ -427,12 +577,19 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/20" onClick={() => onClose()} />
+      <div
+        className="fixed inset-0 z-40 bg-black/20"
+        onClick={() => onClose()}
+      />
       <div className="fixed inset-0 z-50 p-0 md:p-4">
         <div className="mx-auto w-full max-w-3xl md:rounded-2xl border bg-white shadow-xl flex flex-col max-h-[90vh]">
           <div className="flex items-center justify-between px-4 py-3 border-b">
             <h3 className="text-base font-semibold">Detalle de Compra #{id}</h3>
-            <button onClick={() => onClose()} className="p-2 rounded hover:bg-gray-100" aria-label="Cerrar">
+            <button
+              onClick={() => onClose()}
+              className="p-2 rounded hover:bg-gray-100"
+              aria-label="Cerrar"
+            >
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -445,19 +602,36 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
                 <div className="grid grid-cols-2 gap-3 mt-2">
                   <div>
                     <p className="text-gray-500 text-xs">Fecha</p>
-                    <p className="font-medium">{loading ? "..." : String(compra?.fechaComprobanteCompra ?? "").slice(0,10)}</p>
+                    <p className="font-medium">
+                      {loading
+                        ? "..."
+                        : String(compra?.fechaComprobanteCompra ?? "").slice(
+                            0,
+                            10
+                          )}
+                    </p>
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs">Factura</p>
-                    <p className="font-medium">{loading ? "..." : compra?.nroFactura ?? "-"}</p>
+                    <p className="font-medium">
+                      {loading ? "..." : compra?.nroFactura ?? "-"}
+                    </p>
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs">Método de pago</p>
-                    <p className="font-medium">{loading ? "..." : compra?.MetodoPago?.metodoPago ?? "-"}</p>
+                    <p className="font-medium">
+                      {loading ? "..." : compra?.MetodoPago?.metodoPago ?? "-"}
+                    </p>
                   </div>
                   <div>
                     <p className="text-gray-500 text-xs">Moneda</p>
-                    <p className="font-medium">{loading ? "..." : compra?.Moneda?.moneda ?? compra?.Moneda?.codigo ?? "-"}</p>
+                    <p className="font-medium">
+                      {loading
+                        ? "..."
+                        : compra?.Moneda?.moneda ??
+                          compra?.Moneda?.codigo ??
+                          "-"}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -473,19 +647,25 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
               {/* Total */}
               <div className="rounded-xl border bg-white p-3">
                 <p className="text-gray-500">Total</p>
-                <p className="font-medium">{loading ? "..." : `$${fmtPrice(Number(compra?.total ?? 0))}`}</p>
+                <p className="font-medium">
+                  {loading ? "..." : `$${fmtPrice(Number(compra?.total ?? 0))}`}
+                </p>
               </div>
 
               {/* Proveedor */}
               <div className="md:col-span-2 rounded-xl border bg-white p-3">
                 <p className="text-gray-500">Proveedor</p>
-                <p className="font-medium">{loading ? "..." : compra?.Proveedor?.nombreProveedor ?? "-"}</p>
+                <p className="font-medium">
+                  {loading ? "..." : compra?.Proveedor?.nombreProveedor ?? "-"}
+                </p>
               </div>
 
               {/* Observación */}
               <div className="md:col-span-2 rounded-xl border bg-white p-3">
                 <p className="text-gray-500">Observación</p>
-                <p className="font-normal">{loading ? "..." : compra?.observacion ?? "-"}</p>
+                <p className="font-normal">
+                  {loading ? "..." : compra?.observacion ?? "-"}
+                </p>
               </div>
             </div>
 
@@ -504,27 +684,60 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
                   </thead>
                   <tbody>
                     {loading ? (
-                      <tr><td className="px-2 py-4 text-center text-gray-500" colSpan={5}>Cargando…</td></tr>
+                      <tr>
+                        <td
+                          className="px-2 py-4 text-center text-gray-500"
+                          colSpan={5}
+                        >
+                          Cargando…
+                        </td>
+                      </tr>
                     ) : items.length > 0 ? (
-                      items.map((d:any, idx:number) => {
+                      items.map((d: any, idx: number) => {
                         const cant = Number(d.cantidad ?? 0);
-                        const pu   = Number(d.precioUnit ?? 0);
-                        const sub  = cant * pu;
+                        const pu = Number(d.precioUnit ?? 0);
+                        const sub = cant * pu;
                         const { base } = splitIVA(pu, IVA_PCT_DEFAULT);
                         return (
-                          <tr key={`${d.idDetalleCompra ?? d.idProducto}-${idx}`} className="border-t">
+                          <tr
+                            key={`${d.idDetalleCompra ?? d.idProducto}-${idx}`}
+                            className="border-t"
+                          >
                             <td className="px-2 py-2">
-                              {d.Producto?.codigoProducto ?? ""} — {d.Producto?.nombreProducto ?? ""}
+                              {d.Producto?.codigoProducto ?? ""} —{" "}
+                              {d.Producto?.nombreProducto ?? ""}
                             </td>
                             <td className="px-2 py-2 text-right">{cant}</td>
-                            <td className="px-2 py-2 text-right">${fmtPrice(pu, { minFraction: 2, maxFraction: 2 })}</td>
-                            <td className="px-2 py-2 text-right">${fmtPrice(base, { minFraction: 2, maxFraction: 2 })}</td>
-                            <td className="px-2 py-2 text-right">${fmtPrice(sub, { minFraction: 2, maxFraction: 2 })}</td>
+                            <td className="px-2 py-2 text-right">
+                              $
+                              {fmtPrice(pu, { minFraction: 2, maxFraction: 2 })}
+                            </td>
+                            <td className="px-2 py-2 text-right">
+                              $
+                              {fmtPrice(base, {
+                                minFraction: 2,
+                                maxFraction: 2,
+                              })}
+                            </td>
+                            <td className="px-2 py-2 text-right">
+                              $
+                              {fmtPrice(sub, {
+                                minFraction: 2,
+                                maxFraction: 2,
+                              })}
+                            </td>
                           </tr>
                         );
                       })
                     ) : (
-                      <tr><td className="px-2 py-4 text-center text-gray-500" colSpan={5}>Sin items</td></tr>
+                      <tr>
+                        <td
+                          className="px-2 py-4 text-center text-gray-500"
+                          colSpan={5}
+                        >
+                          Sin items
+                        </td>
+                      </tr>
                     )}
                   </tbody>
                 </table>
@@ -532,23 +745,34 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
               {/* Resumen: Subtotal neto, IVA y Total */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
                 <div className="rounded-xl border bg-white p-3">
-                  <p className="text-sm text-gray-500">Subtotal neto (sin IVA)</p>
-                  <p className="text-xl font-semibold">${fmtPrice(resumen.base)}</p>
+                  <p className="text-sm text-gray-500">
+                    Subtotal neto (sin IVA)
+                  </p>
+                  <p className="text-xl font-semibold">
+                    ${fmtPrice(resumen.base)}
+                  </p>
                 </div>
                 <div className="rounded-xl border bg-white p-3">
                   <p className="text-sm text-gray-500">IVA</p>
-                  <p className="text-xl font-semibold">${fmtPrice(resumen.iva)}</p>
+                  <p className="text-xl font-semibold">
+                    ${fmtPrice(resumen.iva)}
+                  </p>
                 </div>
                 <div className="rounded-xl border bg-white p-3">
                   <p className="text-sm text-gray-500">Total</p>
-                  <p className="text-xl font-semibold">${fmtPrice(resumen.bruto)}</p>
+                  <p className="text-xl font-semibold">
+                    ${fmtPrice(resumen.bruto)}
+                  </p>
                 </div>
               </div>
             </div>
           </div>
 
           <div className="px-4 py-3 border-t bg-gray-50 flex justify-end">
-            <button onClick={() => onClose()} className="rounded-lg border px-3 py-2 text-xs font-medium bg-white">
+            <button
+              onClick={() => onClose()}
+              className="rounded-lg border px-3 py-2 text-xs font-medium bg-white"
+            >
               Cerrar
             </button>
           </div>
@@ -560,7 +784,13 @@ function CompraView({ id, onClose }: { id: number; onClose: (reload?: boolean) =
 
 /* ===== Modal Crear / Editar ===== */
 const IVA_PCT_DEFAULT = 21;
-function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) => void; }) {
+function CompraForm({
+  id,
+  onClose,
+}: {
+  id?: number;
+  onClose: (reload?: boolean) => void;
+}) {
   const isEdit = !!id;
 
   // catálogos
@@ -573,7 +803,9 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
   const [idMetodoPago, setIdMetodoPago] = useState<string>("");
   const [idMoneda, setIdMoneda] = useState<string>("");
   const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+  const todayStr = `${today.getFullYear()}-${String(
+    today.getMonth() + 1
+  ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const [fecha, setFecha] = useState<string>(todayStr);
   const [nroFactura, setNroFactura] = useState<string>("");
   const [obs, setObs] = useState<string>("");
@@ -595,7 +827,7 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
 
   function splitIVA(pu: number, ivaPct: number) {
     const base = pu / (1 + ivaPct / 100);
-    const iva  = pu - base;
+    const iva = pu - base;
     return { base, iva };
   }
 
@@ -607,7 +839,9 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
       const provAll: any[] = [];
       let pg = 1;
       while (true) {
-        const { data } = await api.get("/proveedores", { params: { page: pg, pageSize } });
+        const { data } = await api.get("/proveedores", {
+          params: { page: pg, pageSize },
+        });
         const chunk = (data?.rows ?? data ?? []) as any[];
         provAll.push(...chunk);
         if (chunk.length < pageSize) break;
@@ -616,11 +850,26 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
       }
       const [mp, mn] = await Promise.all([
         api.get("/metodos-pago"),
-        api.get("/monedas")
+        api.get("/monedas"),
       ]);
-      setProveedores(provAll.map((x:any)=>({ id:x.idProveedor ?? x.id, label:x.nombreProveedor })));
-      setMetodos((mp.data ?? []).map((x:any)=>({ id:x.idMetodoPago, label:x.metodoPago })));
-      setMonedas((mn.data ?? []).map((x:any)=>({ id:x.idMoneda, label:x.moneda ?? x.codigo })));
+      setProveedores(
+        provAll.map((x: any) => ({
+          id: x.idProveedor ?? x.id,
+          label: x.nombreProveedor,
+        }))
+      );
+      setMetodos(
+        (mp.data ?? []).map((x: any) => ({
+          id: x.idMetodoPago,
+          label: x.metodoPago,
+        }))
+      );
+      setMonedas(
+        (mn.data ?? []).map((x: any) => ({
+          id: x.idMoneda,
+          label: x.moneda ?? x.codigo,
+        }))
+      );
     })();
   }, []);
 
@@ -632,12 +881,16 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
       setIdProveedor(String(data.idProveedor));
       setIdMetodoPago(String(data.idMetodoPago));
       setIdMoneda(String(data.idMoneda));
-      setFecha(String(data.fechaComprobanteCompra ?? "").slice(0,10) || todayStr);
+      setFecha(
+        String(data.fechaComprobanteCompra ?? "").slice(0, 10) || todayStr
+      );
       setNroFactura(String(data.nroFactura ?? ""));
       setObs(data.observacion ?? "");
-      const det: Item[] = (data.detalles ?? []).map((d:any) => ({
+      const det: Item[] = (data.detalles ?? []).map((d: any) => ({
         idProducto: d.idProducto,
-        nombre: `${d.Producto?.codigoProducto ?? ""} — ${d.Producto?.nombreProducto ?? ""}`,
+        nombre: `${d.Producto?.codigoProducto ?? ""} — ${
+          d.Producto?.nombreProducto ?? ""
+        }`,
         cantidad: Number(d.cantidad ?? 0),
         precioUnit: Number(d.precioUnit ?? 0),
       }));
@@ -648,15 +901,17 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
   /* Buscar productos */
   useEffect(() => {
     const t = setTimeout(async () => {
-      const { data } = await api.get("/products", { params: prodQ ? { q: prodQ } : undefined });
-      const opts: ProdOpt[] = (data ?? []).map((p:any) => ({
+      const { data } = await api.get("/products", {
+        params: prodQ ? { q: prodQ } : undefined,
+      });
+      const opts: ProdOpt[] = (data ?? []).map((p: any) => ({
         id: p.id ?? p.idProducto,
         label: `${p.sku ?? p.codigoProducto} — ${p.nombre ?? p.nombreProducto}`,
         precio: Number(p.precio ?? p.precioVentaPublicoProducto ?? 0),
       }));
       setProdOpts(opts);
       if (prodSel) {
-        const found = opts.find(o => o.id === prodSel.id);
+        const found = opts.find((o) => o.id === prodSel.id);
         if (found) setPrecioUnit(found.precio);
       }
     }, 250);
@@ -674,12 +929,15 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
   function addItem() {
     if (!prodSel) return;
     if (cant <= 0 || precioUnit < 0) return;
-    setItems(prev => [...prev, {
-      idProducto: prodSel.id,
-      nombre: prodSel.label,
-      cantidad: Number(cant),
-      precioUnit: Number(precioUnit),
-    }]);
+    setItems((prev) => [
+      ...prev,
+      {
+        idProducto: prodSel.id,
+        nombre: prodSel.label,
+        cantidad: Number(cant),
+        precioUnit: Number(precioUnit),
+      },
+    ]);
     setProdSel(null);
     setProdQ("");
     setCant(0);
@@ -687,22 +945,31 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
   }
 
   function delItem(idProducto: number) {
-    setItems(prev => prev.filter(i => i.idProducto !== idProducto));
+    setItems((prev) => prev.filter((i) => i.idProducto !== idProducto));
   }
 
   function setItemCantidad(idProducto: number, cantidad: number) {
-    setItems(prev => prev.map(i => i.idProducto === idProducto ? { ...i, cantidad: Math.max(0, cantidad) } : i));
+    setItems((prev) =>
+      prev.map((i) =>
+        i.idProducto === idProducto
+          ? { ...i, cantidad: Math.max(0, cantidad) }
+          : i
+      )
+    );
   }
 
   // totales
   // totalCalc eliminado por no usarse; cálculo se muestra derivado en 'info'
-  const info = items.reduce((acc, i) => {
-    const { base, iva } = splitIVA(i.precioUnit, ivaPctView);
-    acc.base += i.cantidad * base;
-    acc.iva  += i.cantidad * iva;
-    acc.bruto += i.cantidad * i.precioUnit;
-    return acc;
-  }, { base: 0, iva: 0, bruto: 0 });
+  const info = items.reduce(
+    (acc, i) => {
+      const { base, iva } = splitIVA(i.precioUnit, ivaPctView);
+      acc.base += i.cantidad * base;
+      acc.iva += i.cantidad * iva;
+      acc.bruto += i.cantidad * i.precioUnit;
+      return acc;
+    },
+    { base: 0, iva: 0, bruto: 0 }
+  );
 
   async function onSubmit(e?: React.FormEvent) {
     e?.preventDefault();
@@ -722,11 +989,13 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
     try {
       const f = new Date(fecha);
       const hoy = new Date(todayStr);
-      f.setHours(0,0,0,0); hoy.setHours(0,0,0,0);
-      if (f > hoy) return setErr("La fecha comprobante no puede ser posterior a hoy.");
+      f.setHours(0, 0, 0, 0);
+      hoy.setHours(0, 0, 0, 0);
+      if (f > hoy)
+        return setErr("La fecha comprobante no puede ser posterior a hoy.");
     } catch {}
 
-    const baseItems = items.map(i => ({
+    const baseItems = items.map((i) => ({
       idProducto: Number(i.idProducto),
       cantidad: Number(i.cantidad),
       precioUnit: Number(i.precioUnit),
@@ -753,11 +1022,21 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
     try {
       if (isEdit) {
         await api.put(`/compras/${id}`, payloadUpdate);
+        await showAlert({
+          type: "success",
+          title: "Éxito",
+          message: "Compra actualizada con éxito",
+        });
       } else {
         await api.post("/compras", payloadCreate);
+        await showAlert({
+          type: "success",
+          title: "Éxito",
+          message: "Compra creada con éxito",
+        });
       }
       onClose(true);
-    } catch (e:any) {
+    } catch (e: any) {
       const msg = e?.response?.data?.error || e?.message || "Error al guardar";
       setErr(msg);
       await showAlert({ type: "error", message: msg });
@@ -766,67 +1045,133 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/20" onClick={() => onClose()} />
+      <div
+        className="fixed inset-0 z-40 bg-black/20"
+        onClick={() => onClose()}
+      />
       <div className="fixed inset-0 z-50 p-0 md:p-4">
         <div className="mx-auto h-dvh md:h-[90vh] w-full max-w-7xl md:rounded-2xl border bg-white shadow-xl flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b">
-            <h3 className="text-base font-semibold">{isEdit ? "Editar Compra" : "Nueva Compra"}</h3>
-            <button onClick={() => onClose()} className="p-2 rounded hover:bg-gray-100" aria-label="Cerrar">
+            <h3 className="text-base font-semibold">
+              {isEdit ? "Editar Compra" : "Nueva Compra"}
+            </h3>
+            <button
+              onClick={() => onClose()}
+              className="p-2 rounded hover:bg-gray-100"
+              aria-label="Cerrar"
+            >
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          <form onSubmit={onSubmit} className="p-4 overflow-auto flex-1 space-y-6">
+          <form
+            onSubmit={onSubmit}
+            className="p-4 overflow-auto flex-1 space-y-6"
+          >
             {/* Cabecera */}
             <div className="rounded-2xl border bg-white p-4 space-y-4">
-              <h4 className="text-sm font-medium text-gray-700">Datos de la compra</h4>
+              <h4 className="text-sm font-medium text-gray-700">
+                Datos de la compra
+              </h4>
               {err && <div className="text-sm text-red-600">{err}</div>}
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div>
                   <Label>Proveedor</Label>
-                  <Select value={idProveedor} onChange={(e)=> setIdProveedor(e.target.value)} disabled={isEdit}
-                    className={showErrors && !idProveedor ? "border-red-500 focus:ring-red-500" : undefined}>
+                  <Select
+                    value={idProveedor}
+                    onChange={(e) => setIdProveedor(e.target.value)}
+                    disabled={isEdit}
+                    className={
+                      showErrors && !idProveedor
+                        ? "border-red-500 focus:ring-red-500"
+                        : undefined
+                    }
+                  >
                     <option value="">Seleccionar</option>
-                    {proveedores.map(p => <option key={p.id} value={String(p.id)}>{p.label}</option>)}
+                    {proveedores.map((p) => (
+                      <option key={p.id} value={String(p.id)}>
+                        {p.label}
+                      </option>
+                    ))}
                   </Select>
                 </div>
                 <div>
                   <Label>Método de pago</Label>
-                  <Select value={idMetodoPago} onChange={(e)=> setIdMetodoPago(e.target.value)}
-                    className={showErrors && !idMetodoPago ? "border-red-500 focus:ring-red-500" : undefined}>
+                  <Select
+                    value={idMetodoPago}
+                    onChange={(e) => setIdMetodoPago(e.target.value)}
+                    className={
+                      showErrors && !idMetodoPago
+                        ? "border-red-500 focus:ring-red-500"
+                        : undefined
+                    }
+                  >
                     <option value="">Seleccionar</option>
-                    {metodos.map(t => <option key={t.id} value={String(t.id)}>{t.label}</option>)}
+                    {metodos.map((t) => (
+                      <option key={t.id} value={String(t.id)}>
+                        {t.label}
+                      </option>
+                    ))}
                   </Select>
                 </div>
                 <div>
                   <Label>Moneda</Label>
-                  <Select value={idMoneda} onChange={(e)=> setIdMoneda(e.target.value)}
-                    className={showErrors && !idMoneda ? "border-red-500 focus:ring-red-500" : undefined}>
+                  <Select
+                    value={idMoneda}
+                    onChange={(e) => setIdMoneda(e.target.value)}
+                    className={
+                      showErrors && !idMoneda
+                        ? "border-red-500 focus:ring-red-500"
+                        : undefined
+                    }
+                  >
                     <option value="">Seleccionar</option>
-                    {monedas.map(m => <option key={m.id} value={String(m.id)}>{m.label}</option>)}
+                    {monedas.map((m) => (
+                      <option key={m.id} value={String(m.id)}>
+                        {m.label}
+                      </option>
+                    ))}
                   </Select>
                 </div>
 
                 <div>
                   <Label>Fecha comprobante</Label>
-                  <Input type="date" value={fecha} onChange={e=> setFecha(e.target.value)} />
+                  <Input
+                    type="date"
+                    value={fecha}
+                    onChange={(e) => setFecha(e.target.value)}
+                  />
                 </div>
                 <div>
                   <Label>Nro. Factura</Label>
-                  <Input value={nroFactura} onChange={e=> setNroFactura(e.target.value)} disabled={isEdit}
-                    className={showErrors && !nroFactura.trim() ? "border-red-500 focus:ring-red-500" : undefined} />
+                  <Input
+                    value={nroFactura}
+                    onChange={(e) => setNroFactura(e.target.value)}
+                    disabled={isEdit}
+                    className={
+                      showErrors && !nroFactura.trim()
+                        ? "border-red-500 focus:ring-red-500"
+                        : undefined
+                    }
+                  />
                 </div>
                 <div className="lg:col-span-1">
                   <Label>Observación</Label>
-                  <Input value={obs} onChange={e=> setObs(e.target.value)} placeholder="Opcional" />
+                  <Input
+                    value={obs}
+                    onChange={(e) => setObs(e.target.value)}
+                    placeholder="Opcional"
+                  />
                 </div>
               </div>
             </div>
 
             {/* Agregar productos */}
             <div className="rounded-2xl border bg-white p-4 space-y-3">
-              <h4 className="text-sm font-medium text-gray-700">Agregar producto</h4>
+              <h4 className="text-sm font-medium text-gray-700">
+                Agregar producto
+              </h4>
               <div className="grid grid-cols-1 md:grid-cols-20 gap-3">
                 <div className="md:col-span-10">
                   <Label className="mb-1 block">Producto</Label>
@@ -845,7 +1190,10 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
                             key={o.id}
                             type="button"
                             className="block w-full text-left px-2 py-1 hover:bg-gray-50 text-sm"
-                            onClick={() => { pickProduct(o); setProdQ(o.label); }}
+                            onClick={() => {
+                              pickProduct(o);
+                              setProdQ(o.label);
+                            }}
                           >
                             {o.label} — ${fmtPrice(o.precio)}
                           </button>
@@ -857,20 +1205,37 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
 
                 <div className="md:col-span-3">
                   <Label className="mb-1 block">Cantidad</Label>
-                  <Input type="number" inputMode="numeric" value={cant}
-                    onChange={(e)=> setCant(Math.max(0, Number(e.target.value) || 0))} />
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    value={cant}
+                    onChange={(e) =>
+                      setCant(Math.max(0, Number(e.target.value) || 0))
+                    }
+                  />
                 </div>
 
                 <div className="md:col-span-3">
                   <Label className="mb-1 block">Precio unit.</Label>
-                  <Input type="number" inputMode="decimal" step="0.01" value={precioUnit}
-                    onChange={(e)=> setPrecioUnit(Math.max(0, Number(e.target.value) || 0))} />
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    value={precioUnit}
+                    onChange={(e) =>
+                      setPrecioUnit(Math.max(0, Number(e.target.value) || 0))
+                    }
+                  />
                 </div>
 
-                <button type="button" onClick={addItem}
+                <button
+                  type="button"
+                  onClick={addItem}
                   disabled={!prodSel}
                   className="self-end inline-flex items-center justify-center rounded-lg bg-black text-white p-2 disabled:opacity-50"
-                  title="Agregar" aria-label="Agregar">
+                  title="Agregar"
+                  aria-label="Agregar"
+                >
                   <Plus className="h-4 w-4" />
                 </button>
               </div>
@@ -878,9 +1243,13 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
 
             {/* Tabla items */}
             <div className="rounded-2xl border bg-white p-4">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">Productos cargados</h4>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">
+                Productos cargados
+              </h4>
               {showErrors && items.length === 0 && (
-                <div className="mb-2 text-sm text-red-600">Agregá al menos un producto.</div>
+                <div className="mb-2 text-sm text-red-600">
+                  Agregá al menos un producto.
+                </div>
               )}
               <table className="w-full table-fixed text-sm">
                 <colgroup>
@@ -908,23 +1277,53 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
                       <tr key={`${i.idProducto}-${idx}`} className="border-t">
                         <td className="px-3 py-2">{i.nombre}</td>
                         <td className="px-3 py-2 text-right">
-                          <Input type="number" inputMode="numeric" value={i.cantidad}
-                            onChange={(e)=> setItemCantidad(i.idProducto, Number(e.target.value) || 0)}
-                            className="w-24 text-right" />
+                          <Input
+                            type="number"
+                            inputMode="numeric"
+                            value={i.cantidad}
+                            onChange={(e) =>
+                              setItemCantidad(
+                                i.idProducto,
+                                Number(e.target.value) || 0
+                              )
+                            }
+                            className="w-24 text-right"
+                          />
                         </td>
-                        <td className="px-3 py-2 text-right">${fmtPrice(i.precioUnit, { minFraction: 2, maxFraction: 2 })}</td>
                         <td className="px-3 py-2 text-right">
-                          ${fmtPrice(i.cantidad * base, { minFraction: 2, maxFraction: 2 })}
+                          $
+                          {fmtPrice(i.precioUnit, {
+                            minFraction: 2,
+                            maxFraction: 2,
+                          })}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          $
+                          {fmtPrice(i.cantidad * base, {
+                            minFraction: 2,
+                            maxFraction: 2,
+                          })}
                           <div className="text-[11px] text-gray-500">
-                            IVA: ${fmtPrice(i.cantidad * iva, { minFraction: 2, maxFraction: 2 })}
+                            IVA: $
+                            {fmtPrice(i.cantidad * iva, {
+                              minFraction: 2,
+                              maxFraction: 2,
+                            })}
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right">
-                          ${fmtPrice(i.cantidad * i.precioUnit, { minFraction: 2, maxFraction: 2 })}
+                          $
+                          {fmtPrice(i.cantidad * i.precioUnit, {
+                            minFraction: 2,
+                            maxFraction: 2,
+                          })}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <button type="button" className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
-                            onClick={() => delItem(i.idProducto)}>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 border px-2 py-1 text-xs"
+                            onClick={() => delItem(i.idProducto)}
+                          >
                             <Trash2 className="h-3.5 w-3.5" /> Quitar
                           </button>
                         </td>
@@ -932,7 +1331,14 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
                     );
                   })}
                   {items.length === 0 && (
-                    <tr><td className="px-3 py-6 text-center text-gray-500" colSpan={6}>Sin productos agregados</td></tr>
+                    <tr>
+                      <td
+                        className="px-3 py-6 text-center text-gray-500"
+                        colSpan={6}
+                      >
+                        Sin productos agregados
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
@@ -954,23 +1360,36 @@ function CompraForm({ id, onClose }: { id?: number; onClose: (reload?: boolean) 
                 </div>
                 <div className="rounded-xl border p-4">
                   <p className="text-sm text-gray-500">Total bruto (con IVA)</p>
-                  <p className="text-2xl font-semibold">${info.bruto.toFixed(2)}</p>
+                  <p className="text-2xl font-semibold">
+                    ${info.bruto.toFixed(2)}
+                  </p>
                 </div>
                 <div className="rounded-xl border p-4">
                   <p className="text-sm text-gray-500">Base neta (sin IVA)</p>
-                  <p className="text-2xl font-semibold">${info.base.toFixed(2)}</p>
+                  <p className="text-2xl font-semibold">
+                    ${info.base.toFixed(2)}
+                  </p>
                 </div>
                 <div className="rounded-xl border p-4">
                   <p className="text-sm text-gray-500">IVA informativo</p>
-                  <p className="text-2xl font-semibold">${info.iva.toFixed(2)}</p>
+                  <p className="text-2xl font-semibold">
+                    ${info.iva.toFixed(2)}
+                  </p>
                 </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t">
-                <button type="button" onClick={() => onClose()} className="rounded-lg border px-3 py-2 text-sm">
+                <button
+                  type="button"
+                  onClick={() => onClose()}
+                  className="rounded-lg border px-3 py-2 text-sm"
+                >
                   Cancelar
                 </button>
-                <button type="submit" className="rounded-lg bg-black text-white px-3 py-2 text-sm">
+                <button
+                  type="submit"
+                  className="rounded-lg bg-black text-white px-3 py-2 text-sm"
+                >
                   {isEdit ? "Guardar cambios" : "Guardar compra"}
                 </button>
               </div>

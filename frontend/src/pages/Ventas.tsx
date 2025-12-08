@@ -1972,6 +1972,13 @@ function ValidarPreventaModal({
       }
 
       await api.put(`/preventas/${ventaId}`, payload);
+      if (accion === "cancelar") {
+        await showAlert({
+          type: "success",
+          title: "Éxito",
+          message: "Presupuesto cancelado con éxito",
+        });
+      }
 
       // Refresco duro tras cualquier PUT para recalcular flags con estado normalizado
       const resVenta = await api.get(`/preventas/${ventaId}`);
@@ -2029,6 +2036,14 @@ function ValidarPreventaModal({
             err
           );
         }
+        await showAlert({
+          type: "success",
+          title: "Venta finalizada",
+          message: `Venta finalizada con éxito. Total: $${fmtPrice(
+            totalConAjustes,
+            { minFraction: 2, maxFraction: 2 }
+          )}`,
+        });
       }
 
       if (accion === "guardar") {
@@ -2098,6 +2113,11 @@ function ValidarPreventaModal({
       await api.get(`/preventas/${targetId}`, { params: { _: Date.now() } });
       // cerrar modal y refrescar listas en el padre para que el cambio se vea inmediatamente
       onDone();
+      await showAlert({
+        type: "success",
+        title: "Éxito",
+        message: "Reserva cancelada con éxito",
+      });
     } catch (err) {
       console.error(err);
       const msg =
