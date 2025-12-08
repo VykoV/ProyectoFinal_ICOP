@@ -59,7 +59,9 @@ function NuevoUsuarioModal({
     }
   };
 
-  const [errors, setErrors] = useState<{ [k in keyof NuevoUsuarioModalProps["form"]]?: boolean }>({});
+  const [errors, setErrors] = useState<{
+    [k in keyof NuevoUsuarioModalProps["form"]]?: boolean;
+  }>({});
   const [showPassword, setShowPassword] = useState(false);
 
   function isPasswordComplex(pw: string): boolean {
@@ -74,10 +76,21 @@ function NuevoUsuarioModal({
 
   function validate(): string[] {
     const missing: string[] = [];
-    const nextErrors: { [k in keyof NuevoUsuarioModalProps["form"]]?: boolean } = {};
-    if (!form.nombreUsuario.trim()) { nextErrors.nombreUsuario = true; missing.push("Nombre"); }
-    if (!form.emailUsuario.trim()) { nextErrors.emailUsuario = true; missing.push("Email"); }
-    if (!form.idRol.trim()) { nextErrors.idRol = true; missing.push("Rol"); }
+    const nextErrors: {
+      [k in keyof NuevoUsuarioModalProps["form"]]?: boolean;
+    } = {};
+    if (!form.nombreUsuario.trim()) {
+      nextErrors.nombreUsuario = true;
+      missing.push("Nombre");
+    }
+    if (!form.emailUsuario.trim()) {
+      nextErrors.emailUsuario = true;
+      missing.push("Email");
+    }
+    if (!form.idRol.trim()) {
+      nextErrors.idRol = true;
+      missing.push("Rol");
+    }
     // Contraseña: requerida sólo en creación; en edición es opcional pero si se ingresa debe cumplir complejidad
     if (!isEdit) {
       if (!form.contrasenaUsuario.trim()) {
@@ -85,12 +98,19 @@ function NuevoUsuarioModal({
         missing.push("Contraseña");
       } else if (!isPasswordComplex(form.contrasenaUsuario)) {
         nextErrors.contrasenaUsuario = true;
-        missing.push("Contraseña: mínimo 6 caracteres, incluir mayúscula, minúscula, número y símbolo");
+        missing.push(
+          "Contraseña: mínimo 6 caracteres, incluir mayúscula, minúscula, número y símbolo"
+        );
       }
     } else {
-      if (form.contrasenaUsuario.trim() && !isPasswordComplex(form.contrasenaUsuario)) {
+      if (
+        form.contrasenaUsuario.trim() &&
+        !isPasswordComplex(form.contrasenaUsuario)
+      ) {
         nextErrors.contrasenaUsuario = true;
-        missing.push("Contraseña: mínimo 6 caracteres, incluir mayúscula, minúscula, número y símbolo");
+        missing.push(
+          "Contraseña: mínimo 6 caracteres, incluir mayúscula, minúscula, número y símbolo"
+        );
       }
     }
     setErrors(nextErrors);
@@ -112,14 +132,18 @@ function NuevoUsuarioModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-6 relative">
-        <button onClick={onClose} className="absolute top-3 right-3">×</button>
+        <button onClick={onClose} className="absolute top-3 right-3">
+          ×
+        </button>
         <h2 className="text-lg font-semibold mb-4">{title}</h2>
 
         <form onSubmit={onSubmitInternal} noValidate className="space-y-3">
           <input
             name="nombreUsuario"
             placeholder="Nombre"
-            className={`w-full border rounded px-3 py-2 ${errors.nombreUsuario ? "border-red-500" : ""}`}
+            className={`w-full border rounded px-3 py-2 ${
+              errors.nombreUsuario ? "border-red-500" : ""
+            }`}
             value={form.nombreUsuario}
             onChange={handleChange}
           />
@@ -127,7 +151,9 @@ function NuevoUsuarioModal({
             type="email"
             name="emailUsuario"
             placeholder="Email"
-            className={`w-full border rounded px-3 py-2 ${errors.emailUsuario ? "border-red-500" : ""}`}
+            className={`w-full border rounded px-3 py-2 ${
+              errors.emailUsuario ? "border-red-500" : ""
+            }`}
             value={form.emailUsuario}
             onChange={handleChange}
           />
@@ -140,25 +166,38 @@ function NuevoUsuarioModal({
                   ? "Contraseña (opcional — mín. 6, mayúsc., minúsc., número y símbolo)"
                   : "Contraseña (mín. 6, mayúsc., minúsc., número y símbolo)"
               }
-              className={`w-full border rounded px-3 py-2 pr-10 ${errors.contrasenaUsuario ? "border-red-500" : ""}`}
+              className={`w-full border rounded px-3 py-2 pr-10 ${
+                errors.contrasenaUsuario ? "border-red-500" : ""
+              }`}
               value={form.contrasenaUsuario}
               onChange={handleChange}
             />
             <button
               type="button"
-              aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+              aria-label={
+                showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
+              }
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
               onClick={() => setShowPassword((v) => !v)}
             >
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              {showPassword ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
             </button>
           </div>
           {errors.contrasenaUsuario && (
-            <p className="text-xs text-red-600">La contraseña debe tener al menos 6 caracteres e incluir mayúscula, minúscula, número y símbolo.</p>
+            <p className="text-xs text-red-600">
+              La contraseña debe tener al menos 6 caracteres e incluir
+              mayúscula, minúscula, número y símbolo.
+            </p>
           )}
           <select
             name="idRol"
-            className={`w-full border rounded px-3 py-2 ${errors.idRol ? "border-red-500" : ""}`}
+            className={`w-full border rounded px-3 py-2 ${
+              errors.idRol ? "border-red-500" : ""
+            }`}
             value={form.idRol}
             onChange={handleChange}
           >
@@ -175,7 +214,10 @@ function NuevoUsuarioModal({
             </p>
           )}
 
-          <button type="submit" className="w-full bg-black text-white rounded-lg py-2 mt-2">
+          <button
+            type="submit"
+            className="w-full bg-black text-white rounded-lg py-2 mt-2"
+          >
             {submitLabel}
           </button>
         </form>
@@ -220,7 +262,10 @@ export default function Usuarios() {
     const { data } = await api.get("/roles");
     setRoles(data);
   }
-  useEffect(() => { loadUsers(); loadRoles(); }, []);
+  useEffect(() => {
+    loadUsers();
+    loadRoles();
+  }, []);
 
   const filtered = (() => {
     const qmatch = (r: Usuario) =>
@@ -230,7 +275,8 @@ export default function Usuarios() {
             .toLowerCase()
             .includes(q.toLowerCase())
         : true;
-    const rmatch = (r: Usuario) => (fRolId ? r.roles.some((x) => String(x.id) === fRolId) : true);
+    const rmatch = (r: Usuario) =>
+      fRolId ? r.roles.some((x) => String(x.id) === fRolId) : true;
     const base = rows.filter((r) => qmatch(r) && rmatch(r));
     const dir = sortDir === "asc" ? 1 : -1;
     return base.sort((a, b) => a.nombre.localeCompare(b.nombre) * dir);
@@ -242,14 +288,28 @@ export default function Usuarios() {
     // Validación de duplicados (cliente): nombre y email
     const nameKey = form.nombreUsuario.trim().toLowerCase();
     const emailKey = form.emailUsuario.trim().toLowerCase();
-    const conflictNombre = rows.some((u) => u.nombre.trim().toLowerCase() === nameKey && (editId ? u.id !== editId : true));
-    const conflictEmail = rows.some((u) => u.email.trim().toLowerCase() === emailKey && (editId ? u.id !== editId : true));
+    const conflictNombre = rows.some(
+      (u) =>
+        u.nombre.trim().toLowerCase() === nameKey &&
+        (editId ? u.id !== editId : true)
+    );
+    const conflictEmail = rows.some(
+      (u) =>
+        u.email.trim().toLowerCase() === emailKey &&
+        (editId ? u.id !== editId : true)
+    );
     if (conflictNombre || conflictEmail) {
       const detalles = [
         conflictNombre ? "El nombre de usuario ya está registrado" : null,
         conflictEmail ? "El correo ya está registrado" : null,
-      ].filter(Boolean).join("\n");
-      await showAlert({ type: "error", title: "Datos duplicados", message: detalles || "Nombre o correo ya registrados" });
+      ]
+        .filter(Boolean)
+        .join("\n");
+      await showAlert({
+        type: "error",
+        title: "Datos duplicados",
+        message: detalles || "Nombre o correo ya registrados",
+      });
       return;
     }
     if (editId) {
@@ -258,7 +318,12 @@ export default function Usuarios() {
     } else {
       await api.post("/usuarios", form);
     }
-    setForm({ nombreUsuario: "", emailUsuario: "", contrasenaUsuario: "", idRol: "" });
+    setForm({
+      nombreUsuario: "",
+      emailUsuario: "",
+      contrasenaUsuario: "",
+      idRol: "",
+    });
     setOpen(false);
     loadUsers();
   }
@@ -270,7 +335,8 @@ export default function Usuarios() {
     {
       header: "Roles",
       accessorKey: "roles",
-      cell: ({ row }) => (row.original.roles?.map((r) => r.nombre).join(", ") || "-"),
+      cell: ({ row }) =>
+        row.original.roles?.map((r) => r.nombre).join(", ") || "-",
     },
     {
       header: "Acciones",
@@ -309,8 +375,55 @@ export default function Usuarios() {
                 type: "warning",
               });
               if (!ok) return;
-              await api.delete(`/usuarios/${u.id}`);
-              loadUsers();
+              try {
+                await api.delete(`/usuarios/${u.id}`);
+                loadUsers();
+              } catch (err: unknown) {
+                const resp = (
+                  err as {
+                    response?: {
+                      status?: number;
+                      data?: {
+                        error?: string;
+                        details?: Record<string, number>;
+                      };
+                    };
+                  }
+                ).response;
+                const code: string | undefined = resp?.data?.error;
+                const status: number | undefined = resp?.status;
+                const details: Record<string, number> | undefined =
+                  resp?.data?.details;
+                let message: string;
+                if (status === 409 && code === "USER_IN_USE") {
+                  const d: Record<string, number> = details ?? {};
+                  const lines: string[] = [];
+                  const labels: Array<[string, string]> = [
+                    ["ventaActor", "Participaciones en ventas"],
+                    ["ventaEvento", "Eventos de ventas"],
+                    ["ventaComentario", "Comentarios de ventas"],
+                    ["cierreCaja", "Cierres de caja"],
+                    ["egresoCaja", "Egresos de caja"],
+                    ["notificacion", "Notificaciones"],
+                  ];
+                  for (const [key, label] of labels) {
+                    const n = Number(d[key] ?? 0);
+                    if (n > 0) lines.push(`${label}: ${n}`);
+                  }
+                  message = lines.length
+                    ? `No se puede eliminar el usuario porque tiene actividad registrada:\n${lines.join(
+                        "\n"
+                      )}`
+                    : "No se puede eliminar el usuario porque tiene actividad registrada en el sistema.";
+                } else {
+                  message = code || "No se pudo eliminar el usuario";
+                }
+                await showAlert({
+                  type: "error",
+                  title: "No se puede eliminar",
+                  message,
+                });
+              }
             }}
           >
             <Trash className="h-3.5 w-3.5" /> Eliminar
@@ -329,7 +442,12 @@ export default function Usuarios() {
         <button
           onClick={() => {
             setEditId(null);
-            setForm({ nombreUsuario: "", emailUsuario: "", contrasenaUsuario: "", idRol: "" });
+            setForm({
+              nombreUsuario: "",
+              emailUsuario: "",
+              contrasenaUsuario: "",
+              idRol: "",
+            });
             setComentarioRol("");
             setOpen(true);
           }}
@@ -349,11 +467,21 @@ export default function Usuarios() {
             placeholder="Buscar por nombre, email o rol…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => { if ((e as React.KeyboardEvent<HTMLInputElement>).key === "Escape") setQ(""); }}
+            onKeyDown={(e) => {
+              if ((e as React.KeyboardEvent<HTMLInputElement>).key === "Escape")
+                setQ("");
+            }}
           />
         </div>
-        <button className="rounded border px-3 py-2" onClick={() => setOpenFiltros(true)}>Filtros</button>
-        <span className="ml-auto text-xs text-gray-600">{`Mostrando ${filtered.length === 0 ? 0 : 1}–${filtered.length} de ${filtered.length}`}</span>
+        <button
+          className="rounded border px-3 py-2"
+          onClick={() => setOpenFiltros(true)}
+        >
+          Filtros
+        </button>
+        <span className="ml-auto text-xs text-gray-600">{`Mostrando ${
+          filtered.length === 0 ? 0 : 1
+        }–${filtered.length} de ${filtered.length}`}</span>
       </div>
 
       {loading ? (
@@ -368,31 +496,56 @@ export default function Usuarios() {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-lg md:max-w-xl lg:max-w-2xl">
             <div className="flex items-center justify-between border-b px-4 py-2">
               <h2 className="text-sm font-medium">Filtros de Usuarios</h2>
-              <button className="rounded border px-2 py-1 text-xs" onClick={() => setOpenFiltros(false)}>
+              <button
+                className="rounded border px-2 py-1 text-xs"
+                onClick={() => setOpenFiltros(false)}
+              >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
             <div className="p-4 space-y-4">
               <div className="flex items-center gap-2">
                 <span className="text-gray-600">Rol</span>
-                <select className="rounded border px-2 py-1" value={fRolId} onChange={(e) => setFRolId(e.target.value)}>
+                <select
+                  className="rounded border px-2 py-1"
+                  value={fRolId}
+                  onChange={(e) => setFRolId(e.target.value)}
+                >
                   <option value="">Todos</option>
                   {roles.map((r) => (
-                    <option key={r.id} value={String(r.id)}>{r.nombre}</option>
+                    <option key={r.id} value={String(r.id)}>
+                      {r.nombre}
+                    </option>
                   ))}
                 </select>
                 <span className="text-gray-600 ml-auto">Orden</span>
-                <select className="rounded border px-2 py-1" value={sortDir} onChange={(e) => setSortDir(e.target.value as any)}>
+                <select
+                  className="rounded border px-2 py-1"
+                  value={sortDir}
+                  onChange={(e) => setSortDir(e.target.value as any)}
+                >
                   <option value="asc">Ascendente</option>
                   <option value="desc">Descendente</option>
                 </select>
               </div>
             </div>
             <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-              <button className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm" onClick={() => { setFRolId(""); setSortDir("asc"); setQ(""); }}>
+              <button
+                className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm"
+                onClick={() => {
+                  setFRolId("");
+                  setSortDir("asc");
+                  setQ("");
+                }}
+              >
                 <X className="h-3.5 w-3.5" /> Borrar filtros
               </button>
-              <button className="rounded border px-3 py-1 text-sm" onClick={() => setOpenFiltros(false)}>Cerrar</button>
+              <button
+                className="rounded border px-3 py-1 text-sm"
+                onClick={() => setOpenFiltros(false)}
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>

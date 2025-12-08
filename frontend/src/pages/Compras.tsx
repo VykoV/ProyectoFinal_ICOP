@@ -114,7 +114,7 @@ export default function Compras() {
     { header: "N°", accessorKey: "id", size: 60 },
     { header: "Proveedor", accessorKey: "proveedor" },
     { header: "Fecha", accessorKey: "fecha" },
-    { header: "Factura", accessorKey: "nroFactura" },
+    { header: "Factura", accessorKey: "nroFactura", meta: { cellAlign: "right" } },
     { header: "Método de pago", accessorKey: "metodoPago" },
     { header: "Moneda", accessorKey: "moneda" },
     {
@@ -130,6 +130,7 @@ export default function Compras() {
     },
     {
       header: "Total",
+      meta: { headerAlign: "right" },
       cell: ({ row }) => (
         <span className="block text-right">${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}</span>
       ),

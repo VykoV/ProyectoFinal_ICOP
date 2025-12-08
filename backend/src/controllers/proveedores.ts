@@ -88,15 +88,11 @@ export async function update(req: Request, res: Response) {
 
 export async function remove(req: Request, res: Response) {
   const id = Number(req.params.id);
-
-  const inUse =
-    (await prisma.proveedorProducto.count({ where: { idProveedor: id } })) +
-    (await prisma.compra.count({ where: { idProveedor: id } }));
-
+  const productos = await prisma.proveedorProducto.count({ where: { idProveedor: id } });
+  const compras = await prisma.compra.count({ where: { idProveedor: id } });
+  const inUse = productos + compras;
   if (inUse > 0) {
-    return res
-      .status(409)
-      .json({ error: "No se puede eliminar. Tiene productos o compras asociadas." });
+    return res.status(409).json({ error: "PROVEEDOR_EN_USO", details: { productos, compras } });
   }
   await prisma.proveedor.delete({ where: { idProveedor: id } });
   res.sendStatus(204);

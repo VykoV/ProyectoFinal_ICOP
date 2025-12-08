@@ -26,9 +26,14 @@ export function DataTable<T extends object>({
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
-  const totalPages = total && pageSize ? Math.max(1, Math.ceil(total / pageSize)) : undefined;
-  const startIdx = total && page && pageSize ? Math.min(total, (page - 1) * pageSize + 1) : undefined;
-  const endIdx = total && page && pageSize ? Math.min(total, page * pageSize) : undefined;
+  const totalPages =
+    total && pageSize ? Math.max(1, Math.ceil(total / pageSize)) : undefined;
+  const startIdx =
+    total && page && pageSize
+      ? Math.min(total, (page - 1) * pageSize + 1)
+      : undefined;
+  const endIdx =
+    total && page && pageSize ? Math.min(total, page * pageSize) : undefined;
 
   return (
     <div className="rounded-xl border bg-white w-full overflow-x-auto">
@@ -37,7 +42,16 @@ export function DataTable<T extends object>({
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id}>
               {hg.headers.map((header) => (
-                <th key={header.id} className="px-3 py-2 text-left font-medium">
+                <th
+                  key={header.id}
+                  className={`px-3 py-2 font-medium ${(() => {
+                    const meta = (header.column.columnDef as any)?.meta || {};
+                    const ha = meta.headerAlign ?? meta.align;
+                    if (ha === "right") return "text-right";
+                    if (ha === "center") return "text-center";
+                    return "text-left";
+                  })()}`}
+                >
                   {header.isPlaceholder
                     ? null
                     : flexRender(
@@ -53,7 +67,16 @@ export function DataTable<T extends object>({
           {table.getRowModel().rows.map((row) => (
             <tr key={row.id} className="border-t">
               {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="px-3 py-2">
+                <td
+                  key={cell.id}
+                  className={`px-3 py-2 ${(() => {
+                    const meta = (cell.column.columnDef as any)?.meta || {};
+                    const ca = meta.cellAlign ?? meta.align;
+                    if (ca === "right") return "text-right";
+                    if (ca === "center") return "text-center";
+                    return "text-left";
+                  })()}`}
+                >
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
               ))}

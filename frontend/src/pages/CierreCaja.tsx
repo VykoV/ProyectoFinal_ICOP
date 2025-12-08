@@ -450,18 +450,31 @@ export default function CierreCajaPage() {
     const header = toCsvLine(["Campo", "Valor"]);
     const lines: string[] = [];
     lines.push(toCsvLine(["Fecha", toYmd((c as any).fecha)]));
-    lines.push(toCsvLine(["Saldo inicial", Number(c.saldoInicial)]));
-    lines.push(toCsvLine(["Total ventas del día", Number(c.totalVentas)]));
-    lines.push(toCsvLine(["Ventas por método - Efectivo", byMet.Efectivo]));
+    lines.push(toCsvLine(["Saldo inicial", "$" + fmt(Number(c.saldoInicial))]));
     lines.push(
-      toCsvLine(["Ventas por método - Transferencia", byMet.Transferencia])
+      toCsvLine(["Total ventas del día", "$" + fmt(Number(c.totalVentas))])
     );
-    lines.push(toCsvLine(["Ventas por método - QR", byMet.QR]));
-    lines.push(toCsvLine(["Ventas por método - Crédito", byMet.Crédito]));
-    lines.push(toCsvLine(["Ventas por método - Débito", byMet.Débito]));
-    lines.push(toCsvLine(["Total ingresos efectivo", ingresosCaja]));
-    lines.push(toCsvLine(["Total egresos", Number(c.totalEgresos)]));
-    lines.push(toCsvLine(["Saldo final teórico", Number(c.saldoFinal)]));
+    lines.push(
+      toCsvLine(["Ventas por método - Efectivo", "$" + fmt(byMet.Efectivo)])
+    );
+    lines.push(
+      toCsvLine([
+        "Ventas por método - Transferencia",
+        "$" + fmt(byMet.Transferencia),
+      ])
+    );
+    lines.push(toCsvLine(["Ventas por método - QR", "$" + fmt(byMet.QR)]));
+    lines.push(
+      toCsvLine(["Ventas por método - Crédito", "$" + fmt(byMet.Crédito)])
+    );
+    lines.push(
+      toCsvLine(["Ventas por método - Débito", "$" + fmt(byMet.Débito)])
+    );
+    lines.push(toCsvLine(["Total ingresos efectivo", "$" + fmt(ingresosCaja)]));
+    lines.push(toCsvLine(["Total egresos", "$" + fmt(Number(c.totalEgresos))]));
+    lines.push(
+      toCsvLine(["Saldo final teórico", "$" + fmt(Number(c.saldoFinal))])
+    );
     lines.push(
       toCsvLine([
         "Usuario",
@@ -485,8 +498,10 @@ export default function CierreCajaPage() {
       <table>
         <tbody>
           <tr><th>Fecha</th><td>${toYmd((c as any).fecha)}</td></tr>
-          <tr><th>Saldo inicial</th><td>${fmt(Number(c.saldoInicial))}</td></tr>
-          <tr><th>Total ventas del día</th><td>${fmt(
+          <tr><th>Saldo inicial</th><td style="text-align:right">$${fmt(
+            Number(c.saldoInicial)
+          )}</td></tr>
+          <tr><th>Total ventas del día</th><td style="text-align:right">$${fmt(
             Number(c.totalVentas)
           )}</td></tr>
         </tbody>
@@ -494,20 +509,32 @@ export default function CierreCajaPage() {
       <h1 style="margin-top:16px">Ventas por método</h1>
       <table>
         <tbody>
-          <tr><th>Efectivo</th><td>${fmt(byMet.Efectivo)}</td></tr>
-          <tr><th>Transferencia</th><td>${fmt(byMet.Transferencia)}</td></tr>
-          <tr><th>QR</th><td>${fmt(byMet.QR)}</td></tr>
-          <tr><th>Crédito</th><td>${fmt(byMet.Crédito)}</td></tr>
-          <tr><th>Débito</th><td>${fmt(byMet.Débito)}</td></tr>
+          <tr><th>Efectivo</th><td style="text-align:right">$${fmt(
+            byMet.Efectivo
+          )}</td></tr>
+          <tr><th>Transferencia</th><td style="text-align:right">$${fmt(
+            byMet.Transferencia
+          )}</td></tr>
+          <tr><th>QR</th><td style="text-align:right">$${fmt(
+            byMet.QR
+          )}</td></tr>
+          <tr><th>Crédito</th><td style="text-align:right">$${fmt(
+            byMet.Crédito
+          )}</td></tr>
+          <tr><th>Débito</th><td style="text-align:right">$${fmt(
+            byMet.Débito
+          )}</td></tr>
         </tbody>
       </table>
       <table>
         <tbody>
-          <tr><th>Total ingresos efectivo</th><td>${fmt(
+          <tr><th>Total ingresos efectivo</th><td style="text-align:right">$${fmt(
             Number(ingresosCaja)
           )}</td></tr>
-          <tr><th>Total egresos</th><td>${fmt(Number(c.totalEgresos))}</td></tr>
-          <tr><th>Saldo final teórico</th><td>${fmt(
+          <tr><th>Total egresos</th><td style="text-align:right">$${fmt(
+            Number(c.totalEgresos)
+          )}</td></tr>
+          <tr><th>Saldo final teórico</th><td style="text-align:right">$${fmt(
             Number(c.saldoFinal)
           )}</td></tr>
           <tr><th>Usuario</th><td>${
@@ -591,16 +618,16 @@ export default function CierreCajaPage() {
           totDb += byMet.Débito;
           return toCsvLine([
             f,
-            ini,
-            vta,
-            byMet.Efectivo,
-            byMet.Transferencia,
-            byMet.QR,
-            byMet.Crédito,
-            byMet.Débito,
-            ingresosCaja,
-            egr,
-            fin,
+            "$" + fmt(ini),
+            "$" + fmt(vta),
+            "$" + fmt(byMet.Efectivo),
+            "$" + fmt(byMet.Transferencia),
+            "$" + fmt(byMet.QR),
+            "$" + fmt(byMet.Crédito),
+            "$" + fmt(byMet.Débito),
+            "$" + fmt(ingresosCaja),
+            "$" + fmt(egr),
+            "$" + fmt(fin),
             c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-",
           ]);
         })
@@ -610,16 +637,16 @@ export default function CierreCajaPage() {
       "\n" +
       toCsvLine([
         "Totales",
-        totIni,
-        totVentas,
-        totEf,
-        totTr,
-        totQr,
-        totCr,
-        totDb,
-        totIng,
-        totEgresos,
-        totFinal,
+        "$" + fmt(totIni),
+        "$" + fmt(totVentas),
+        "$" + fmt(totEf),
+        "$" + fmt(totTr),
+        "$" + fmt(totQr),
+        "$" + fmt(totCr),
+        "$" + fmt(totDb),
+        "$" + fmt(totIng),
+        "$" + fmt(totEgresos),
+        "$" + fmt(totFinal),
         "-",
       ]);
     const csv = header + "\n" + body + footer + "\n";
@@ -667,16 +694,16 @@ export default function CierreCajaPage() {
           return `
         <tr>
           <td>${f}</td>
-          <td>${fmt(ini)}</td>
-          <td>${fmt(vta)}</td>
-          <td>${fmt(byMet.Efectivo)}</td>
-          <td>${fmt(byMet.Transferencia)}</td>
-          <td>${fmt(byMet.QR)}</td>
-          <td>${fmt(byMet.Crédito)}</td>
-          <td>${fmt(byMet.Débito)}</td>
-          <td>${fmt(ingresosCaja)}</td>
-          <td>${fmt(egr)}</td>
-          <td>${fmt(fin)}</td>
+          <td style="text-align:right">$${fmt(ini)}</td>
+          <td style="text-align:right">$${fmt(vta)}</td>
+          <td style="text-align:right">$${fmt(byMet.Efectivo)}</td>
+          <td style="text-align:right">$${fmt(byMet.Transferencia)}</td>
+          <td style="text-align:right">$${fmt(byMet.QR)}</td>
+          <td style="text-align:right">$${fmt(byMet.Crédito)}</td>
+          <td style="text-align:right">$${fmt(byMet.Débito)}</td>
+          <td style="text-align:right">$${fmt(ingresosCaja)}</td>
+          <td style="text-align:right">$${fmt(egr)}</td>
+          <td style="text-align:right">$${fmt(fin)}</td>
           <td>${c.Usuario?.nombreUsuario || c.Usuario?.emailUsuario || "-"}</td>
         </tr>`;
         })
@@ -705,16 +732,16 @@ export default function CierreCajaPage() {
           ${trs}
           <tr>
             <th>Totales</th>
-            <th>${fmt(totIni)}</th>
-            <th>${fmt(totVentas)}</th>
-            <th>${fmt(totEf)}</th>
-            <th>${fmt(totTr)}</th>
-            <th>${fmt(totQr)}</th>
-            <th>${fmt(totCr)}</th>
-            <th>${fmt(totDb)}</th>
-            <th>${fmt(totIng)}</th>
-            <th>${fmt(totEgresos)}</th>
-            <th>${fmt(totFinal)}</th>
+            <th style="text-align:right">$${fmt(totIni)}</th>
+            <th style="text-align:right">$${fmt(totVentas)}</th>
+            <th style="text-align:right">$${fmt(totEf)}</th>
+            <th style="text-align:right">$${fmt(totTr)}</th>
+            <th style="text-align:right">$${fmt(totQr)}</th>
+            <th style="text-align:right">$${fmt(totCr)}</th>
+            <th style="text-align:right">$${fmt(totDb)}</th>
+            <th style="text-align:right">$${fmt(totIng)}</th>
+            <th style="text-align:right">$${fmt(totEgresos)}</th>
+            <th style="text-align:right">$${fmt(totFinal)}</th>
             <th>-</th>
           </tr>
         </tbody>
@@ -845,6 +872,7 @@ export default function CierreCajaPage() {
                                     : ""
                                 }`}
                               >
+                                {"$"}
                                 {v}
                               </span>
                             </div>
@@ -896,6 +924,7 @@ export default function CierreCajaPage() {
                                           {it.label}
                                         </span>
                                         <span className="font-medium text-right">
+                                          {"$"}
                                           {fmt(it.value)}
                                         </span>
                                       </li>
@@ -957,7 +986,7 @@ export default function CierreCajaPage() {
                                 <th className="py-2 border-b">#</th>
                                 <th className="py-2 border-b">Cliente</th>
                                 <th className="py-2 border-b">Método</th>
-                                <th className="py-2 border-b text-center">
+                                <th className="py-2 border-b text-right">
                                   Total
                                 </th>
                               </tr>
@@ -971,6 +1000,7 @@ export default function CierreCajaPage() {
                                     {v.metodoPago}
                                   </td>
                                   <td className="py-2 border-b text-right">
+                                    {"$"}
                                     {fmt(v.total)}
                                   </td>
                                 </tr>
@@ -1369,6 +1399,7 @@ export default function CierreCajaPage() {
                             {toYmd((c as any).fecha)}
                           </td>
                           <td className="py-2 border-b">
+                            {"$"}
                             {fmt(c.totalVentas)}
                           </td>
                           <td
@@ -1376,6 +1407,7 @@ export default function CierreCajaPage() {
                               Number(c.saldoFinal) < 0 ? "text-red-600" : ""
                             }`}
                           >
+                            {"$"}
                             {fmt(c.saldoFinal)}
                           </td>
                           <td className="py-2 border-b">
@@ -1564,6 +1596,7 @@ function EgresoRow({
             Number(egreso.monto) < 0 ? "text-red-600" : "text-green-600"
           }`}
         >
+          {"$"}
           {fmt(egreso.monto)}
         </td>
         <td className="py-2 border-b">

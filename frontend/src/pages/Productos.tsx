@@ -95,15 +95,26 @@ export default function Productos() {
   const [viewId, setViewId] = useState<number | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   // Alertas de ofertas por vencer
-  const [expiringOffers, setExpiringOffers] = useState<Array<{ id: number; nombre: string; porcentajeOferta: number; fechaFinOferta: string }>>([]);
+  const [expiringOffers, setExpiringOffers] = useState<
+    Array<{
+      id: number;
+      nombre: string;
+      porcentajeOferta: number;
+      fechaFinOferta: string;
+    }>
+  >([]);
   const [showExpiring, setShowExpiring] = useState(true);
 
   // Filtros
   const [q, setQ] = useState("");
   const [fFamiliaId, setFFamiliaId] = useState<number | "">("");
   const [fSubfamiliaId, setFSubfamiliaId] = useState<number | "">("");
-  const [fOferta, setFOferta] = useState<"todos" | "oferta" | "normal">("todos");
-  const [sortKey, setSortKey] = useState<"nombre" | "precio" | "estado">("nombre");
+  const [fOferta, setFOferta] = useState<"todos" | "oferta" | "normal">(
+    "todos"
+  );
+  const [sortKey, setSortKey] = useState<"nombre" | "precio" | "estado">(
+    "nombre"
+  );
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   async function loadProducts() {
@@ -147,11 +158,15 @@ export default function Productos() {
 
   async function loadExpiringOffers() {
     try {
-      const { data } = await api.get("/products/ofertas-por-vencer", { params: { days: 2 } });
+      const { data } = await api.get("/products/ofertas-por-vencer", {
+        params: { days: 2 },
+      });
       const list = (data as any[]).map((x) => ({
         id: Number(x.id ?? x.idProducto),
         nombre: String(x.nombre ?? x.nombreProducto ?? ""),
-        porcentajeOferta: Number(x.porcentajeOferta ?? x.porcentajeOfertaProducto ?? 0),
+        porcentajeOferta: Number(
+          x.porcentajeOferta ?? x.porcentajeOfertaProducto ?? 0
+        ),
         fechaFinOferta: x.fechaFinOferta ? fmtLocalDate(x.fechaFinOferta) : "-",
       }));
       setExpiringOffers(list);
@@ -182,10 +197,24 @@ export default function Productos() {
   const columns: ColumnDef<Producto>[] = [
     { header: "Código", accessorKey: "sku" },
     { header: "Nombre", accessorKey: "nombre" },
-    { header: "Stock", accessorKey: "stock" },
+    {
+      header: "Stock",
+      accessorKey: "stock",
+      meta: { align: "right" },
+      cell: ({ getValue }) => {
+        const v = Number(getValue());
+        return isNaN(v)
+          ? "-"
+          : new Intl.NumberFormat("es-AR", {
+              minimumFractionDigits: 0,
+              maximumFractionDigits: 2,
+            }).format(v);
+      },
+    },
     {
       header: "Precio",
       accessorKey: "precio",
+      meta: { align: "right" },
       cell: ({ getValue }) => {
         const v = Number(getValue());
         return isNaN(v)
@@ -252,17 +281,26 @@ export default function Productos() {
 
     let out = rows.filter((r: any) => {
       const matchQuery = query
-        ? (
-            String(r.nombre ?? "").toLowerCase().includes(query) ||
-            String(r.sku ?? "").toLowerCase().includes(query) ||
-            String(r.descripcion ?? "").toLowerCase().includes(query)
-          )
+        ? String(r.nombre ?? "")
+            .toLowerCase()
+            .includes(query) ||
+          String(r.sku ?? "")
+            .toLowerCase()
+            .includes(query) ||
+          String(r.descripcion ?? "")
+            .toLowerCase()
+            .includes(query)
         : true;
-      const matchOferta = fOferta === "todos"
-        ? true
-        : fOferta === "oferta" ? !!r.oferta : !r.oferta;
-      const matchFam = famId != null ? Number(r.familiaId ?? -1) === famId : true;
-      const matchSub = subId != null ? Number(r.subFamiliaId ?? -1) === subId : true;
+      const matchOferta =
+        fOferta === "todos"
+          ? true
+          : fOferta === "oferta"
+          ? !!r.oferta
+          : !r.oferta;
+      const matchFam =
+        famId != null ? Number(r.familiaId ?? -1) === famId : true;
+      const matchSub =
+        subId != null ? Number(r.subFamiliaId ?? -1) === subId : true;
       return matchQuery && matchOferta && matchFam && matchSub;
     });
 
@@ -308,7 +346,9 @@ export default function Productos() {
             <div>
               <strong className="text-yellow-800">Ofertas por vencer:</strong>
               <span className="ml-1 text-yellow-900">
-                {expiringOffers.length} producto{expiringOffers.length > 1 ? "s" : ""} con fin entre hoy y 2 días.
+                {expiringOffers.length} producto
+                {expiringOffers.length > 1 ? "s" : ""} con fin entre hoy y 2
+                días.
               </span>
               <div className="mt-1 text-yellow-900">
                 {expiringOffers.slice(0, 4).map((o) => (
@@ -317,11 +357,18 @@ export default function Productos() {
                   </span>
                 ))}
                 {expiringOffers.length > 4 && (
-                  <span className="inline-block">… y {expiringOffers.length - 4} más</span>
+                  <span className="inline-block">
+                    … y {expiringOffers.length - 4} más
+                  </span>
                 )}
               </div>
             </div>
-            <button className="text-xs text-yellow-800" onClick={() => setShowExpiring(false)}>Ocultar</button>
+            <button
+              className="text-xs text-yellow-800"
+              onClick={() => setShowExpiring(false)}
+            >
+              Ocultar
+            </button>
           </div>
         </div>
       )}
@@ -336,12 +383,20 @@ export default function Productos() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
-              if ((e as React.KeyboardEvent<HTMLInputElement>).key === "Escape") setQ("");
+              if ((e as React.KeyboardEvent<HTMLInputElement>).key === "Escape")
+                setQ("");
             }}
           />
         </div>
-        <button className="rounded border px-3 py-2" onClick={() => setShowFilters(true)}>Filtros</button>
-        <span className="ml-auto text-xs text-gray-600">{`Mostrando ${filteredRows.length === 0 ? 0 : 1}–${filteredRows.length} de ${filteredRows.length}`}</span>
+        <button
+          className="rounded border px-3 py-2"
+          onClick={() => setShowFilters(true)}
+        >
+          Filtros
+        </button>
+        <span className="ml-auto text-xs text-gray-600">{`Mostrando ${
+          filteredRows.length === 0 ? 0 : 1
+        }–${filteredRows.length} de ${filteredRows.length}`}</span>
       </div>
 
       {loading ? (
@@ -355,7 +410,10 @@ export default function Productos() {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Filtros de productos</h3>
-              <button className="inline-flex items-center gap-1 px-2 py-1 text-sm" onClick={() => setShowFilters(false)}>
+              <button
+                className="inline-flex items-center gap-1 px-2 py-1 text-sm"
+                onClick={() => setShowFilters(false)}
+              >
                 <X className="h-4 w-4" /> Cerrar
               </button>
             </div>
@@ -363,7 +421,9 @@ export default function Productos() {
               <div>
                 <Label>Familia</Label>
                 <Select
-                  value={typeof fFamiliaId === "number" ? String(fFamiliaId) : ""}
+                  value={
+                    typeof fFamiliaId === "number" ? String(fFamiliaId) : ""
+                  }
                   onChange={(e) => {
                     const v = e.target.value ? Number(e.target.value) : "";
                     setFFamiliaId(v);
@@ -381,12 +441,24 @@ export default function Productos() {
               <div>
                 <Label>Subfamilia</Label>
                 <Select
-                  value={typeof fSubfamiliaId === "number" ? String(fSubfamiliaId) : ""}
-                  onChange={(e) => setFSubfamiliaId(e.target.value ? Number(e.target.value) : "")}
+                  value={
+                    typeof fSubfamiliaId === "number"
+                      ? String(fSubfamiliaId)
+                      : ""
+                  }
+                  onChange={(e) =>
+                    setFSubfamiliaId(
+                      e.target.value ? Number(e.target.value) : ""
+                    )
+                  }
                 >
                   <option value="">Todas</option>
                   {subfamilias
-                    .filter((s) => (typeof fFamiliaId === "number" ? s.familiaId === fFamiliaId : true))
+                    .filter((s) =>
+                      typeof fFamiliaId === "number"
+                        ? s.familiaId === fFamiliaId
+                        : true
+                    )
                     .map((s) => (
                       <option key={s.id} value={String(s.id)}>
                         {s.nombre}
@@ -396,7 +468,10 @@ export default function Productos() {
               </div>
               <div>
                 <Label>Oferta</Label>
-                <Select value={fOferta} onChange={(e) => setFOferta(e.target.value as any)}>
+                <Select
+                  value={fOferta}
+                  onChange={(e) => setFOferta(e.target.value as any)}
+                >
                   <option value="todos">Todos</option>
                   <option value="oferta">En oferta</option>
                   <option value="normal">Normal</option>
@@ -405,7 +480,10 @@ export default function Productos() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <Label>Ordenar por</Label>
-                  <Select value={sortKey} onChange={(e) => setSortKey(e.target.value as any)}>
+                  <Select
+                    value={sortKey}
+                    onChange={(e) => setSortKey(e.target.value as any)}
+                  >
                     <option value="nombre">Nombre</option>
                     <option value="precio">Precio</option>
                     <option value="estado">Estado</option>
@@ -413,7 +491,10 @@ export default function Productos() {
                 </div>
                 <div>
                   <Label>Dirección</Label>
-                  <Select value={sortDir} onChange={(e) => setSortDir(e.target.value as any)}>
+                  <Select
+                    value={sortDir}
+                    onChange={(e) => setSortDir(e.target.value as any)}
+                  >
                     <option value="asc">Ascendente</option>
                     <option value="desc">Descendente</option>
                   </Select>
@@ -648,15 +729,12 @@ function ProductoPopup({
     if (familiaNameSelected === "HILADOS") {
       // sacar Aguja y Varios
       items = items.filter(
-        (sf) =>
-          !["AGUJA", "VARIOS"].includes(String(sf.nombre).toUpperCase())
+        (sf) => !["AGUJA", "VARIOS"].includes(String(sf.nombre).toUpperCase())
       );
     } else if (familiaNameSelected === "MERCERIA") {
       // solo Aguja, Hilos y Varios (si existen)
       items = items.filter((sf) =>
-        ["AGUJA", "HILOS", "VARIOS"].includes(
-          String(sf.nombre).toUpperCase()
-        )
+        ["AGUJA", "HILOS", "VARIOS"].includes(String(sf.nombre).toUpperCase())
       );
     }
     return items;
@@ -677,12 +755,11 @@ function ProductoPopup({
         !isOferta || v.porcentajeOferta === "" || v.porcentajeOferta == null
           ? null
           : Number(v.porcentajeOferta),
-      fechaInicioOferta:
-        !isOferta
-          ? null
-          : v.fechaInicioOferta && v.fechaInicioOferta !== ""
-          ? v.fechaInicioOferta
-          : todayISO,
+      fechaInicioOferta: !isOferta
+        ? null
+        : v.fechaInicioOferta && v.fechaInicioOferta !== ""
+        ? v.fechaInicioOferta
+        : todayISO,
       fechaFinOferta:
         !isOferta || v.fechaFinOferta === "" || v.fechaFinOferta == null
           ? null
@@ -705,11 +782,19 @@ function ProductoPopup({
       const status = err?.response?.status;
       const data = err?.response?.data;
       if (status === 409 && data?.error === "UNIQUE_CONSTRAINT") {
-        await showAlert({ type: "error", message: `Valor duplicado en: ${data.fields?.join(", ") || "campo único"}` });
+        await showAlert({
+          type: "error",
+          message: `Valor duplicado en: ${
+            data.fields?.join(", ") || "campo único"
+          }`,
+        });
         return;
       }
       if (status === 409 && data?.error === "FK_CONSTRAINT_IN_USE") {
-        await showAlert({ type: "error", message: "No se puede editar: tiene movimientos relacionados." });
+        await showAlert({
+          type: "error",
+          message: "No se puede editar: tiene movimientos relacionados.",
+        });
         return;
       }
       if (status === 422) {
@@ -760,15 +845,29 @@ function ProductoPopup({
             >
               {/* Clasificación */}
               <div className="rounded-2xl border bg-white p-4 space-y-3">
-                <h4 className="text-sm font-medium text-gray-700">Clasificación</h4>
+                <h4 className="text-sm font-medium text-gray-700">
+                  Clasificación
+                </h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <Label htmlFor="familia">Familia</Label>
-                    <Select id="familia" className={showErrors && errors.familia ? "border-red-500" : "border-black"} {...register("familia")}>
+                    <Select
+                      id="familia"
+                      className={
+                        showErrors && errors.familia
+                          ? "border-red-500"
+                          : "border-black"
+                      }
+                      {...register("familia")}
+                    >
                       <option value="">Seleccionar familia</option>
                       {familiasDisplay.map((f, i) => (
-                        <option key={`fam-${f.id ?? `i${i}`}`} value={String(f.id)}>
-                          {String(f.nombre).charAt(0).toUpperCase() + String(f.nombre).slice(1).toLowerCase()}
+                        <option
+                          key={`fam-${f.id ?? `i${i}`}`}
+                          value={String(f.id)}
+                        >
+                          {String(f.nombre).charAt(0).toUpperCase() +
+                            String(f.nombre).slice(1).toLowerCase()}
                         </option>
                       ))}
                     </Select>
@@ -776,10 +875,21 @@ function ProductoPopup({
                   </div>
                   <div>
                     <Label htmlFor="subfamilia">Subfamilia</Label>
-                    <Select id="subfamilia" className={showErrors && errors.subfamilia ? "border-red-500" : "border-black"} {...register("subfamilia")}>
+                    <Select
+                      id="subfamilia"
+                      className={
+                        showErrors && errors.subfamilia
+                          ? "border-red-500"
+                          : "border-black"
+                      }
+                      {...register("subfamilia")}
+                    >
                       <option value="">Seleccionar subfamilia</option>
                       {subfamiliasFiltradas.map((sf, i) => (
-                        <option key={`sub-${sf.id ?? `i${i}`}`} value={String(sf.id)}>
+                        <option
+                          key={`sub-${sf.id ?? `i${i}`}`}
+                          value={String(sf.id)}
+                        >
                           {sf.nombre}
                         </option>
                       ))}
@@ -791,16 +901,31 @@ function ProductoPopup({
 
               {/* Identificación */}
               <div className="rounded-2xl border bg-white p-4 space-y-3">
-                <h4 className="text-sm font-medium text-gray-700">Identificación</h4>
+                <h4 className="text-sm font-medium text-gray-700">
+                  Identificación
+                </h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <Label htmlFor="codigoBarras">Código de Barras</Label>
-                    <Input id="codigoBarras" placeholder="7791234567890" {...register("codigoBarras")} />
+                    <Input
+                      id="codigoBarras"
+                      placeholder="7791234567890"
+                      {...register("codigoBarras")}
+                    />
                     <FieldError message={errors.codigoBarras?.message} />
                   </div>
                   <div>
                     <Label htmlFor="nombre">Nombre</Label>
-                    <Input id="nombre" placeholder="Ovillo Merino 100 g" className={showErrors && errors.nombre ? "border-red-500" : "border-black"} {...register("nombre")} />
+                    <Input
+                      id="nombre"
+                      placeholder="Ovillo Merino 100 g"
+                      className={
+                        showErrors && errors.nombre
+                          ? "border-red-500"
+                          : "border-black"
+                      }
+                      {...register("nombre")}
+                    />
                     <FieldError message={errors.nombre?.message} />
                   </div>
                 </div>
@@ -832,7 +957,10 @@ function ProductoPopup({
                       inputMode="decimal"
                       step="0.01"
                       placeholder="2500"
-                      {...register("precioCosto", { valueAsNumber: true, onChange: onCostoChange })}
+                      {...register("precioCosto", {
+                        valueAsNumber: true,
+                        onChange: onCostoChange,
+                      })}
                     />
                     <FieldError message={errors.precioCosto?.message} />
                   </div>
@@ -844,7 +972,10 @@ function ProductoPopup({
                       inputMode="decimal"
                       step="0.01"
                       placeholder="60"
-                      {...register("utilidad", { valueAsNumber: true, onChange: onUtilChange })}
+                      {...register("utilidad", {
+                        valueAsNumber: true,
+                        onChange: onUtilChange,
+                      })}
                     />
                     <FieldError message={errors.utilidad?.message} />
                   </div>
@@ -870,7 +1001,9 @@ function ProductoPopup({
                   <h4 className="text-sm font-medium text-gray-700">Oferta</h4>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
-                      <Label htmlFor="porcentajeOferta">Porcentaje de oferta (%)</Label>
+                      <Label htmlFor="porcentajeOferta">
+                        Porcentaje de oferta (%)
+                      </Label>
                       <Input
                         id="porcentajeOferta"
                         type="number"
@@ -879,17 +1012,33 @@ function ProductoPopup({
                         placeholder="10"
                         {...register("porcentajeOferta")}
                       />
-                      <FieldError message={(errors as any)?.porcentajeOferta?.message} />
+                      <FieldError
+                        message={(errors as any)?.porcentajeOferta?.message}
+                      />
                     </div>
                     <div>
                       <Label htmlFor="fechaInicioOferta">Fecha inicio</Label>
-                      <Input id="fechaInicioOferta" type="date" min={todayISO} {...register("fechaInicioOferta")} />
-                      <FieldError message={(errors as any)?.fechaInicioOferta?.message} />
+                      <Input
+                        id="fechaInicioOferta"
+                        type="date"
+                        min={todayISO}
+                        {...register("fechaInicioOferta")}
+                      />
+                      <FieldError
+                        message={(errors as any)?.fechaInicioOferta?.message}
+                      />
                     </div>
                     <div>
                       <Label htmlFor="fechaFinOferta">Fecha fin</Label>
-                      <Input id="fechaFinOferta" type="date" min={watch("fechaInicioOferta") || todayISO} {...register("fechaFinOferta")} />
-                      <FieldError message={(errors as any)?.fechaFinOferta?.message} />
+                      <Input
+                        id="fechaFinOferta"
+                        type="date"
+                        min={watch("fechaInicioOferta") || todayISO}
+                        {...register("fechaFinOferta")}
+                      />
+                      <FieldError
+                        message={(errors as any)?.fechaFinOferta?.message}
+                      />
                     </div>
                   </div>
                 </div>
@@ -901,13 +1050,27 @@ function ProductoPopup({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <Label htmlFor="bajoMinimoStock">Bajo mínimo</Label>
-                    <Input id="bajoMinimoStock" type="number" inputMode="numeric" {...register("bajoMinimoStock", { valueAsNumber: true })} />
+                    <Input
+                      id="bajoMinimoStock"
+                      type="number"
+                      inputMode="numeric"
+                      {...register("bajoMinimoStock", { valueAsNumber: true })}
+                    />
                     <FieldError message={errors.bajoMinimoStock?.message} />
                   </div>
                   <div>
-                    <Label htmlFor="ultimaModificacionStock">Última modificación</Label>
-                    <Input id="ultimaModificacionStock" type="date" max={todayISO} {...register("ultimaModificacionStock")} />
-                    <FieldError message={errors.ultimaModificacionStock?.message} />
+                    <Label htmlFor="ultimaModificacionStock">
+                      Última modificación
+                    </Label>
+                    <Input
+                      id="ultimaModificacionStock"
+                      type="date"
+                      max={todayISO}
+                      {...register("ultimaModificacionStock")}
+                    />
+                    <FieldError
+                      message={errors.ultimaModificacionStock?.message}
+                    />
                   </div>
                 </div>
               </div>
@@ -944,7 +1107,13 @@ function ProductoPopup({
 }
 
 /* MODAL "VER" */
-function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean) => void }) {
+function ProductoView({
+  id,
+  onClose,
+}: {
+  id: number;
+  onClose: (reload?: boolean) => void;
+}) {
   const { hasRole } = useAuth();
   const isAdmin = hasRole("Administrador");
   const [data, setData] = useState<any | null>(null);
@@ -987,7 +1156,9 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get(`/products/${id}/historico-precio?limit=${histLimit}&page=${histPage}`);
+        const { data } = await api.get(
+          `/products/${id}/historico-precio?limit=${histLimit}&page=${histPage}`
+        );
         setHistRows(Array.isArray(data) ? data : []);
       } catch (e) {
         setHistRows([]);
@@ -1000,7 +1171,9 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get(`/products/${id}/historico-oferta?limit=${offerLimit}&page=${offerPage}`);
+        const { data } = await api.get(
+          `/products/${id}/historico-oferta?limit=${offerLimit}&page=${offerPage}`
+        );
         setOfferRows(Array.isArray(data) ? data : []);
       } catch (e) {
         setOfferRows([]);
@@ -1014,12 +1187,24 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
     (async () => {
       try {
         const ofertaFlag = Boolean(data?.oferta ?? data?.ofertaProducto);
-        const pct = Number(data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0);
-        const fin = data?.fechaFinOferta ? new Date(data.fechaFinOferta).getTime() : null;
-        const ini = data?.fechaInicioOferta ? new Date(data.fechaInicioOferta).getTime() : null;
+        const pct = Number(
+          data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0
+        );
+        const fin = data?.fechaFinOferta
+          ? new Date(data.fechaFinOferta).getTime()
+          : null;
+        const ini = data?.fechaInicioOferta
+          ? new Date(data.fechaInicioOferta).getTime()
+          : null;
         const now = Date.now();
-        const activo = ofertaFlag && pct > 0 && (!ini || ini <= now) && (!fin || fin >= now);
-        const stockActual = Number((stockDet as any)?.cantidadRealStock ?? (stockDet as any)?.real ?? data?.stock ?? 0);
+        const activo =
+          ofertaFlag && pct > 0 && (!ini || ini <= now) && (!fin || fin >= now);
+        const stockActual = Number(
+          (stockDet as any)?.cantidadRealStock ??
+            (stockDet as any)?.real ??
+            data?.stock ??
+            0
+        );
         if (activo && stockActual === 0) {
           await api.put(`/products/${id}`, {
             oferta: false,
@@ -1036,9 +1221,16 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
   useEffect(() => {
     (async () => {
       try {
-        const pct = Number(data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0);
+        const pct = Number(
+          data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0
+        );
         const ofertaFlag = Boolean(data?.oferta ?? data?.ofertaProducto);
-        const stockActual = Number((stockDet as any)?.cantidadRealStock ?? (stockDet as any)?.real ?? data?.stock ?? 0);
+        const stockActual = Number(
+          (stockDet as any)?.cantidadRealStock ??
+            (stockDet as any)?.real ??
+            data?.stock ??
+            0
+        );
         if (ofertaFlag && pct > 0 && stockActual === 0) {
           await api.put(`/products/${id}`, {
             oferta: false,
@@ -1068,9 +1260,17 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
       const { data } = await api.get(`/products/${id}`);
       setData(data);
       onClose(true);
-      await showAlert({ title: "Éxito", type: "success", message: "Oferta cerrada" });
+      await showAlert({
+        title: "Éxito",
+        type: "success",
+        message: "Oferta cerrada",
+      });
     } catch (e) {
-      await showAlert({ title: "Error", type: "error", message: "No se pudo cerrar la oferta" });
+      await showAlert({
+        title: "Error",
+        type: "error",
+        message: "No se pudo cerrar la oferta",
+      });
       console.error(e);
     }
   }
@@ -1088,7 +1288,10 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/20" onClick={() => onClose()} />
+      <div
+        className="fixed inset-0 z-40 bg-black/20"
+        onClick={() => onClose()}
+      />
       <div className="fixed inset-0 z-50 p-0 md:p-4">
         <div className="mx-auto h-dvh md:h-[90vh] w-full max-w-2xl md:rounded-2xl border bg-white shadow-xl flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b">
@@ -1117,15 +1320,30 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
                       SKU: {data?.sku ?? data?.codigoProducto ?? "-"}
                     </span>
                     <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs text-gray-700 bg-gray-50">
-                      Código barras: {data?.codigoBarras ?? data?.codigoBarrasProducto ?? "-"}
+                      Código barras:{" "}
+                      {data?.codigoBarras ?? data?.codigoBarrasProducto ?? "-"}
                     </span>
                     {(() => {
-                      const oferta = Boolean(data?.oferta ?? data?.ofertaProducto);
-                      const pct = Number(data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0);
-                      const ini = data?.fechaInicioOferta ? new Date(data.fechaInicioOferta).getTime() : null;
-                      const fin = data?.fechaFinOferta ? new Date(data.fechaFinOferta).getTime() : null;
+                      const oferta = Boolean(
+                        data?.oferta ?? data?.ofertaProducto
+                      );
+                      const pct = Number(
+                        data?.porcentajeOferta ??
+                          data?.porcentajeOfertaProducto ??
+                          0
+                      );
+                      const ini = data?.fechaInicioOferta
+                        ? new Date(data.fechaInicioOferta).getTime()
+                        : null;
+                      const fin = data?.fechaFinOferta
+                        ? new Date(data.fechaFinOferta).getTime()
+                        : null;
                       const now = Date.now();
-                      const activo = oferta && pct > 0 && (!ini || ini <= now) && (!fin || fin >= now);
+                      const activo =
+                        oferta &&
+                        pct > 0 &&
+                        (!ini || ini <= now) &&
+                        (!fin || fin >= now);
                       return (
                         <span
                           className={
@@ -1146,21 +1364,43 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
                 <div className="rounded-xl border bg-white p-3 mb-4">
                   <p className="text-gray-500">Precio venta público</p>
                   <p className="text-2xl font-semibold">
-                    {precioFmt(data?.precio ?? data?.precioVentaPublicoProducto)}
+                    {precioFmt(
+                      data?.precio ?? data?.precioVentaPublicoProducto
+                    )}
                   </p>
                   {(() => {
-                    const base = Number(data?.precio ?? data?.precioVentaPublicoProducto ?? 0);
-                    const pct = Number(data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0);
-                    const oferta = Boolean(data?.oferta ?? data?.ofertaProducto);
-                    const ini = data?.fechaInicioOferta ? new Date(data.fechaInicioOferta).getTime() : null;
-                    const fin = data?.fechaFinOferta ? new Date(data.fechaFinOferta).getTime() : null;
+                    const base = Number(
+                      data?.precio ?? data?.precioVentaPublicoProducto ?? 0
+                    );
+                    const pct = Number(
+                      data?.porcentajeOferta ??
+                        data?.porcentajeOfertaProducto ??
+                        0
+                    );
+                    const oferta = Boolean(
+                      data?.oferta ?? data?.ofertaProducto
+                    );
+                    const ini = data?.fechaInicioOferta
+                      ? new Date(data.fechaInicioOferta).getTime()
+                      : null;
+                    const fin = data?.fechaFinOferta
+                      ? new Date(data.fechaFinOferta).getTime()
+                      : null;
                     const now = Date.now();
-                    const activo = oferta && pct > 0 && (!ini || ini <= now) && (!fin || fin >= now);
+                    const activo =
+                      oferta &&
+                      pct > 0 &&
+                      (!ini || ini <= now) &&
+                      (!fin || fin >= now);
                     if (!activo) return null;
-                    const precioDesc = Number((base * (1 - pct / 100)).toFixed(2));
+                    const precioDesc = Number(
+                      (base * (1 - pct / 100)).toFixed(2)
+                    );
                     return (
                       <div className="mt-2 text-sm">
-                        <p className="text-gray-500">Precio con oferta ({pct}%):</p>
+                        <p className="text-gray-500">
+                          Precio con oferta ({pct}%):
+                        </p>
                         <p className="text-lg font-semibold text-green-700">
                           {precioFmt(precioDesc)}
                         </p>
@@ -1191,32 +1431,60 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
                   <div className="rounded-xl border bg-white p-3">
                     <p className="text-gray-500">Oferta</p>
                     {(() => {
-                      const pct = Number(data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0);
-                      const ofertaFlag = Boolean(data?.oferta ?? data?.ofertaProducto);
-                      const ini = data?.fechaInicioOferta ? new Date(data.fechaInicioOferta).getTime() : null;
-                      const fin = data?.fechaFinOferta ? new Date(data.fechaFinOferta).getTime() : null;
+                      const pct = Number(
+                        data?.porcentajeOferta ??
+                          data?.porcentajeOfertaProducto ??
+                          0
+                      );
+                      const ofertaFlag = Boolean(
+                        data?.oferta ?? data?.ofertaProducto
+                      );
+                      const ini = data?.fechaInicioOferta
+                        ? new Date(data.fechaInicioOferta).getTime()
+                        : null;
+                      const fin = data?.fechaFinOferta
+                        ? new Date(data.fechaFinOferta).getTime()
+                        : null;
                       const now = Date.now();
-                      const activo = ofertaFlag && pct > 0 && (!ini || ini <= now) && (!fin || fin >= now);
+                      const activo =
+                        ofertaFlag &&
+                        pct > 0 &&
+                        (!ini || ini <= now) &&
+                        (!fin || fin >= now);
                       return (
                         <>
                           <div className="grid grid-cols-2 gap-3 mt-2">
                             <div>
                               <p className="text-gray-500 text-xs">Estado</p>
-                              <p className="font-medium">{activo ? "En oferta" : "Normal"}</p>
+                              <p className="font-medium">
+                                {activo ? "En oferta" : "Normal"}
+                              </p>
                             </div>
                             <div>
-                              <p className="text-gray-500 text-xs">Porcentaje</p>
-                              <p className="font-medium">{activo ? `${pct}%` : "-"}</p>
+                              <p className="text-gray-500 text-xs">
+                                Porcentaje
+                              </p>
+                              <p className="font-medium">
+                                {activo ? `${pct}%` : "-"}
+                              </p>
                             </div>
                           </div>
                           <div className="grid grid-cols-2 gap-3 mt-3">
                             <div>
                               <p className="text-gray-500 text-xs">Inicio</p>
-                              <p className="font-medium">{activo ? fmtLocalDate(data?.fechaInicioOferta) : "-"}</p>
+                              <p className="font-medium">
+                                {activo
+                                  ? fmtLocalDate(data?.fechaInicioOferta)
+                                  : "-"}
+                              </p>
                             </div>
                             <div>
                               <p className="text-gray-500 text-xs">Fin</p>
-                              <p className="font-medium">{activo ? fmtLocalDate(data?.fechaFinOferta) : "-"}</p>
+                              <p className="font-medium">
+                                {activo
+                                  ? fmtLocalDate(data?.fechaFinOferta)
+                                  : "-"}
+                              </p>
                             </div>
                           </div>
                         </>
@@ -1248,7 +1516,9 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
                       <div>
                         <p className="text-gray-500 text-xs">Subfamilia</p>
                         <p className="font-medium">
-                          {data?.subfamilia?.nombre ?? data?.nombreSubfamilia ?? "-"}
+                          {data?.subfamilia?.nombre ??
+                            data?.nombreSubfamilia ??
+                            "-"}
                         </p>
                       </div>
                     </div>
@@ -1260,7 +1530,16 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
                     <div className="grid grid-cols-2 gap-3 mt-2">
                       <div>
                         <p className="text-gray-500 text-xs">Actual</p>
-                        <p className={"font-medium " + ((data?.stock ?? 0) <= (data?.bajoMinimoStock ?? -1) && (data?.bajoMinimoStock ?? -1) >= 0 ? "text-red-600" : "") }>
+                        <p
+                          className={
+                            "font-medium " +
+                            ((data?.stock ?? 0) <=
+                              (data?.bajoMinimoStock ?? -1) &&
+                            (data?.bajoMinimoStock ?? -1) >= 0
+                              ? "text-red-600"
+                              : "")
+                          }
+                        >
                           {data?.stock ?? 0}
                         </p>
                       </div>
@@ -1276,15 +1555,23 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
                     <div className="grid grid-cols-2 gap-3 mt-3">
                       <div>
                         <p className="text-gray-500 text-xs">Real</p>
-                        <p className="font-medium">{loadingStock ? "..." : Number(stockDet?.real ?? 0)}</p>
+                        <p className="font-medium">
+                          {loadingStock ? "..." : Number(stockDet?.real ?? 0)}
+                        </p>
                       </div>
                       <div>
                         <p className="text-gray-500 text-xs">Comprometido</p>
-                        <p className="font-medium">{loadingStock ? "..." : Number(stockDet?.comprometido ?? 0)}</p>
+                        <p className="font-medium">
+                          {loadingStock
+                            ? "..."
+                            : Number(stockDet?.comprometido ?? 0)}
+                        </p>
                       </div>
                       <div>
                         <p className="text-gray-500 text-xs">Bajo mínimo</p>
-                        <p className="font-medium">{loadingStock ? "..." : Number(stockDet?.minimo ?? 0)}</p>
+                        <p className="font-medium">
+                          {loadingStock ? "..." : Number(stockDet?.minimo ?? 0)}
+                        </p>
                       </div>
                       <div>
                         <p className="text-gray-500 text-xs">Actualizado</p>
@@ -1311,7 +1598,9 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
                         type="number"
                         min={1}
                         value={histPage}
-                        onChange={(e) => setHistPage(Number(e.target.value) || 1)}
+                        onChange={(e) =>
+                          setHistPage(Number(e.target.value) || 1)
+                        }
                       />
                       <label className="text-xs text-gray-600">Limite</label>
                       <input
@@ -1320,7 +1609,9 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
                         min={1}
                         max={100}
                         value={histLimit}
-                        onChange={(e) => setHistLimit(Number(e.target.value) || 10)}
+                        onChange={(e) =>
+                          setHistLimit(Number(e.target.value) || 10)
+                        }
                       />
                     </div>
                   </div>
@@ -1337,23 +1628,40 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
                       <tbody>
                         {loadingHist ? (
                           <tr>
-                            <td className="px-2 py-3 text-gray-600" colSpan={4}>Cargando…</td>
+                            <td className="px-2 py-3 text-gray-600" colSpan={4}>
+                              Cargando…
+                            </td>
                           </tr>
                         ) : histRows.length === 0 ? (
                           <tr>
-                            <td className="px-2 py-3 text-gray-600" colSpan={4}>Sin registros</td>
+                            <td className="px-2 py-3 text-gray-600" colSpan={4}>
+                              Sin registros
+                            </td>
                           </tr>
                         ) : (
                           histRows.map((h, idx) => (
-                            <tr key={idx} className={idx % 2 ? "bg-gray-50" : undefined}>
-                              <td className="px-2 py-2">{String(h.fechaIngreso ?? "-").slice(0, 10)}</td>
-                              <td className="px-2 py-2">{h.nombreProveedor ?? "-"}</td>
+                            <tr
+                              key={idx}
+                              className={idx % 2 ? "bg-gray-50" : undefined}
+                            >
+                              <td className="px-2 py-2">
+                                {String(h.fechaIngreso ?? "-").slice(0, 10)}
+                              </td>
+                              <td className="px-2 py-2">
+                                {h.nombreProveedor ?? "-"}
+                              </td>
                               <td className="px-2 py-2 text-right">
                                 {typeof h.precio === "number"
-                                  ? new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(h.precio)
+                                  ? new Intl.NumberFormat("es-AR", {
+                                      style: "currency",
+                                      currency: "ARS",
+                                      maximumFractionDigits: 2,
+                                    }).format(h.precio)
                                   : "-"}
                               </td>
-                              <td className="px-2 py-2">{h.codigoArticuloProveedor ?? ""}</td>
+                              <td className="px-2 py-2">
+                                {h.codigoArticuloProveedor ?? ""}
+                              </td>
                             </tr>
                           ))
                         )}
@@ -1373,7 +1681,9 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
                         type="number"
                         min={1}
                         value={offerPage}
-                        onChange={(e) => setOfferPage(Number(e.target.value) || 1)}
+                        onChange={(e) =>
+                          setOfferPage(Number(e.target.value) || 1)
+                        }
                       />
                       <label className="text-xs text-gray-600">Limite</label>
                       <input
@@ -1382,7 +1692,9 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
                         min={1}
                         max={100}
                         value={offerLimit}
-                        onChange={(e) => setOfferLimit(Number(e.target.value) || 10)}
+                        onChange={(e) =>
+                          setOfferLimit(Number(e.target.value) || 10)
+                        }
                       />
                     </div>
                   </div>
@@ -1399,19 +1711,36 @@ function ProductoView({ id, onClose }: { id: number; onClose: (reload?: boolean)
                       <tbody>
                         {loadingOffer ? (
                           <tr>
-                            <td className="px-2 py-3 text-gray-600" colSpan={4}>Cargando…</td>
+                            <td className="px-2 py-3 text-gray-600" colSpan={4}>
+                              Cargando…
+                            </td>
                           </tr>
                         ) : offerRows.length === 0 ? (
                           <tr>
-                            <td className="px-2 py-3 text-gray-600" colSpan={4}>Sin registros</td>
+                            <td className="px-2 py-3 text-gray-600" colSpan={4}>
+                              Sin registros
+                            </td>
                           </tr>
                         ) : (
                           offerRows.map((h: any, idx: number) => (
-                            <tr key={idx} className={idx % 2 ? "bg-gray-50" : undefined}>
-                              <td className="px-2 py-2">{fmtLocalDate(h?.inicio)}</td>
-                              <td className="px-2 py-2">{fmtLocalDate(h?.fin)}</td>
-                              <td className="px-2 py-2">{h.oferta ? "En oferta" : "Normal"}</td>
-                              <td className="px-2 py-2 text-right">{typeof h.porcentaje === "number" ? `${h.porcentaje}%` : "-"}</td>
+                            <tr
+                              key={idx}
+                              className={idx % 2 ? "bg-gray-50" : undefined}
+                            >
+                              <td className="px-2 py-2">
+                                {fmtLocalDate(h?.inicio)}
+                              </td>
+                              <td className="px-2 py-2">
+                                {fmtLocalDate(h?.fin)}
+                              </td>
+                              <td className="px-2 py-2">
+                                {h.oferta ? "En oferta" : "Normal"}
+                              </td>
+                              <td className="px-2 py-2 text-right">
+                                {typeof h.porcentaje === "number"
+                                  ? `${h.porcentaje}%`
+                                  : "-"}
+                              </td>
                             </tr>
                           ))
                         )}

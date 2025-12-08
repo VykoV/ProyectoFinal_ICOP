@@ -249,6 +249,7 @@ export default function PreVentas() {
     },
     {
       header: "Total",
+      meta: { headerAlign: "right" },
       cell: ({ row }) => (
         <span className="block text-right">
           ${fmtPrice(row.original.total, { minFraction: 2, maxFraction: 2 })}

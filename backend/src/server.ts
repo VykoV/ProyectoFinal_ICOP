@@ -1065,9 +1065,33 @@ app.delete(
   authorize(["Administrador"]),
   async (req, res) => {
     const id = Number(req.params.id);
-    await prisma.usuarioRol.deleteMany({ where: { idUsuario: id } });
-    await prisma.usuario.delete({ where: { idUsuario: id } });
-    res.status(204).end();
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: "ID_INVALIDO" });
+    try {
+      const [ventaActor, ventaEvento, ventaComentario, cierreCaja, egresoCaja, notificacion] = await Promise.all([
+        prisma.ventaActor.count({ where: { idUsuario: id } }),
+        prisma.ventaEvento.count({ where: { idUsuario: id } }),
+        prisma.ventaComentario.count({ where: { idUsuario: id } }),
+        prisma.cierreCaja.count({ where: { idUsuario: id } }),
+        prisma.egresoCaja.count({ where: { idUsuario: id } }),
+        prisma.notificacion.count({ where: { idUsuario: id } }),
+      ]);
+      const totalRefs = ventaActor + ventaEvento + ventaComentario + cierreCaja + egresoCaja + notificacion;
+      if (totalRefs > 0) {
+        return res.status(409).json({
+          error: "USER_IN_USE",
+          details: { ventaActor, ventaEvento, ventaComentario, cierreCaja, egresoCaja, notificacion },
+        });
+      }
+
+      await prisma.usuarioRol.deleteMany({ where: { idUsuario: id } });
+      await prisma.usuario.delete({ where: { idUsuario: id } });
+      res.status(204).end();
+    } catch (e: any) {
+      if (e?.code === "P2003") {
+        return res.status(409).json({ error: "USER_IN_USE" });
+      }
+      res.status(400).json({ error: "DELETE_FAILED" });
+    }
   });
 
 /* === API === */
@@ -1192,10 +1216,14 @@ api.put("/clientes/:id", async (req, res) => {
 api.delete("/clientes/:id", async (req, res) => {
   const id = Number(req.params.id);
   try {
+    const ventas = await prisma.venta.count({ where: { idCliente: id } });
+    if (ventas > 0) {
+      return res.status(409).json({ error: "CLIENTE_EN_USO", details: { ventas } });
+    }
     await prisma.cliente.delete({ where: { idCliente: id } });
     res.status(204).end();
   } catch (e: any) {
-    if (e.code === "P2003") return res.status(409).json({ error: "FK_CONSTRAINT_IN_USE" });
+    if (e.code === "P2003") return res.status(409).json({ error: "CLIENTE_EN_USO" });
     res.status(400).json({ error: "DELETE_FAILED" });
   }
 });
@@ -3146,11 +3174,21 @@ app.delete(
       if (!id) {
         return res.status(400).json({ error: "FALTAN_DATOS" });
       }
+      const [compras, ventas] = await Promise.all([
+        prisma.compra.count({ where: { idMoneda: id } }),
+        prisma.venta.count({ where: { idMoneda: id } }),
+      ]);
+      if (compras + ventas > 0) {
+        return res.status(409).json({ error: "MONEDA_EN_USO", details: { compras, ventas } });
+      }
       await prisma.moneda.delete({ where: { idMoneda: id } });
       res.status(204).end();
     } catch (err: any) {
       if (err?.code === "P2025") {
         return res.status(404).json({ error: "NO_ENCONTRADO" });
+      }
+      if (err?.code === "P2003") {
+        return res.status(409).json({ error: "MONEDA_EN_USO" });
       }
       console.error("DELETE /api/monedas/:id error", err);
       res.status(500).json({ error: "SERVER_ERROR" });

@@ -118,8 +118,25 @@ export default function Clientes() {
       await api.delete(`/clientes/${id}`);
       await load();
       await showAlert({ type: "success", message: "Cliente eliminado" });
-    } catch (err) {
-      await showAlert({ type: "error", message: "Error al eliminar" });
+    } catch (err: unknown) {
+      const resp = (err as { response?: { status?: number; data?: { error?: string; details?: { ventas?: number } } } }).response;
+      const code: string | undefined = resp?.data?.error;
+      const status: number | undefined = resp?.status;
+      const details: { ventas?: number } | undefined = resp?.data?.details;
+      let message: string;
+      if (status === 409 && code === "CLIENTE_EN_USO") {
+        const ventas = Number(details?.ventas ?? 0);
+        const lines: string[] = [];
+        if (ventas > 0) lines.push(`Ventas asociadas: ${ventas}`);
+        message = lines.length
+          ? `No se puede eliminar el cliente porque tiene actividad registrada:\n${lines.join("\n")}`
+          : "No se puede eliminar el cliente porque tiene actividad registrada en el sistema.";
+      } else if (status === 409 && code === "FK_CONSTRAINT_IN_USE") {
+        message = "No se puede eliminar el cliente porque está referenciado en el sistema.";
+      } else {
+        message = resp?.data?.error || "Error al eliminar";
+      }
+      await showAlert({ type: "error", title: "No se puede eliminar", message });
     }
   }
 

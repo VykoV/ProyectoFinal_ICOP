@@ -163,12 +163,27 @@ export default function ProveedoresPage() {
     try {
       await svc.remove(item.idProveedor!);
       await load();
-    } catch (e: any) {
-      const msg: string | undefined = e?.response?.data?.error;
-      const status: number | undefined = e?.response?.status;
-      const message = status === 409 || (msg && /compra/i.test(msg))
-        ? "No se puede eliminar el proveedor porque tiene compras realizadas."
-        : (msg || "No se pudo eliminar el proveedor");
+    } catch (err: unknown) {
+      const resp = (err as { response?: { status?: number; data?: { error?: string; details?: { productos?: number; compras?: number } } } }).response;
+      const code: string | undefined = resp?.data?.error;
+      const status: number | undefined = resp?.status;
+      const details: { productos?: number; compras?: number } | undefined = resp?.data?.details;
+      let message: string;
+      if (status === 409 && code === "PROVEEDOR_EN_USO") {
+        const productos = Number(details?.productos ?? 0);
+        const compras = Number(details?.compras ?? 0);
+        const lines: string[] = [];
+        if (productos > 0) lines.push(`Productos vinculados: ${productos}`);
+        if (compras > 0) lines.push(`Compras realizadas: ${compras}`);
+        message = lines.length
+          ? `No se puede eliminar el proveedor porque tiene actividad registrada:\n${lines.join("\n")}`
+          : "No se puede eliminar el proveedor porque tiene actividad registrada en el sistema.";
+      } else {
+        const msg: string | undefined = resp?.data?.error;
+        message = status === 409 || (msg && /compra/i.test(String(msg)))
+          ? "No se puede eliminar el proveedor porque tiene compras realizadas."
+          : (msg || "No se pudo eliminar el proveedor");
+      }
       await showAlert({ type: "error", title: "No se puede eliminar", message });
     }
   }

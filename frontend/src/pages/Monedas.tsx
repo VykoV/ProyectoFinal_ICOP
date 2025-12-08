@@ -75,8 +75,25 @@ export default function Monedas() {
       await deleteMoneda(r.id);
       await load();
       await showAlert({ title: "Éxito", type: "success", message: "Moneda eliminada" });
-    } catch (e: any) {
-      await showAlert({ title: "Error", type: "error", message: e?.response?.data?.error || e?.message || "No se pudo eliminar la moneda" });
+    } catch (err: unknown) {
+      const resp = (err as { response?: { status?: number; data?: { error?: string; details?: { compras?: number; ventas?: number } } } }).response;
+      const code: string | undefined = resp?.data?.error;
+      const status: number | undefined = resp?.status;
+      const details: { compras?: number; ventas?: number } | undefined = resp?.data?.details;
+      let message: string;
+      if (status === 409 && code === "MONEDA_EN_USO") {
+        const compras = Number(details?.compras ?? 0);
+        const ventas = Number(details?.ventas ?? 0);
+        const lines: string[] = [];
+        if (compras > 0) lines.push(`Compras asociadas: ${compras}`);
+        if (ventas > 0) lines.push(`Ventas asociadas: ${ventas}`);
+        message = lines.length
+          ? `No se puede eliminar la moneda porque tiene actividad registrada:\n${lines.join("\n")}`
+          : "No se puede eliminar la moneda porque tiene actividad registrada en el sistema.";
+      } else {
+        message = resp?.data?.error || (err as any)?.message || "No se pudo eliminar la moneda";
+      }
+      await showAlert({ title: "No se puede eliminar", type: "error", message });
     }
   }
 
