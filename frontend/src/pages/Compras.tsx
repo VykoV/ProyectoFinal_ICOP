@@ -17,6 +17,17 @@ import { api } from "../lib/api";
 import { toast } from "react-hot-toast";
 import { showAlert, askConfirm } from "../lib/alerts";
 
+function parseMoneda(val: any): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === "string") {
+    const s = val.replace(/\./g, "").replace(/,/g, ".");
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+  const n = Number(val);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /* ===== Tipos ===== */
 type CompraRow = {
   id: number;
@@ -226,6 +237,60 @@ export default function Compras() {
                         message: "Edición finalizada y stock aplicado",
                       });
                       await load();
+                      try {
+                        const compRes = await api.get(
+                          `/compras/${row.original.id}`
+                        );
+                        const dets: any[] = Array.isArray(
+                          compRes?.data?.detalles
+                        )
+                          ? compRes.data.detalles
+                          : [];
+                        const diffs: string[] = [];
+                        await Promise.all(
+                          dets.map(async (d: any) => {
+                            const idP = Number(
+                              d.idProducto ?? d.Producto?.idProducto
+                            );
+                            if (!idP) return;
+                            const costoCompra = Number(d.precioUnit ?? 0);
+                            try {
+                              const pr = await api.get(`/products/${idP}`);
+                              const costoActual = parseMoneda(
+                                pr?.data?.precioCosto ??
+                                  pr?.data?.precioCostoProducto ??
+                                  0
+                              );
+                              const nombre = String(
+                                pr?.data?.nombre ??
+                                  pr?.data?.nombreProducto ??
+                                  d.Producto?.nombreProducto ??
+                                  "Producto"
+                              );
+                              if (costoActual !== costoCompra) {
+                                diffs.push(
+                                  `${nombre}: costo actual $${fmtPrice(
+                                    costoActual,
+                                    { minFraction: 2, maxFraction: 2 }
+                                  )} vs compra $${fmtPrice(costoCompra, {
+                                    minFraction: 2,
+                                    maxFraction: 2,
+                                  })}`
+                                );
+                              }
+                            } catch {}
+                          })
+                        );
+                        if (diffs.length > 0) {
+                          await showAlert({
+                            type: "warning",
+                            title: "Variación de costo",
+                            message: `Se detectaron variaciones de costo tras finalizar la edición:\n${diffs.join(
+                              "\n"
+                            )}\nSugerencia: revisar/actualizar el precio de venta del producto.`,
+                          });
+                        }
+                      } catch {}
                     } catch (e: any) {
                       await showAlert({
                         type: "error",
@@ -817,6 +882,11 @@ function CompraForm({
   const [cant, setCant] = useState<number>(0);
   const [precioUnit, setPrecioUnit] = useState<number>(0);
   const [items, setItems] = useState<Item[]>([]);
+  const [openProdPicker, setOpenProdPicker] = useState(false);
+  const [pickerQ, setPickerQ] = useState("");
+  const [pickerResults, setPickerResults] = useState<any[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
 
   // errores
   const [err, setErr] = useState<string>("");
@@ -829,6 +899,17 @@ function CompraForm({
     const base = pu / (1 + ivaPct / 100);
     const iva = pu - base;
     return { base, iva };
+  }
+
+  function parseMoneda(val: any): number {
+    if (val === null || val === undefined) return 0;
+    if (typeof val === "string") {
+      const s = val.replace(/\./g, "").replace(/,/g, ".");
+      const n = Number(s);
+      return Number.isFinite(n) ? n : 0;
+    }
+    const n = Number(val);
+    return Number.isFinite(n) ? n : 0;
   }
 
   /* Cargas iniciales */
@@ -900,30 +981,311 @@ function CompraForm({
 
   /* Buscar productos */
   useEffect(() => {
+    let cancelled = false;
     const t = setTimeout(async () => {
-      const { data } = await api.get("/products", {
-        params: prodQ ? { q: prodQ } : undefined,
-      });
-      const opts: ProdOpt[] = (data ?? []).map((p: any) => ({
-        id: p.id ?? p.idProducto,
-        label: `${p.sku ?? p.codigoProducto} — ${p.nombre ?? p.nombreProducto}`,
-        precio: Number(p.precio ?? p.precioVentaPublicoProducto ?? 0),
-      }));
-      setProdOpts(opts);
-      if (prodSel) {
-        const found = opts.find((o) => o.id === prodSel.id);
-        if (found) setPrecioUnit(found.precio);
+      try {
+        if (idProveedor) {
+          const rows = await fetchProvProductosAll(
+            idProveedor,
+            prodQ || undefined
+          );
+          const seenProv = new Set<number>();
+          const opts: ProdOpt[] = [];
+          for (const r of rows) {
+            const idP = Number(r.Producto?.idProducto ?? r.idProducto ?? r.id);
+            if (!idP || seenProv.has(idP)) continue;
+            seenProv.add(idP);
+            opts.push({
+              id: idP,
+              label: `${
+                r.Producto?.codigoProducto ?? r.codigoProducto ?? ""
+              } — ${r.Producto?.nombreProducto ?? r.nombreProducto ?? ""}`,
+              precio: parseMoneda(r.Producto?.precioProducto ?? 0),
+            });
+          }
+          let finalOpts = opts;
+          if (finalOpts.length === 0) {
+            const { data } = await api.get("/products", {
+              params: prodQ ? { q: prodQ } : undefined,
+            });
+            const baseOptsRaw: ProdOpt[] = (data ?? []).map((p: any) => ({
+              id: p.id ?? p.idProducto,
+              label: `${p.sku ?? p.codigoProducto} — ${
+                p.nombre ?? p.nombreProducto
+              }`,
+              precio: parseMoneda(
+                p.precioProducto ?? p.precioCosto ?? p.precioCostoProducto ?? 0
+              ),
+            }));
+            const seenAll = new Set<number>();
+            const baseOpts = baseOptsRaw.filter((o) => {
+              const idN = Number(o.id);
+              if (!idN || seenAll.has(idN)) return false;
+              seenAll.add(idN);
+              return true;
+            });
+            const needle = String(prodQ || "")
+              .trim()
+              .toLowerCase();
+            finalOpts = needle
+              ? baseOpts.filter((o) => o.label.toLowerCase().includes(needle))
+              : baseOpts;
+          }
+          let foundSel: ProdOpt | undefined;
+          if (prodSel) {
+            foundSel = finalOpts.find((o) => o.id === prodSel.id);
+            if (foundSel && (!foundSel.precio || foundSel.precio === 0)) {
+              try {
+                const det = await api.get(`/products/${foundSel.id}`);
+                foundSel.precio = parseMoneda(
+                  det?.data?.precioProducto ??
+                    det?.data?.precioCosto ??
+                    det?.data?.precioCostoProducto ??
+                    foundSel.precio
+                );
+              } catch {}
+            }
+          }
+          if (cancelled) return;
+          setProdOpts(finalOpts);
+          if (foundSel && foundSel.precio && foundSel.precio > 0) {
+            setPrecioUnit(foundSel.precio);
+          }
+          return;
+        }
+        const { data } = await api.get("/products", {
+          params: prodQ ? { q: prodQ } : undefined,
+        });
+        const baseOptsRaw: ProdOpt[] = (data ?? []).map((p: any) => ({
+          id: p.id ?? p.idProducto,
+          label: `${p.sku ?? p.codigoProducto} — ${
+            p.nombre ?? p.nombreProducto
+          }`,
+          precio: parseMoneda(
+            p.precioProducto ?? p.precioCosto ?? p.precioCostoProducto ?? 0
+          ),
+        }));
+        const seenAll = new Set<number>();
+        const baseOpts = baseOptsRaw.filter((o) => {
+          const idN = Number(o.id);
+          if (!idN || seenAll.has(idN)) return false;
+          seenAll.add(idN);
+          return true;
+        });
+        const needle = String(prodQ || "")
+          .trim()
+          .toLowerCase();
+        const opts = needle
+          ? baseOpts.filter((o) => o.label.toLowerCase().includes(needle))
+          : baseOpts;
+        await Promise.all(
+          opts.slice(0, 50).map(async (o) => {
+            if (!o.precio || o.precio === 0) {
+              try {
+                const det = await api.get(`/products/${o.id}`);
+                o.precio = parseMoneda(
+                  det?.data?.precioProducto ??
+                    det?.data?.precioCosto ??
+                    det?.data?.precioCostoProducto ??
+                    o.precio
+                );
+              } catch {}
+            }
+          })
+        );
+        let foundSel: ProdOpt | undefined;
+        if (prodSel) {
+          foundSel = opts.find((o) => o.id === prodSel.id);
+          if (foundSel && (!foundSel.precio || foundSel.precio === 0)) {
+            try {
+              const det = await api.get(`/products/${foundSel.id}`);
+              foundSel.precio = parseMoneda(
+                det?.data?.precioProducto ??
+                  det?.data?.precioCosto ??
+                  det?.data?.precioCostoProducto ??
+                  foundSel.precio
+              );
+            } catch {}
+          }
+        }
+        if (cancelled) return;
+        setProdOpts(opts);
+        if (foundSel && foundSel.precio && foundSel.precio > 0) {
+          setPrecioUnit(foundSel.precio);
+        }
+      } catch {
+        if (cancelled) return;
+        setProdOpts([]);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [prodQ, idProveedor]); // eslint-disable-line
+
+  useEffect(() => {
+    if (!openProdPicker) return;
+    const t = setTimeout(async () => {
+      setPickerLoading(true);
+      setPickerError(null);
+      try {
+        if (idProveedor) {
+          const rows = await fetchProvProductosAll(
+            idProveedor,
+            pickerQ || undefined
+          );
+          const seen = new Set<number>();
+          const mapped: any[] = [];
+          for (const r of rows) {
+            const idP = Number(r.Producto?.idProducto ?? r.idProducto ?? r.id);
+            if (!idP || seen.has(idP)) continue;
+            seen.add(idP);
+            mapped.push({
+              idProducto: idP,
+              codigoProducto:
+                r.Producto?.codigoProducto ?? r.codigoProducto ?? "",
+              nombreProducto:
+                r.Producto?.nombreProducto ?? r.nombreProducto ?? "",
+              precioProducto: r.Producto?.precioProducto ?? 0,
+            });
+          }
+          // Unir con catálogo completo para mostrar lista completa
+          const { data } = await api.get("/products", {
+            params: pickerQ ? { q: pickerQ } : undefined,
+          });
+          const arr = Array.isArray(data) ? data : [];
+          const needle = String(pickerQ || "")
+            .trim()
+            .toLowerCase();
+          const filtered = needle
+            ? arr.filter((p: any) =>
+                [
+                  p.nombreProducto,
+                  p.nombre,
+                  p.codigoProducto,
+                  p.sku,
+                  p.codigoBarrasProducto,
+                ]
+                  .map((x: any) => String(x || "").toLowerCase())
+                  .some((s: string) => s.includes(needle))
+              )
+            : arr;
+          const seenIds = new Set<number>(
+            mapped.map((m: any) => Number(m.idProducto))
+          );
+          const union: any[] = [...mapped];
+          for (const p of filtered) {
+            const idP2 = Number(p.idProducto ?? p.id);
+            if (!idP2 || seenIds.has(idP2)) continue;
+            seenIds.add(idP2);
+            union.push({
+              idProducto: idP2,
+              codigoProducto: p.codigoProducto ?? p.sku ?? "",
+              nombreProducto: p.nombreProducto ?? p.nombre ?? "",
+              precioProducto: p.precioProducto ?? 0,
+            });
+          }
+          const detailCount = Math.min(union.length, 300);
+          const forDetail = union.slice(0, detailCount);
+          await Promise.all(
+            forDetail.map(async (p: any) => {
+              if (p.precioProducto == null || Number(p.precioProducto) === 0) {
+                const idP = p.idProducto;
+                if (!idP) return;
+                try {
+                  const det = await api.get(`/products/${idP}`);
+                  p.precioProducto =
+                    det?.data?.precioProducto ??
+                    det?.data?.precioCosto ??
+                    det?.data?.precioCostoProducto ??
+                    p.precio ??
+                    0;
+                } catch {}
+              }
+            })
+          );
+          setPickerResults(union);
+        } else {
+          const { data } = await api.get("/products", {
+            params: pickerQ ? { q: pickerQ } : undefined,
+          });
+          const arr = Array.isArray(data) ? data : [];
+          const needle = String(pickerQ || "")
+            .trim()
+            .toLowerCase();
+          const filtered = needle
+            ? arr.filter((p: any) =>
+                [
+                  p.nombreProducto,
+                  p.nombre,
+                  p.codigoProducto,
+                  p.sku,
+                  p.codigoBarrasProducto,
+                ]
+                  .map((x: any) => String(x || "").toLowerCase())
+                  .some((s: string) => s.includes(needle))
+              )
+            : arr;
+          const seenIds = new Set<number>();
+          const filteredUniq = filtered.filter((p: any) => {
+            const idP = Number(p.idProducto ?? p.id);
+            if (!idP || seenIds.has(idP)) return false;
+            seenIds.add(idP);
+            return true;
+          });
+          const detailCount = Math.min(filteredUniq.length, 200);
+          const forDetail = filteredUniq.slice(0, detailCount);
+          await Promise.all(
+            forDetail.map(async (p: any) => {
+              if (
+                p.precioProducto == null &&
+                p.precioCosto == null &&
+                p.precioCostoProducto == null
+              ) {
+                const idP = p.idProducto ?? p.id;
+                if (!idP) return;
+                try {
+                  const det = await api.get(`/products/${idP}`);
+                  p.precioProducto =
+                    det?.data?.precioProducto ??
+                    det?.data?.precioCosto ??
+                    det?.data?.precioCostoProducto ??
+                    p.precio ??
+                    0;
+                } catch {}
+              }
+            })
+          );
+          setPickerResults(filteredUniq);
+        }
+      } catch (e: any) {
+        setPickerError(
+          e?.response?.data?.error || e?.message || "Error al buscar productos"
+        );
+      } finally {
+        setPickerLoading(false);
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [prodQ]); // eslint-disable-line
+  }, [openProdPicker, pickerQ, idProveedor]);
 
-  function pickProduct(o: ProdOpt) {
+  async function pickProduct(o: ProdOpt) {
     setProdSel(o);
     setProdQ(o.label);
-    setPrecioUnit(o.precio);
     setProdOpts([]);
     setCant(0);
+    let precio = o.precio;
+    try {
+      const { data } = await api.get(`/products/${o.id}`);
+      precio = parseMoneda(
+        data?.precioProducto ??
+          data?.precioCosto ??
+          data?.precioCostoProducto ??
+          precio
+      );
+    } catch {}
+    setPrecioUnit(Math.max(0, Number(precio) || 0));
   }
 
   function addItem() {
@@ -1169,9 +1531,18 @@ function CompraForm({
 
             {/* Agregar productos */}
             <div className="rounded-2xl border bg-white p-4 space-y-3">
-              <h4 className="text-sm font-medium text-gray-700">
-                Agregar producto
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium text-gray-700">
+                  Agregar producto
+                </h4>
+                <button
+                  type="button"
+                  className="rounded border px-3 py-1 text-sm"
+                  onClick={() => setOpenProdPicker(true)}
+                >
+                  Agregar productos
+                </button>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-20 gap-3">
                 <div className="md:col-span-10">
                   <Label className="mb-1 block">Producto</Label>
@@ -1216,7 +1587,7 @@ function CompraForm({
                 </div>
 
                 <div className="md:col-span-3">
-                  <Label className="mb-1 block">Precio unit.</Label>
+                  <Label className="mb-1 block">Precio</Label>
                   <Input
                     type="number"
                     inputMode="decimal"
@@ -1264,7 +1635,7 @@ function CompraForm({
                   <tr>
                     <th className="px-3 py-2 text-left">Producto</th>
                     <th className="px-3 py-2 text-right">Cant.</th>
-                    <th className="px-3 py-2 text-right">P.Unit.</th>
+                    <th className="px-3 py-2 text-right">Precio</th>
                     <th className="px-3 py-2 text-right">Sin IVA</th>
                     <th className="px-3 py-2 text-right">Subtotal</th>
                     <th className="px-3 py-2 text-right">Acciones</th>
@@ -1395,8 +1766,188 @@ function CompraForm({
               </div>
             </div>
           </form>
+          {openProdPicker && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+              <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl">
+                <div className="flex items-center justify-between border-b px-4 py-2">
+                  <h2 className="text-sm font-medium">Seleccionar producto</h2>
+                  <button
+                    className="rounded border px-2 py-1 text-xs"
+                    onClick={() => setOpenProdPicker(false)}
+                    title="Cerrar"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="p-4 space-y-3">
+                  <div>
+                    <Label htmlFor="buscarProdPicker">Buscar</Label>
+                    <input
+                      id="buscarProdPicker"
+                      type="text"
+                      className="rounded border px-2 py-1 w-full"
+                      placeholder="Código, nombre o SKU"
+                      value={pickerQ}
+                      onChange={(e) => setPickerQ(e.target.value)}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Escribe para ver productos existentes. Se muestra el
+                      costo.
+                    </p>
+                  </div>
+                  <div className="rounded border">
+                    <div className="border-b bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                      Resultados
+                    </div>
+                    <div className="max-h-64 overflow-auto">
+                      {pickerLoading ? (
+                        <div className="p-3 text-sm text-gray-600">
+                          Buscando…
+                        </div>
+                      ) : pickerError ? (
+                        <div className="p-3 text-sm text-red-700">
+                          {pickerError}
+                        </div>
+                      ) : pickerResults.length === 0 ? (
+                        <div className="p-3 text-sm text-gray-600">
+                          No se encontraron productos
+                        </div>
+                      ) : (
+                        <table className="min-w-full text-xs">
+                          <thead className="bg-gray-100 text-left">
+                            <tr>
+                              <th className="px-3 py-2">Código</th>
+                              <th className="px-3 py-2">Nombre</th>
+                              <th className="px-3 py-2 text-right">Costo</th>
+                              <th className="px-3 py-2 text-right">Acción</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pickerResults.slice(0, 50).map((p: any) => {
+                              const pu = parseMoneda(
+                                p.precioProducto ??
+                                  p.precioCosto ??
+                                  p.precioCostoProducto ??
+                                  p.precio ??
+                                  0
+                              );
+                              return (
+                                <tr
+                                  key={p.idProducto ?? p.id}
+                                  className="border-t"
+                                >
+                                  <td className="px-3 py-2">
+                                    {p.codigoProducto ??
+                                      p.sku ??
+                                      p.idProducto ??
+                                      p.id}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {p.nombreProducto ?? p.nombre}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    $
+                                    {fmtPrice(pu, {
+                                      minFraction: 2,
+                                      maxFraction: 2,
+                                    })}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    <button
+                                      className="rounded border px-2 py-1 text-xs"
+                                      onClick={async () => {
+                                        let precio = pu;
+                                        let idP = p.idProducto ?? p.id;
+                                        let label = `${
+                                          p.codigoProducto ??
+                                          p.sku ??
+                                          p.idProducto ??
+                                          p.id
+                                        } — ${p.nombreProducto ?? p.nombre}`;
+                                        try {
+                                          const { data } = await api.get(
+                                            `/products/${idP}`
+                                          );
+                                          precio = parseMoneda(
+                                            data?.precioProducto ??
+                                              data?.precioCosto ??
+                                              data?.precioCostoProducto ??
+                                              precio
+                                          );
+                                          idP = data?.idProducto ?? idP;
+                                          label = `${
+                                            data?.codigoProducto ??
+                                            p.codigoProducto ??
+                                            p.sku ??
+                                            idP
+                                          } — ${
+                                            data?.nombreProducto ??
+                                            p.nombreProducto ??
+                                            p.nombre
+                                          }`;
+                                        } catch {}
+                                        setProdSel({
+                                          id: Number(idP),
+                                          label,
+                                          precio: Math.max(
+                                            0,
+                                            Number(precio) || 0
+                                          ),
+                                        });
+                                        setProdQ(label);
+                                        setPrecioUnit(
+                                          Math.max(0, Number(precio) || 0)
+                                        );
+                                        setCant(1);
+                                        setOpenProdPicker(false);
+                                      }}
+                                    >
+                                      Agregar
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+                  <button
+                    className="rounded border px-3 py-1 text-sm"
+                    onClick={() => setOpenProdPicker(false)}
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </>
   );
+}
+async function fetchProvProductosAll(
+  idProv: number | string | null,
+  search?: string
+) {
+  const idNum = Number(idProv);
+  if (!idProv || !Number.isFinite(idNum) || idNum <= 0) return [] as any[];
+  const pageSize = 100;
+  let page = 1;
+  const out: any[] = [];
+  while (true) {
+    const { data } = await api.get(`/proveedores/${idNum}/productos`, {
+      params: { search: search || undefined, page, pageSize },
+    });
+    const chunk = (data?.rows ?? data ?? []) as any[];
+    out.push(...chunk);
+    if (chunk.length < pageSize) break;
+    page += 1;
+    if (page > 50) break;
+  }
+  return out;
 }

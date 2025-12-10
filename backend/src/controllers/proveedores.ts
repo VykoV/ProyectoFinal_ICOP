@@ -11,12 +11,12 @@ export async function list(req: Request, res: Response) {
   const q = paginadoQuery.parse(req.query);
   const where = q.search
     ? {
-        OR: [
-          { nombreProveedor: { contains: q.search, mode: Prisma.QueryMode.insensitive } },
-          { mailProveedor: { contains: q.search, mode: Prisma.QueryMode.insensitive } },
-          { observacionProveedor: { contains: q.search, mode: Prisma.QueryMode.insensitive } },
-        ],
-      }
+      OR: [
+        { nombreProveedor: { contains: q.search, mode: Prisma.QueryMode.insensitive } },
+        { mailProveedor: { contains: q.search, mode: Prisma.QueryMode.insensitive } },
+        { observacionProveedor: { contains: q.search, mode: Prisma.QueryMode.insensitive } },
+      ],
+    }
     : {};
   const [total, rows] = await Promise.all([
     prisma.proveedor.count({ where }),
@@ -103,23 +103,27 @@ export async function listProductosByProveedor(req: Request, res: Response) {
   const id = Number(req.params.id);
   const q = paginadoQuery.parse(req.query);
 
-  const wherePP = {
+  const wherePP: Prisma.ProveedorProductoWhereInput = {
     idProveedor: id,
-    Producto: q.search
-      ? {
-          OR: [
-            { nombreProducto: { contains: q.search, mode: Prisma.QueryMode.insensitive } },
-            { codigoProducto: { contains: q.search, mode: Prisma.QueryMode.insensitive } },
-            { codigoBarrasProducto: { contains: q.search, mode: Prisma.QueryMode.insensitive } },
-          ],
-        }
-      : undefined,
   };
+  if (q.search) {
+    const or: any[] = [
+      { nombreProducto: { contains: q.search, mode: Prisma.QueryMode.insensitive } },
+      { codigoProducto: { contains: q.search, mode: Prisma.QueryMode.insensitive } },
+    ];
+    if (/^\d+$/.test(q.search)) {
+      try {
+        const num = BigInt(q.search);
+        or.push({ codigoBarrasProducto: { equals: num } });
+      } catch { }
+    }
+    wherePP.Producto = { is: { OR: or } } as any;
+  }
 
   const [total, rows] = await Promise.all([
-    prisma.proveedorProducto.count({ where: wherePP as any }),
+    prisma.proveedorProducto.count({ where: wherePP }),
     prisma.proveedorProducto.findMany({
-      where: wherePP as any,
+      where: wherePP,
       orderBy: { fechaIngreso: "desc" },
       skip: (q.page - 1) * q.pageSize,
       take: q.pageSize,
