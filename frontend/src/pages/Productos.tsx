@@ -771,6 +771,22 @@ function ProductoPopup({
     const payload = isEdit ? base : { ...base, stock: 0 };
 
     try {
+      const nombreLower = String(base.nombre ?? "").toLowerCase();
+      if (nombreLower) {
+        const { data } = await api.get("/products/search", { params: { q: base.nombre } });
+        const dup = (data ?? []).some((p: any) => {
+          const pid = Number(p.id ?? p.idProducto ?? 0);
+          const pname = String(p.nombre ?? p.nombreProducto ?? "").toLowerCase();
+          const same = pname === nombreLower;
+          const notSelf = isEdit ? pid !== Number(initial?.id ?? 0) : true;
+          return same && notSelf;
+        });
+        if (dup) {
+          setShowErrors(true);
+          toast.error("Ya existe un producto con ese nombre");
+          return;
+        }
+      }
       if (initial?.id) {
         await api.put(`/products/${initial.id}`, payload);
         await showAlert({

@@ -473,6 +473,16 @@ app.post("/api/products", requireAuth_1.requireAuth, (0, authorize_1.authorize)(
         });
         if (!sf)
             return res.status(400).json({ error: "SUBFAMILIA_NOT_FOUND" });
+        const nombreTrim = String(nombre ?? "").trim();
+        if (!nombreTrim)
+            return res.status(400).json({ error: "NOMBRE_REQUIRED" });
+        const existsNombre = await prisma.producto.findFirst({
+            where: { nombreProducto: { equals: nombreTrim, mode: client_1.Prisma.QueryMode.insensitive } },
+            select: { idProducto: true },
+        });
+        if (existsNombre) {
+            return res.status(409).json({ error: "PRODUCT_NAME_TAKEN", message: "Ya existe un producto con ese nombre." });
+        }
         const created = await prisma.producto.create({
             data: {
                 nombreProducto: nombre,
@@ -630,6 +640,21 @@ app.put("/api/products/:id", async (req, res) => {
         });
         if (!actual)
             return res.status(404).json({ error: "NOT_FOUND" });
+        if (nombre !== undefined) {
+            const nombreTrim = String(nombre ?? "").trim();
+            if (!nombreTrim)
+                return res.status(400).json({ error: "NOMBRE_INVALIDO" });
+            const existsNombre = await prisma.producto.findFirst({
+                where: {
+                    nombreProducto: { equals: nombreTrim, mode: client_1.Prisma.QueryMode.insensitive },
+                    NOT: { idProducto: id },
+                },
+                select: { idProducto: true },
+            });
+            if (existsNombre) {
+                return res.status(409).json({ error: "PRODUCT_NAME_TAKEN", message: "Ya existe un producto con ese nombre." });
+            }
+        }
         const precioCambio = precio !== undefined &&
             !new client_1.Prisma.Decimal(precio).equals(actual.precioVentaPublicoProducto);
         const row = await prisma.producto.update({
