@@ -2499,6 +2499,9 @@ app.put(
             throw new Error("ESTADO_INVALIDO");
           const itemsAct = await leerItemsVenta(tx, id);
           if (itemsAct.length === 0) throw new Error("SIN_ITEMS");
+          if (itemsAct.some((i) => !(Number(i.cantidad) > 0))) {
+            throw new Error("SIN_ITEMS");
+          }
 
           // Antes de descontar stock, aplicar descuentos por oferta vigentes al momento del cobro
           {

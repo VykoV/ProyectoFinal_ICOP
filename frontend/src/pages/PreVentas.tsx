@@ -1814,6 +1814,14 @@ function PreventaForm({
       });
       return;
     }
+    if (items.some((i) => Number(i.cantidad) <= 0)) {
+      await showAlert({
+        type: "warning",
+        title: "Validación",
+        message: "La cantidad de cada producto debe ser mayor a 0.",
+      });
+      return;
+    }
 
     const today = new Date();
     const ventaDate = fechaFactura ? new Date(fechaFactura) : today;

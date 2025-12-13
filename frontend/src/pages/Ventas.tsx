@@ -1921,6 +1921,39 @@ function ValidarPreventaModal({
     try {
       if (accion === "guardar") {
         console.log("CLICK GUARDAR", { estado: estadoActual, ventaId: id });
+        const detalles: any[] = Array.isArray(venta?.detalles)
+          ? venta.detalles
+          : [];
+        const tieneCantidadCero = detalles.some(
+          (d: any) => Number(d.cantidad ?? 0) <= 0
+        );
+        if (tieneCantidadCero) {
+          await showAlert({
+            type: "warning",
+            title: "Validación",
+            message: "La cantidad de cada producto debe ser mayor a 0.",
+          });
+          setSaving(false);
+          return;
+        }
+      }
+      if (accion === "finalizar") {
+        const detalles: any[] = Array.isArray(venta?.detalles)
+          ? venta.detalles
+          : [];
+        const tieneCantidadCero = detalles.some(
+          (d: any) => Number(d.cantidad ?? 0) <= 0
+        );
+        if (tieneCantidadCero) {
+          await showAlert({
+            type: "warning",
+            title: "Validación",
+            message:
+              "La cantidad de cada producto debe ser mayor a 0. Guardá los cambios antes de finalizar.",
+          });
+          setSaving(false);
+          return;
+        }
       }
       // Congelar descuentos: enviar el descuento ya guardado por línea, sin recalcular ofertas
       const items = (venta?.detalles ?? [])
@@ -2066,11 +2099,17 @@ function ValidarPreventaModal({
       setSaving(false);
     } catch (err) {
       console.error(err);
-      const msg =
+      const raw =
         (err as any)?.response?.data?.error ||
         (err as any)?.message ||
         "Error al actualizar";
-      alert(msg);
+      const msg =
+        String(raw) === "ESTADO_INVALIDO"
+          ? "La validación no es posible con el estado actual. Pasá a caja nuevamente."
+          : String(raw) === "Network Error"
+          ? "No se puede pasar a caja una reserva vencida"
+          : String(raw);
+      await showAlert({ type: "error", title: "Error", message: msg });
       setSaving(false);
     }
   }
@@ -2078,7 +2117,11 @@ function ValidarPreventaModal({
   async function lock() {
     const targetId = ventaId ?? id;
     if (!targetId) {
-      alert("ID de preventa no cargado");
+      await showAlert({
+        type: "error",
+        title: "Error",
+        message: "ID de preventa no cargado",
+      });
       return;
     }
     setSaving(true);
@@ -2098,10 +2141,11 @@ function ValidarPreventaModal({
         setSaving(false);
         return;
       }
-      const putRes = await api.put(`/preventas/${targetId}`, {
-        accion: "lock",
-        motivoLock: motivo,
-      });
+      const putRes = await api.put(
+        `/preventas/${targetId}`,
+        { accion: "lock", motivoLock: motivo },
+        { headers: { "x-skip-alert": "1" } }
+      );
       const updated = putRes?.data;
       console.log("LOCK put response", {
         status: (putRes as any)?.status,
@@ -2113,18 +2157,34 @@ function ValidarPreventaModal({
       await api.get(`/preventas/${targetId}`, { params: { _: Date.now() } });
       // cerrar modal y refrescar listas en el padre para que el cambio se vea inmediatamente
       onDone();
-      await showAlert({
-        type: "success",
-        title: "Éxito",
-        message: "Reserva cancelada con éxito",
-      });
+      {
+        const estadoNuevo = String(
+          updated?.EstadoVenta?.nombreEstadoVenta ?? ""
+        ).toLowerCase();
+        const msg = isReservado
+          ? "Reserva quitada y pasado a caja con éxito"
+          : estadoNuevo.includes("listocaja")
+          ? "Pasado a caja con éxito"
+          : `Estado actualizado: ${
+              updated?.EstadoVenta?.nombreEstadoVenta ?? ""
+            }`;
+        await showAlert({ type: "success", title: "Éxito", message: msg });
+      }
     } catch (err) {
       console.error(err);
-      const msg =
+      const raw =
         (err as any)?.response?.data?.error ||
         (err as any)?.message ||
         "Error al cerrar y pasar a caja";
-      alert(msg);
+      const msg =
+        String(raw) === "ESTADO_INVALIDO"
+          ? "La preventa está vencida o en un estado inválido para pasar a caja."
+          : String(raw) === "RESERVA_VENCIDA"
+          ? "La reserva está vencida. No se puede validar. Cancelá o generá una nueva."
+          : String(raw) === "Network Error"
+          ? "No se puede pasar a caja una reserva vencida"
+          : String(raw);
+      await showAlert({ type: "error", title: "Error", message: msg });
     } finally {
       setSaving(false);
     }
