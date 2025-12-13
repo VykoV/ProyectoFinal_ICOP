@@ -51,7 +51,15 @@ export async function getById(req: Request, res: Response) {
 }
 
 export async function create(req: Request, res: Response) {
-  const data = proveedorIn.parse(req.body);
+  const parsed = proveedorIn.safeParse(req.body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return res.status(422).json({
+      error: issue?.message || "Datos inválidos",
+      field: issue?.path?.[0] ?? undefined,
+    });
+  }
+  const data = parsed.data;
 
   // unicidad por CIF/NIF si viene informado
   if (data.CIF_NIFProveedor) {
@@ -61,13 +69,33 @@ export async function create(req: Request, res: Response) {
     if (exists) return res.status(409).json({ error: "CIF_NIF ya registrado" });
   }
 
-  const row = await prisma.proveedor.create({ data });
-  res.status(201).json(row);
+  try {
+    const row = await prisma.proveedor.create({ data });
+    res.status(201).json(row);
+  } catch (e: any) {
+    if (e?.code === "P2002") {
+      const target = (e?.meta?.target as string[] | undefined)?.[0];
+      return res.status(409).json({
+        error: "UNIQUE_CONSTRAINT",
+        field: target || undefined,
+      });
+    }
+    console.error(e);
+    res.status(400).json({ error: "CREATE_FAILED" });
+  }
 }
 
 export async function update(req: Request, res: Response) {
   const id = Number(req.params.id);
-  const data = proveedorIn.parse(req.body);
+  const parsed = proveedorIn.safeParse(req.body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return res.status(422).json({
+      error: issue?.message || "Datos inválidos",
+      field: issue?.path?.[0] ?? undefined,
+    });
+  }
+  const data = parsed.data;
 
   if (data.CIF_NIFProveedor) {
     const exists = await prisma.proveedor.findFirst({
@@ -79,11 +107,23 @@ export async function update(req: Request, res: Response) {
     if (exists) return res.status(409).json({ error: "CIF_NIF ya registrado" });
   }
 
-  const row = await prisma.proveedor.update({
-    where: { idProveedor: id },
-    data,
-  });
-  res.json(row);
+  try {
+    const row = await prisma.proveedor.update({
+      where: { idProveedor: id },
+      data,
+    });
+    res.json(row);
+  } catch (e: any) {
+    if (e?.code === "P2002") {
+      const target = (e?.meta?.target as string[] | undefined)?.[0];
+      return res.status(409).json({
+        error: "UNIQUE_CONSTRAINT",
+        field: target || undefined,
+      });
+    }
+    console.error(e);
+    res.status(400).json({ error: "UPDATE_FAILED" });
+  }
 }
 
 export async function remove(req: Request, res: Response) {

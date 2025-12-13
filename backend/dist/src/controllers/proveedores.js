@@ -55,7 +55,15 @@ async function getById(req, res) {
     res.json(row);
 }
 async function create(req, res) {
-    const data = proveedores_1.proveedorIn.parse(req.body);
+    const parsed = proveedores_1.proveedorIn.safeParse(req.body);
+    if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        return res.status(422).json({
+            error: issue?.message || "Datos inválidos",
+            field: issue?.path?.[0] ?? undefined,
+        });
+    }
+    const data = parsed.data;
     // unicidad por CIF/NIF si viene informado
     if (data.CIF_NIFProveedor) {
         const exists = await prisma.proveedor.findFirst({
@@ -64,12 +72,33 @@ async function create(req, res) {
         if (exists)
             return res.status(409).json({ error: "CIF_NIF ya registrado" });
     }
-    const row = await prisma.proveedor.create({ data });
-    res.status(201).json(row);
+    try {
+        const row = await prisma.proveedor.create({ data });
+        res.status(201).json(row);
+    }
+    catch (e) {
+        if (e?.code === "P2002") {
+            const target = e?.meta?.target?.[0];
+            return res.status(409).json({
+                error: "UNIQUE_CONSTRAINT",
+                field: target || undefined,
+            });
+        }
+        console.error(e);
+        res.status(400).json({ error: "CREATE_FAILED" });
+    }
 }
 async function update(req, res) {
     const id = Number(req.params.id);
-    const data = proveedores_1.proveedorIn.parse(req.body);
+    const parsed = proveedores_1.proveedorIn.safeParse(req.body);
+    if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        return res.status(422).json({
+            error: issue?.message || "Datos inválidos",
+            field: issue?.path?.[0] ?? undefined,
+        });
+    }
+    const data = parsed.data;
     if (data.CIF_NIFProveedor) {
         const exists = await prisma.proveedor.findFirst({
             where: {
@@ -80,11 +109,24 @@ async function update(req, res) {
         if (exists)
             return res.status(409).json({ error: "CIF_NIF ya registrado" });
     }
-    const row = await prisma.proveedor.update({
-        where: { idProveedor: id },
-        data,
-    });
-    res.json(row);
+    try {
+        const row = await prisma.proveedor.update({
+            where: { idProveedor: id },
+            data,
+        });
+        res.json(row);
+    }
+    catch (e) {
+        if (e?.code === "P2002") {
+            const target = e?.meta?.target?.[0];
+            return res.status(409).json({
+                error: "UNIQUE_CONSTRAINT",
+                field: target || undefined,
+            });
+        }
+        console.error(e);
+        res.status(400).json({ error: "UPDATE_FAILED" });
+    }
 }
 async function remove(req, res) {
     const id = Number(req.params.id);
@@ -103,16 +145,21 @@ async function listProductosByProveedor(req, res) {
     const q = proveedores_1.paginadoQuery.parse(req.query);
     const wherePP = {
         idProveedor: id,
-        Producto: q.search
-            ? {
-                OR: [
-                    { nombreProducto: { contains: q.search, mode: client_1.Prisma.QueryMode.insensitive } },
-                    { codigoProducto: { contains: q.search, mode: client_1.Prisma.QueryMode.insensitive } },
-                    { codigoBarrasProducto: { contains: q.search, mode: client_1.Prisma.QueryMode.insensitive } },
-                ],
-            }
-            : undefined,
     };
+    if (q.search) {
+        const or = [
+            { nombreProducto: { contains: q.search, mode: client_1.Prisma.QueryMode.insensitive } },
+            { codigoProducto: { contains: q.search, mode: client_1.Prisma.QueryMode.insensitive } },
+        ];
+        if (/^\d+$/.test(q.search)) {
+            try {
+                const num = BigInt(q.search);
+                or.push({ codigoBarrasProducto: { equals: num } });
+            }
+            catch { }
+        }
+        wherePP.Producto = { is: { OR: or } };
+    }
     const [total, rows] = await Promise.all([
         prisma.proveedorProducto.count({ where: wherePP }),
         prisma.proveedorProducto.findMany({

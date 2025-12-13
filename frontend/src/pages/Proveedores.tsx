@@ -4,6 +4,7 @@ import { DataTable } from "../components/DataTable";
 import { Label, Input } from "../components/ui/Form";
 import * as svc from "../lib/api/proveedores";
 import { Button } from "@/components/ui/button";
+import { toast } from "react-hot-toast";
 import {
   X,
   Pencil,
@@ -16,7 +17,6 @@ import {
   Info,
   IdCard,
 } from "lucide-react";
-import { toast } from "react-hot-toast";
 import { showAlert, askConfirm } from "../lib/alerts";
 
 type FormState = Partial<svc.Proveedor>;
@@ -235,15 +235,42 @@ export default function ProveedoresPage() {
       nextErrors.nombreProveedor = "required";
       missing.push("Nombre");
     }
+    const telRaw = (editing.telefonoProveedor?.toString() || "").trim();
+    const telDigits = normPhone(telRaw);
+    if (!telDigits) {
+      nextErrors.telefonoProveedor = "required";
+      missing.push("Teléfono");
+    }
+    const emailRawMissing = (editing.mailProveedor || "").trim() === "";
+    if (emailRawMissing) {
+      nextErrors.mailProveedor = "required";
+      missing.push("Email");
+    }
     if (missing.length > 0) {
       setErrors(nextErrors);
-      toast.error(`Faltan completar: ${missing.join(", ")}`);
+      toast.error(`Campos requeridos: ${missing.join(", ")}`);
+      return;
+    }
+
+    // Validación simple de email en cliente (vacío permitido)
+    const emailRaw = (editing.mailProveedor || "").trim();
+    const emailOk = emailRaw.includes("@");
+    if (!emailOk) {
+      setErrors((e) => ({ ...e, mailProveedor: "invalid" }));
+      await showAlert({
+        type: "error",
+        title: "Email inválido",
+        message: "Por favor, ingresa un correo válido.",
+      });
       return;
     }
 
     // Duplicados: nombre y email (si email presente). Observación se permite duplicar.
     const nombreKeyLower = nombreKey.toLowerCase();
     const emailKeyLower = (editing.mailProveedor || "").trim().toLowerCase();
+    const phoneKeyDigits = normPhone(
+      editing.telefonoProveedor?.toString() || ""
+    );
     const conflictNombre = rows.some(
       (r) =>
         r.nombreProveedor.trim().toLowerCase() === nombreKeyLower &&
@@ -256,10 +283,19 @@ export default function ProveedoresPage() {
             (editing.idProveedor ? r.idProveedor !== editing.idProveedor : true)
         )
       : false;
-    if (conflictNombre || conflictEmail) {
+    const conflictPhone = phoneKeyDigits
+      ? rows.some(
+          (r) =>
+            normPhone(r.telefonoProveedor?.toString() || "") ===
+              phoneKeyDigits &&
+            (editing.idProveedor ? r.idProveedor !== editing.idProveedor : true)
+        )
+      : false;
+    if (conflictNombre || conflictEmail || conflictPhone) {
       const mensajes = [
         conflictNombre ? "El nombre de proveedor ya está registrado" : null,
         conflictEmail ? "El correo de proveedor ya está registrado" : null,
+        conflictPhone ? "El teléfono de proveedor ya está registrado" : null,
       ]
         .filter(Boolean)
         .join("\n");
@@ -274,6 +310,7 @@ export default function ProveedoresPage() {
       ...editing,
       // normaliza string vacíos a null
       mailProveedor: editing.mailProveedor || null,
+      telefonoProveedor: editing.telefonoProveedor || null,
       observacionProveedor: editing.observacionProveedor || null,
     };
     try {
@@ -296,8 +333,46 @@ export default function ProveedoresPage() {
       await load();
     } catch (e: any) {
       const msg = e?.response?.data?.error;
-      if (msg) setErrors({ form: msg });
-      else setErrors({ form: "Error al guardar" });
+      const field = e?.response?.data?.field as string | undefined;
+      const status = e?.response?.status as number | undefined;
+      if (status === 409) {
+        if (field === "CIF_NIFProveedor" || msg === "CIF_NIF ya registrado") {
+          setErrors((er) => ({ ...er, CIF_NIFProveedor: "duplicate" }));
+          await showAlert({
+            type: "error",
+            title: "CIF/NIF duplicado",
+            message:
+              "El CIF/NIF ingresado ya está registrado para otro proveedor.",
+          });
+          return;
+        }
+      }
+      if (field === "mailProveedor") {
+        setErrors((er) => ({ ...er, mailProveedor: "invalid" }));
+        await showAlert({
+          type: "error",
+          title: "Email inválido",
+          message: "Por favor, ingresa un correo válido.",
+        });
+      } else if (field === "nombreProveedor") {
+        setErrors((er) => ({ ...er, nombreProveedor: "invalid" }));
+        await showAlert({
+          type: "error",
+          title: "Nombre inválido",
+          message: "Completa el nombre del proveedor.",
+        });
+      } else if (field === "telefonoProveedor") {
+        setErrors((er) => ({ ...er, telefonoProveedor: "invalid" }));
+        await showAlert({
+          type: "error",
+          title: "Teléfono inválido",
+          message: "Ingresa un teléfono válido.",
+        });
+      } else if (msg) {
+        setErrors({ form: msg });
+      } else {
+        setErrors({ form: "Error al guardar" });
+      }
     }
   }
 
@@ -435,36 +510,72 @@ export default function ProveedoresPage() {
                 <Label>CIF/NIF</Label>
                 <Input
                   value={editing.CIF_NIFProveedor?.toString() || ""}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const v = e.target.value;
                     setEditing((s) => ({
                       ...s!,
-                      CIF_NIFProveedor: e.target.value,
-                    }))
+                      CIF_NIFProveedor: v,
+                    }));
+                    if (v) {
+                      setErrors((prev) => {
+                        if (!prev.CIF_NIFProveedor) return prev;
+                        const { CIF_NIFProveedor, ...rest } = prev;
+                        return rest;
+                      });
+                    }
+                  }}
+                  className={
+                    errors.CIF_NIFProveedor ? "border-red-500" : undefined
                   }
                 />
               </div>
               <div>
-                <Label>Teléfono</Label>
+                <Label>Teléfono *</Label>
                 <Input
                   value={editing.telefonoProveedor?.toString() || ""}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const v = e.target.value;
                     setEditing((s) => ({
                       ...s!,
-                      telefonoProveedor: e.target.value,
-                    }))
+                      telefonoProveedor: v,
+                    }));
+                    const ok = normPhone(v) !== "";
+                    if (ok) {
+                      setErrors((prev) => {
+                        if (!prev.telefonoProveedor) return prev;
+                        const { telefonoProveedor, ...rest } = prev;
+                        return rest;
+                      });
+                    }
+                  }}
+                  className={
+                    errors.telefonoProveedor ? "border-red-500" : undefined
                   }
                 />
               </div>
               <div>
-                <Label>Email</Label>
+                <Label>Email *</Label>
                 <Input
                   type="email"
                   value={editing.mailProveedor || ""}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const v = e.target.value;
                     setEditing((s) => ({
                       ...s!,
-                      mailProveedor: e.target.value,
-                    }))
+                      mailProveedor: v,
+                    }));
+                    // limpiar error al corregir (vacío permitido o con '@')
+                    const ok = (v || "").includes("@");
+                    if (ok) {
+                      setErrors((prev) => {
+                        if (!prev.mailProveedor) return prev;
+                        const { mailProveedor, ...rest } = prev;
+                        return rest;
+                      });
+                    }
+                  }}
+                  className={
+                    errors.mailProveedor ? "border-red-500" : undefined
                   }
                 />
               </div>
