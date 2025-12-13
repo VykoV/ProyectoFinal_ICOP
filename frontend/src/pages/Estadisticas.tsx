@@ -134,6 +134,13 @@ export default function Estadisticas() {
     plugins: { legend: { display: true } },
   }), []);
 
+  const selectedFamiliaName = useMemo(() => {
+    if (!familiaId) return "";
+    const id = Number(familiaId);
+    const f = familias.find((x) => x.id === id);
+    return f?.nombre ?? "";
+  }, [familiaId, familias]);
+
   const topCustomersData = useMemo(() => ({
     labels: topCustomers.filter((c) => !excludedCustomerIds.includes(c.idCliente)).map((c) => c.nombre),
     datasets: [
@@ -313,7 +320,7 @@ export default function Estadisticas() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="rounded-2xl border bg-white p-4">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-medium text-gray-700">Productos vendidos</h2>
+            <h2 className="text-sm font-medium text-gray-700">Productos vendidos{selectedFamiliaName ? `: ${selectedFamiliaName}` : ""}</h2>
             <button
               onClick={() => setFiltersOpen(true)}
               className="rounded-lg border px-2 py-1 text-xs bg-white hover:bg-gray-50"
