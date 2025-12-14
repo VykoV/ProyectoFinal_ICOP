@@ -1824,9 +1824,10 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
             const idVenc = await getEstadoId(tx, ESTADOS.VENCIDA);
             const idFin = await getEstadoId(tx, ESTADOS.FINALIZADA);
             const idCanc = await getEstadoId(tx, ESTADOS.CANCELADA);
+            const idLC = await getEstadoId(tx, ESTADOS.LISTO_CAJA);
             const vencida = ventaMini.fechaVencimiento && ventaMini.fechaVencimiento < now;
-            const esTerminal = [idVenc, idFin, idCanc].includes(ventaMini.idEstadoVenta);
-            if (vencida && !esTerminal) {
+            const noExpira = [idVenc, idFin, idCanc, idLC].includes(ventaMini.idEstadoVenta);
+            if (vencida && !noExpira) {
                 await marcarPreventaComoVencida(tx, {
                     idVenta: id,
                     idUsuario,
@@ -2180,8 +2181,6 @@ app.put("/api/preventas/:id", requireAuth_1.requireAuth, async (req, res, next) 
                     data: {
                         idEstadoVenta: idLC,
                         estadoPago: 'PENDIENTE',
-                        // Al hacer LOCK, extender vigencia 24h desde ahora
-                        fechaVencimiento: new Date(Date.now() + 24 * 60 * 60 * 1000),
                     },
                 });
                 const desdeId = estadoNorm === norm(ESTADOS.RESERVADO) ? idRes : idPend;
@@ -3488,5 +3487,5 @@ function nextBuenosAiresNineAM() {
     const y = now.getUTCFullYear();
     const m = now.getUTCMonth();
     const d = now.getUTCDate();
-    return new Date(Date.UTC(y, m, d + 1, 12, 0, 0, 0));
+    return new Date(Date.UTC(y, m, d + 1, 9, 0, 0, 0));
 }

@@ -2106,8 +2106,10 @@ function ValidarPreventaModal({
       const msg =
         String(raw) === "ESTADO_INVALIDO"
           ? "La validación no es posible con el estado actual. Pasá a caja nuevamente."
+          : String(raw) === "PREVENTA_VENCIDA"
+          ? "El presupuesto está vencido. Postergá la reserva o generá uno nuevo."
           : String(raw) === "Network Error"
-          ? "No se puede pasar a caja una reserva vencida"
+          ? "Error de red. Verificá la conexión e intentá nuevamente."
           : String(raw);
       await showAlert({ type: "error", title: "Error", message: msg });
       setSaving(false);
@@ -2181,8 +2183,10 @@ function ValidarPreventaModal({
           ? "La preventa está vencida o en un estado inválido para pasar a caja."
           : String(raw) === "RESERVA_VENCIDA"
           ? "La reserva está vencida. No se puede validar. Cancelá o generá una nueva."
+          : String(raw) === "PREVENTA_VENCIDA"
+          ? "El presupuesto está vencido. Postergá la reserva o generá uno nuevo."
           : String(raw) === "Network Error"
-          ? "No se puede pasar a caja una reserva vencida"
+          ? "Error de red. Verificá la conexión e intentá nuevamente."
           : String(raw);
       await showAlert({ type: "error", title: "Error", message: msg });
     } finally {

@@ -178,21 +178,21 @@ node_cron_1.default.schedule("30 9 * * *", async () => {
         });
         if (rows.length === 0)
             return;
-        const { Cancelada } = await getEstadoIds();
-        if (Cancelada == null)
+        const { Vencido } = await getEstadoIds();
+        if (Vencido == null)
             return;
         const systemUserId = await getSystemUserId();
         for (const v of rows) {
             await liberarComprometidoVenta(v.idVenta);
-            await prisma.venta.update({ where: { idVenta: v.idVenta }, data: { idEstadoVenta: Cancelada, estadoPago: 'PENDIENTE' } });
+            await prisma.venta.update({ where: { idVenta: v.idVenta }, data: { idEstadoVenta: Vencido, estadoPago: 'PENDIENTE' } });
             if (systemUserId) {
                 await prisma.ventaEvento.create({
                     data: {
                         idVenta: v.idVenta,
                         idUsuario: systemUserId,
                         estadoDesde: Reservado,
-                        estadoHasta: Cancelada,
-                        motivo: 'reserva vencida auto-cancelada',
+                        estadoHasta: Vencido,
+                        motivo: 'reserva vencida auto-vencida',
                     },
                 });
                 await prisma.ventaActor.create({ data: { idVenta: v.idVenta, idUsuario: systemUserId, papel: client_1.PapelEnVenta.ANULADOR } });
