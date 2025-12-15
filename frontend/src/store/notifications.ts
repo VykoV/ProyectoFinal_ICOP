@@ -37,13 +37,21 @@ export function getAll() {
 }
 
 export function publish(n: Omit<NotificationItem, "id" | "createdAt"> & { id?: string }) {
+  const now = Date.now();
+  const dup = notifications.find((nn) =>
+    (nn.code ?? "") === (n.code ?? "") &&
+    (nn.title ?? "") === (n.title ?? "") &&
+    nn.message === n.message &&
+    Math.abs(now - nn.createdAt) < 6 * 60 * 60 * 1000
+  );
+  if (dup) return dup.id;
   const item: NotificationItem = {
-    id: n.id ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    id: n.id ?? `${now}-${Math.random().toString(36).slice(2)}`,
     code: n.code,
     type: n.type,
     title: n.title,
     message: n.message,
-    createdAt: Date.now(),
+    createdAt: now,
     read: false,
   };
   notifications = [item, ...notifications].slice(0, MAX_ITEMS);

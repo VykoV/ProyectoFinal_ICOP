@@ -3014,14 +3014,26 @@ app.post("/api/notificaciones", requireAuth, async (req, res) => {
   try {
     const { code, type, title, message, destinatario } = req.body ?? {};
     const uid = getUserId(req);
+    const tipo = tipoFromCode(code);
+    const nivel = nivelFromType(type);
+    const dest = destinatario ? (destinatario as DestinatarioNotificacion) : destinatarioFromCode(code);
+    const msg = String(message || "");
+    const start = new Date(Date.now() - 6 * 60 * 60 * 1000);
+    const exists = await prisma.notificacion.findFirst({
+      where: { tipo, nivel, destinatario: dest, mensaje: msg, createdAt: { gte: start } },
+      orderBy: { idNotificacion: "desc" },
+    });
+    if (exists) {
+      return res.status(200).json(exists);
+    }
     const row = await prisma.notificacion.create({
       data: {
-        tipo: tipoFromCode(code),
-        mensaje: String(message || ""),
-        nivel: nivelFromType(type),
+        tipo,
+        mensaje: msg,
+        nivel,
         data: { code: code ?? null, title: title ?? null },
         idUsuario: uid,
-        destinatario: destinatario ? destinatario as DestinatarioNotificacion : destinatarioFromCode(code),
+        destinatario: dest,
       },
     });
     res.status(201).json(row);
