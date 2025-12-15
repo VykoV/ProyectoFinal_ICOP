@@ -559,3 +559,48 @@ cron.schedule("0 8 * * *", async () => {
     console.error('cron 08:00 compras pendientes de validar error', err);
   }
 });
+
+async function startupCatchup() {
+  try {
+    const estados = await getEstadoIds();
+    const Pendiente = estados.Pendiente;
+    const Reservado = estados.Reservado;
+    const Vencido = estados.Vencido;
+    if (Pendiente == null || Reservado == null || Vencido == null) return;
+    const now = new Date();
+    const porFecha = await prisma.venta.findMany({
+      where: { fechaVencimiento: { not: null, lt: now }, idEstadoVenta: { in: [Pendiente, Reservado] } },
+      select: { idVenta: true, idEstadoVenta: true },
+    });
+    const limite = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const reservasVencidas = await prisma.venta.findMany({
+      where: { idEstadoVenta: Reservado, fechaReservaLimite: { not: null, lt: limite } },
+      select: { idVenta: true, idEstadoVenta: true },
+    });
+    const systemUserId = await getSystemUserId();
+    for (const v of porFecha) {
+      await liberarComprometidoVenta(v.idVenta);
+      await prisma.venta.update({ where: { idVenta: v.idVenta }, data: { idEstadoVenta: Vencido, estadoPago: 'PENDIENTE' } });
+      if (systemUserId) {
+        await prisma.ventaEvento.create({
+          data: { idVenta: v.idVenta, idUsuario: systemUserId, estadoDesde: v.idEstadoVenta, estadoHasta: Vencido, motivo: 'vencida en arranque' },
+        });
+        await prisma.ventaActor.create({ data: { idVenta: v.idVenta, idUsuario: systemUserId, papel: PapelEnVenta.ANULADOR } });
+      }
+    }
+    for (const v of reservasVencidas) {
+      await liberarComprometidoVenta(v.idVenta);
+      await prisma.venta.update({ where: { idVenta: v.idVenta }, data: { idEstadoVenta: Vencido, estadoPago: 'PENDIENTE' } });
+      if (systemUserId) {
+        await prisma.ventaEvento.create({
+          data: { idVenta: v.idVenta, idUsuario: systemUserId, estadoDesde: Reservado, estadoHasta: Vencido, motivo: 'reserva vencida en arranque' },
+        });
+        await prisma.ventaActor.create({ data: { idVenta: v.idVenta, idUsuario: systemUserId, papel: PapelEnVenta.ANULADOR } });
+      }
+    }
+  } catch (err) {
+    console.error('startup catch-up error', err);
+  }
+}
+
+startupCatchup().catch(err => console.error('startup catch-up error', err));
