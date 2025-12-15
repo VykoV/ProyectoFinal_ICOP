@@ -1331,7 +1331,7 @@ function PreventaForm({
       setPickerLoading(true);
       setPickerError(null);
       try {
-        const { data } = await api.get("/products", {
+        const { data } = await api.get("/products/search", {
           params: pickerQ ? { q: pickerQ } : undefined,
         });
         setPickerResults(Array.isArray(data) ? data : []);
@@ -1414,6 +1414,8 @@ function PreventaForm({
   const [prodSel, setProdSel] = useState<ProdOpt | null>(null);
 
   const [cant, setCant] = useState<number>(0);
+  const [cantText, setCantText] = useState<string>("0");
+  const [editQty, setEditQty] = useState<Record<number, string>>({});
   const [precio, setPrecio] = useState<number>(0);
   const [desc, setDesc] = useState<number>(0); // % descuento línea
 
@@ -1661,49 +1663,18 @@ function PreventaForm({
   /* ===== Búsqueda producto en vivo ===== */
   useEffect(() => {
     const t = setTimeout(async () => {
-      const { data } = await api.get("/products", {
+      const { data } = await api.get("/products/search", {
         params: prodQ ? { q: prodQ } : undefined,
       });
 
-      // Utilizar comparación por día local para incluir el día actual completo
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayTs = today.getTime();
-      const toTs = (raw: any, isEnd: boolean): number | null => {
-        if (!raw) return null;
-        if (typeof raw === "string" && raw.length === 10) {
-          // YYYY-MM-DD como hora local
-          return new Date(
-            `${raw}${isEnd ? "T23:59:59.999" : "T00:00:00"}`
-          ).getTime();
-        }
-        const d = new Date(raw);
-        return Number.isNaN(d.valueOf()) ? null : d.getTime();
-      };
-
       const opts: ProdOpt[] = (data ?? []).map((p: any) => {
-        const base = Number(p.precio ?? p.precioVentaPublicoProducto ?? 0);
-        const pct = Number(
-          p.porcentajeOferta ?? p.porcentajeOfertaProducto ?? 0
-        );
-        const ofertaFlag = p.oferta ?? p.ofertaProducto;
-        const iniRaw = p.fechaInicioOferta ?? p.fechaInicioOfertaProducto;
-        const finRaw = p.fechaFinOferta ?? p.fechaFinOfertaProducto;
-        const ini = toTs(iniRaw, false);
-        const fin = toTs(finRaw, true);
-        const dentroRango =
-          (ini == null || todayTs >= ini) && (fin == null || todayTs <= fin);
-        const activo =
-          ofertaFlag === undefined
-            ? pct > 0 && dentroRango
-            : Boolean(ofertaFlag) && pct > 0 && dentroRango;
         return {
           id: p.id ?? p.idProducto,
           label: `${p.sku ?? p.codigoProducto} — ${
             p.nombre ?? p.nombreProducto
           }`,
-          precio: base,
-          ofertaPct: activo ? pct : 0,
+          precio: Number(p.precio ?? p.precioVentaPublicoProducto ?? 0),
+          ofertaPct: 0,
         };
       });
 
@@ -1717,13 +1688,48 @@ function PreventaForm({
   }, [prodQ]); // eslint-disable-line
 
   /* ===== Selección y agregado de producto ===== */
-  function pickProduct(o: ProdOpt) {
+  async function pickProduct(o: ProdOpt) {
     setProdSel(o);
     setProdQ(o.label);
-    setPrecio(o.precio);
     setProdOpts([]);
     setCant(0);
-    setDesc(Number(o.ofertaPct || 0));
+    try {
+      const { data } = await api.get(`/products/${o.id}`);
+      const base = Number(
+        data?.precio ?? data?.precioVentaPublicoProducto ?? o.precio ?? 0
+      );
+      const pct = Number(
+        data?.porcentajeOferta ?? data?.porcentajeOfertaProducto ?? 0
+      );
+      const ofertaFlag = data?.oferta ?? data?.ofertaProducto;
+      const iniRaw = data?.fechaInicioOferta ?? data?.fechaInicioOfertaProducto;
+      const finRaw = data?.fechaFinOferta ?? data?.fechaFinOfertaProducto;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayTs = today.getTime();
+      const toTs = (raw: any, isEnd: boolean): number | null => {
+        if (!raw) return null;
+        if (typeof raw === "string" && raw.length === 10) {
+          return new Date(
+            `${raw}${isEnd ? "T23:59:59.999" : "T00:00:00"}`
+          ).getTime();
+        }
+        const d = new Date(raw);
+        return Number.isNaN(d.valueOf()) ? null : d.getTime();
+      };
+      const ini = toTs(iniRaw, false);
+      const fin = toTs(finRaw, true);
+      const activo =
+        Boolean(ofertaFlag) &&
+        pct > 0 &&
+        (ini == null || todayTs >= ini) &&
+        (fin == null || todayTs <= fin);
+      setPrecio(base);
+      setDesc(activo ? pct : 0);
+    } catch {
+      setPrecio(o.precio);
+      setDesc(Number(o.ofertaPct || 0));
+    }
   }
 
   function addItem() {
@@ -2226,16 +2232,40 @@ function PreventaForm({
                 {/* Cantidad */}
                 <div className="md:col-span-3">
                   <Label htmlFor="cantidad" className="mb-1 block">
-                    Cantidad (g)
+                    Cantidad
                   </Label>
                   <Input
                     id="cantidad"
-                    type="number"
-                    inputMode="numeric"
-                    value={cant}
-                    onChange={(e) =>
-                      setCant(Math.max(0, Number(e.target.value) || 0))
-                    }
+                    type="text"
+                    inputMode="decimal"
+                    value={cantText}
+                    onChange={(e) => {
+                      let raw = e.target.value.replace(",", ".");
+                      let out = "";
+                      let dotSeen = false;
+                      for (const ch of raw) {
+                        if (ch >= "0" && ch <= "9") out += ch;
+                        else if (ch === "." && !dotSeen) {
+                          out += ch;
+                          dotSeen = true;
+                        }
+                      }
+                      if (out === "") out = "0";
+                      setCantText(out);
+                      if (!out.endsWith(".")) {
+                        const num = Number(out);
+                        setCant(Math.max(0, Number.isFinite(num) ? num : 0));
+                      }
+                    }}
+                    onBlur={() => {
+                      const out = cantText.endsWith(".")
+                        ? cantText.slice(0, -1)
+                        : cantText;
+                      const num = Number(out);
+                      const val = Math.max(0, Number.isFinite(num) ? num : 0);
+                      setCant(val);
+                      setCantText(String(val));
+                    }}
                   />
                 </div>
 
@@ -2313,7 +2343,7 @@ function PreventaForm({
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-3 py-2 text-left">Producto</th>
-                    <th className="px-3 py-2 text-right">Cant. (g)</th>
+                    <th className="px-3 py-2 text-right">Cantidad</th>
                     <th className="px-3 py-2 text-right">Precio</th>
                     <th className="px-3 py-2 text-right">Desc %</th>
                     <th className="px-3 py-2 text-right">Total</th>
@@ -2345,22 +2375,54 @@ function PreventaForm({
                           )}
                       </td>
                       <td className="px-3 py-2 text-center">
-                        {isEdit ? (
-                          <Input
-                            type="number"
-                            inputMode="numeric"
-                            value={i.cantidad}
-                            onChange={(e) =>
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          value={editQty[i.idProducto] ?? String(i.cantidad)}
+                          onChange={(e) => {
+                            let raw = e.target.value.replace(",", ".");
+                            let out = "";
+                            let dotSeen = false;
+                            for (const ch of raw) {
+                              if (ch >= "0" && ch <= "9") out += ch;
+                              else if (ch === "." && !dotSeen) {
+                                out += ch;
+                                dotSeen = true;
+                              }
+                            }
+                            if (out === "") out = "0";
+                            setEditQty((prev) => ({
+                              ...prev,
+                              [i.idProducto]: out,
+                            }));
+                            if (!out.endsWith(".")) {
+                              const num = Number(out);
                               setItemCantidad(
                                 i.idProducto,
-                                Number(e.target.value) || 0
-                              )
+                                Math.max(0, Number.isFinite(num) ? num : 0)
+                              );
                             }
-                            className="w-24 text-center"
-                          />
-                        ) : (
-                          i.cantidad
-                        )}
+                          }}
+                          className="w-24 text-center"
+                          onBlur={() => {
+                            const current = editQty[i.idProducto];
+                            if (current !== undefined) {
+                              const out = current.endsWith(".")
+                                ? current.slice(0, -1)
+                                : current;
+                              const num = Number(out);
+                              const val = Math.max(
+                                0,
+                                Number.isFinite(num) ? num : 0
+                              );
+                              setItemCantidad(i.idProducto, val);
+                              setEditQty((prev) => ({
+                                ...prev,
+                                [i.idProducto]: String(val),
+                              }));
+                            }
+                          }}
+                        />
                       </td>
                       <td className="px-3 py-2 text-right">
                         {i.descuento > 0 ? (
