@@ -560,7 +560,9 @@ export default function Dashboard() {
                   {topMas.map((r: any) => (
                     <tr key={r.idProducto} className="border-t">
                       <td className="px-3 py-2">{r.nombre}</td>
-                      <td className="px-3 py-2 text-right">{r.cantidad}</td>
+                      <td className="px-3 py-2 text-right">
+                        {fmtPrice(r.cantidad, { maxFraction: 2 })}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -589,7 +591,9 @@ export default function Dashboard() {
                   {topMenos.map((r: any) => (
                     <tr key={r.idProducto} className="border-t">
                       <td className="px-3 py-2">{r.nombre}</td>
-                      <td className="px-3 py-2 text-right">{r.cantidad}</td>
+                      <td className="px-3 py-2 text-right">
+                        {fmtPrice(r.cantidad, { maxFraction: 2 })}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
