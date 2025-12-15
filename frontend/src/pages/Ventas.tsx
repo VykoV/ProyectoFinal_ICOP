@@ -105,6 +105,7 @@ export default function Ventas() {
     const sp = new URLSearchParams(window.location.search);
     const tabQ = sp.get("tab") as any;
     const q0 = sp.get("q") || "";
+    const newQ = sp.get("new") || "";
     const preE = sp.get("preEstados");
     const preD = sp.get("preDesde") || "";
     const preH = sp.get("preHasta") || "";
@@ -137,6 +138,9 @@ export default function Ventas() {
     setVenPage(Math.max(1, venP || 1));
     setVenSort(venS === "asc" || venS === "desc" ? (venS as any) : "desc");
     setVencPage(Math.max(1, vencP || 1));
+    if (newQ.toLowerCase() === "preventa") {
+      setOpenNuevaVenta(true);
+    }
   }
 
   function writeParams(

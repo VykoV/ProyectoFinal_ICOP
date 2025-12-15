@@ -42,7 +42,6 @@ export default function Sidebar() {
       "/compras",
       "/monedas",
       "/ventas",
-      "/dashboard",
       "/estadisticas",
       "/cierres-caja",
     ].forEach((r) => blocked.add(r));

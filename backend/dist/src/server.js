@@ -56,9 +56,14 @@ app.use((0, cors_1.default)({
     origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Accept", "X-User-Id"],
+    allowedHeaders: ["Content-Type", "Accept", "X-User-Id", "x-skip-alert"],
 }));
-app.options("*", (0, cors_1.default)({ origin: ["http://localhost:5173", "http://127.0.0.1:5173"], credentials: true }));
+app.options("*", (0, cors_1.default)({
+    origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Accept", "X-User-Id", "x-skip-alert"],
+}));
 // ==========================
 // 2) PARSER JSON
 // ==========================
@@ -443,6 +448,65 @@ app.get("/api/products/ofertas-por-vencer", requireAuth_1.requireAuth, (0, autho
     catch (e) {
         console.error(e);
         res.status(400).json({ error: "OFERTAS_POR_VENCER_FAILED" });
+    }
+});
+app.get("/api/products/ofertas", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Vendedor", "Cajero"]), async (_req, res) => {
+    try {
+        const rows = await prisma.producto.findMany({
+            where: { ofertaProducto: true },
+            select: {
+                idProducto: true,
+                nombreProducto: true,
+                precioVentaPublicoProducto: true,
+                codigoProducto: true,
+            },
+            orderBy: { nombreProducto: "asc" },
+            take: 8,
+        });
+        res.json(rows.map((r) => ({
+            idProducto: r.idProducto,
+            nombreProducto: r.nombreProducto,
+            precioVentaPublicoProducto: Number(r.precioVentaPublicoProducto ?? 0),
+            codigoProducto: r.codigoProducto ?? null,
+        })));
+    }
+    catch (e) {
+        console.error(e);
+        res.status(400).json({ error: "OFERTAS_READ_FAILED" });
+    }
+});
+app.get("/api/products/stock-bajo-real", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador", "Vendedor", "Cajero"]), async (_req, res) => {
+    try {
+        const stocks = await prisma.stock.findMany({
+            select: {
+                idProducto: true,
+                cantidadRealStock: true,
+                bajoMinimoStock: true,
+                ultimaModificacionStock: true,
+            },
+        });
+        const ids = Array.from(new Set(stocks.map((s) => Number(s.idProducto)).filter((x) => Number(x))));
+        const prods = await prisma.producto.findMany({
+            where: { idProducto: { in: ids } },
+            select: { idProducto: true, nombreProducto: true },
+        });
+        const mapNombre = new Map(prods.map((p) => [p.idProducto, p.nombreProducto]));
+        const list = stocks
+            .map((s) => ({
+            idProducto: Number(s.idProducto),
+            nombreProducto: mapNombre.get(Number(s.idProducto)) || "",
+            stockActual: Number(s.cantidadRealStock || 0),
+            minimo: Number(s.bajoMinimoStock || 0),
+            actualizadoEn: s.ultimaModificacionStock ?? null,
+        }))
+            .filter((x) => x.minimo > 0 && x.stockActual < x.minimo)
+            .sort((a, b) => a.stockActual - b.stockActual)
+            .slice(0, 10);
+        res.json(list);
+    }
+    catch (err) {
+        console.error("GET /api/products/stock-bajo-real error", err);
+        res.status(500).json({ error: "SERVER_ERROR" });
     }
 });
 // CREAR con código FF-SS-000X
@@ -1761,16 +1825,33 @@ app.get("/api/preventas/:id/totales", requireAuth_1.requireAuth, (0, authorize_1
     });
 });
 // Listado de VENCIDOS (todas las preventas/reservas marcadas como Vencido) — solo Administrador
-app.get("/api/preventas/vencidos", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (_req, res) => {
+app.get("/api/preventas/vencidos", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (req, res) => {
     try {
         const idVenc = await getEstadoId(prisma, ESTADOS.VENCIDA);
         if (!idVenc)
             return res.json([]);
+        const rawPage = Number(req.query.page ?? 1);
+        const rawPageSize = Number(req.query.pageSize ?? 5);
+        const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1;
+        const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0 ? rawPageSize : 5;
+        const now = new Date();
+        const prev = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        const y = prev.getFullYear();
+        const m = String(prev.getMonth() + 1).padStart(2, "0");
+        const day = String(prev.getDate()).padStart(2, "0");
+        const { desde, hasta } = rangoDia(`${y}-${m}-${day}`);
         const rows = await prisma.venta.findMany({
-            where: { idEstadoVenta: idVenc },
+            where: {
+                idEstadoVenta: idVenc,
+                OR: [
+                    { fechaVencimiento: { gte: desde, lt: hasta } },
+                    { fechaReservaLimite: { gte: desde, lt: hasta } },
+                ],
+            },
             orderBy: { idVenta: "desc" },
             include: { Cliente: true, TipoPago: true, EstadoVenta: true },
-            take: 200,
+            skip: (page - 1) * pageSize,
+            take: pageSize,
         });
         const out = await Promise.all(rows.map(async (v) => ({
             id: v.idVenta,
@@ -3166,6 +3247,74 @@ app.get("/api/stats/months", requireAuth_1.requireAuth, (0, authorize_1.authoriz
     const series = [...buckets.entries()].map(([month, monto]) => ({ month, monto }));
     const best = series.reduce((acc, cur) => (cur.monto > (acc.monto ?? 0) ? cur : acc), { month: null, monto: 0 });
     res.json({ series, bestMonth: best.month, bestAmount: best.monto });
+});
+app.get("/api/stats/dashboard-admin", requireAuth_1.requireAuth, (0, authorize_1.authorize)(["Administrador"]), async (_req, res) => {
+    try {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth(); // 0-based
+        const d = now.getDate();
+        const inicioDiaBA = new Date(Date.UTC(y, m, d, 3, 0, 0, 0));
+        const finDiaBA = new Date(Date.UTC(y, m, d + 1, 3, 0, 0, 0));
+        const idFinal = await getEstadoId(prisma, ESTADOS.FINALIZADA);
+        const ventasHoyRows = await prisma.venta.findMany({
+            where: {
+                idEstadoVenta: idFinal,
+                fechaVenta: { gte: inicioDiaBA, lt: finDiaBA },
+            },
+            select: { idVenta: true },
+        });
+        const ventasHoyCount = ventasHoyRows.length;
+        let ventasHoyTotal = 0;
+        for (const v of ventasHoyRows) {
+            const t = await calcularTotal(Number(v.idVenta));
+            ventasHoyTotal += Number(t);
+        }
+        const inicioMesBA = new Date(Date.UTC(y, m, 1, 3, 0, 0, 0));
+        const finMesBA = finDiaBA; // hasta fin del día actual
+        const ventasMesRows = await prisma.venta.findMany({
+            where: {
+                idEstadoVenta: idFinal,
+                fechaVenta: { gte: inicioMesBA, lt: finMesBA },
+            },
+            select: { idVenta: true },
+        });
+        const ventasMesCount = ventasMesRows.length;
+        let ventasMesTotal = 0;
+        for (const v of ventasMesRows) {
+            const t = await calcularTotal(Number(v.idVenta));
+            ventasMesTotal += Number(t);
+        }
+        const idPend = await getEstadoId(prisma, ESTADOS.PENDIENTE);
+        const preventasPendientesCount = await prisma.venta.count({
+            where: { idEstadoVenta: idPend },
+        });
+        const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const productosAntiguos = await prisma.producto.findMany({
+            where: { updatedAt: { lt: cutoff } },
+            select: { idProducto: true },
+        });
+        const stocksAntiguos = await prisma.stock.findMany({
+            where: { ultimaModificacionStock: { lt: cutoff } },
+            select: { idProducto: true },
+        });
+        const setIds = new Set();
+        for (const p of productosAntiguos)
+            setIds.add(Number(p.idProducto));
+        for (const s of stocksAntiguos)
+            setIds.add(Number(s.idProducto));
+        const preciosDesactualizadosCount = setIds.size;
+        res.json({
+            ventasHoy: { cantidad: ventasHoyCount, total: ventasHoyTotal },
+            ventasMes: { cantidad: ventasMesCount, total: ventasMesTotal },
+            preventasPendientes: { cantidad: preventasPendientesCount },
+            preciosDesactualizados: { cantidad: preciosDesactualizadosCount },
+        });
+    }
+    catch (e) {
+        console.error(e);
+        res.status(400).json({ error: "DASHBOARD_ADMIN_FAILED" });
+    }
 });
 /* ========================
    CIERRE DE CAJA (básico)
