@@ -1310,15 +1310,27 @@ function CompraForm({
   function addItem() {
     if (!prodSel) return;
     if (cant <= 0 || precioUnit < 0) return;
-    setItems((prev) => [
-      ...prev,
-      {
-        idProducto: prodSel.id,
-        nombre: prodSel.label,
-        cantidad: Number(cant),
-        precioUnit: Number(precioUnit),
-      },
-    ]);
+    setItems((prev) => {
+      const existingIndex = prev.findIndex((i) => i.idProducto === prodSel.id);
+      if (existingIndex >= 0) {
+        const newItems = [...prev];
+        const existing = newItems[existingIndex];
+        newItems[existingIndex] = {
+          ...existing,
+          cantidad: Number(existing.cantidad) + Number(cant),
+        };
+        return newItems;
+      }
+      return [
+        ...prev,
+        {
+          idProducto: prodSel.id,
+          nombre: prodSel.label,
+          cantidad: Number(cant),
+          precioUnit: Number(precioUnit),
+        },
+      ];
+    });
     setProdSel(null);
     setProdQ("");
     setCant(0);

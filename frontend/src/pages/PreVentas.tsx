@@ -1736,17 +1736,29 @@ function PreventaForm({
     if (!prodSel) return;
     if (cant <= 0 || precio < 0 || desc < 0 || desc > 100) return;
 
-    setItems((prev) => [
-      ...prev,
-      {
-        idProducto: prodSel.id,
-        nombre: prodSel.label,
-        cantidad: Number(cant),
-        precio: Number(precio),
-        descuento: Number(desc),
-        recargo: 0,
-      },
-    ]);
+    setItems((prev) => {
+      const existingIndex = prev.findIndex((i) => i.idProducto === prodSel.id);
+      if (existingIndex >= 0) {
+        const newItems = [...prev];
+        const existing = newItems[existingIndex];
+        newItems[existingIndex] = {
+          ...existing,
+          cantidad: Number(existing.cantidad) + Number(cant),
+        };
+        return newItems;
+      }
+      return [
+        ...prev,
+        {
+          idProducto: prodSel.id,
+          nombre: prodSel.label,
+          cantidad: Number(cant),
+          precio: Number(precio),
+          descuento: Number(desc),
+          recargo: 0,
+        },
+      ];
+    });
 
     setProdSel(null);
     setProdQ("");

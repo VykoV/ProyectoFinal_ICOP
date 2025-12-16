@@ -2264,6 +2264,9 @@ function ValidarPreventaModal({
   const [prodResults, setProdResults] = useState<any[]>([]);
   const [prodLoading, setProdLoading] = useState(false);
   const [prodError, setProdError] = useState<string | null>(null);
+  const [prodQuantities, setProdQuantities] = useState<Record<number, number>>(
+    {}
+  );
 
   useEffect(() => {
     if (!openProdPicker) return;
@@ -2698,6 +2701,9 @@ function ValidarPreventaModal({
                                       <th className="px-3 py-2 text-right">
                                         Oferta
                                       </th>
+                                      <th className="px-3 py-2 text-center">
+                                        Cant.
+                                      </th>
                                       <th className="px-3 py-2 text-right">
                                         Acción
                                       </th>
@@ -2716,16 +2722,13 @@ function ValidarPreventaModal({
                                           0
                                       );
                                       const oferta = pct > 0;
+                                      const pId = Number(p.idProducto ?? p.id);
+                                      const qty = prodQuantities[pId] ?? 1;
+
                                       return (
-                                        <tr
-                                          key={p.idProducto ?? p.id}
-                                          className="border-t"
-                                        >
+                                        <tr key={pId} className="border-t">
                                           <td className="px-3 py-2">
-                                            {p.codigoProducto ??
-                                              p.sku ??
-                                              p.idProducto ??
-                                              p.id}
+                                            {p.codigoProducto ?? p.sku ?? pId}
                                           </td>
                                           <td className="px-3 py-2">
                                             {p.nombreProducto ?? p.nombre}
@@ -2742,8 +2745,27 @@ function ValidarPreventaModal({
                                           <td className="px-3 py-2 text-right">
                                             {oferta ? `${pct}%` : "-"}
                                           </td>
+                                          <td className="px-3 py-2 text-center">
+                                            <input
+                                              type="number"
+                                              min="1"
+                                              className="w-16 rounded border px-1 py-0.5 text-center text-xs"
+                                              value={qty}
+                                              onChange={(e) => {
+                                                const val = Math.max(
+                                                  1,
+                                                  Number(e.target.value) || 1
+                                                );
+                                                setProdQuantities((prev) => ({
+                                                  ...prev,
+                                                  [pId]: val,
+                                                }));
+                                              }}
+                                            />
+                                          </td>
                                           <td className="px-3 py-2 text-right">
                                             <button
+                                              type="button"
                                               className="rounded border px-2 py-1 text-xs"
                                               onClick={async () => {
                                                 setVenta((prev: any) => {
@@ -2753,17 +2775,40 @@ function ValidarPreventaModal({
                                                     )
                                                       ? [...prev.detalles]
                                                       : [];
-                                                  detalles.push({
-                                                    idProducto: Number(
-                                                      p.idProducto ?? p.id
-                                                    ),
-                                                    cantidad: 1,
-                                                    precioUnit: pu,
-                                                    descuentoItem: oferta
-                                                      ? pct
-                                                      : 0,
-                                                    Producto: p,
-                                                  });
+
+                                                  const existingIndex =
+                                                    detalles.findIndex(
+                                                      (d: any) =>
+                                                        Number(
+                                                          d.idProducto ??
+                                                            d.Producto
+                                                              ?.idProducto
+                                                        ) === pId
+                                                    );
+
+                                                  if (existingIndex >= 0) {
+                                                    detalles[existingIndex] = {
+                                                      ...detalles[
+                                                        existingIndex
+                                                      ],
+                                                      cantidad:
+                                                        Number(
+                                                          detalles[
+                                                            existingIndex
+                                                          ].cantidad
+                                                        ) + qty,
+                                                    };
+                                                  } else {
+                                                    detalles.push({
+                                                      idProducto: pId,
+                                                      cantidad: qty,
+                                                      precioUnit: pu,
+                                                      descuentoItem: oferta
+                                                        ? pct
+                                                        : 0,
+                                                      Producto: p,
+                                                    });
+                                                  }
                                                   return { ...prev, detalles };
                                                 });
                                                 setOpenProdPicker(false);
