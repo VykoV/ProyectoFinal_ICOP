@@ -17,6 +17,8 @@ const adapter_pg_1 = require("@prisma/adapter-pg");
 const auth_1 = __importDefault(require("./auth"));
 const proveedores_1 = __importDefault(require("./routes/proveedores"));
 const compras_1 = __importDefault(require("./routes/compras"));
+const stats_1 = __importDefault(require("./routes/stats"));
+const tickets_1 = __importDefault(require("./routes/tickets"));
 const requireAuth_1 = require("./middleware/requireAuth");
 const DEV = process.env.NODE_ENV !== "production";
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -110,6 +112,8 @@ app.use("/api/auth", auth_1.default);
 // ==========================
 app.use("/api/proveedores", proveedores_1.default);
 app.use("/api/compras", compras_1.default);
+app.use("/api/stats", stats_1.default);
+app.use("/api/tickets", tickets_1.default);
 // ==========================
 // 5) LOG SIMPLE
 // ==========================

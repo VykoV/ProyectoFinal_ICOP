@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "../components/DataTable";
-import { Search, Eye, Plus, X } from "lucide-react";
+import { Search, Eye, Plus, X, Printer } from "lucide-react";
 import { Label, Input } from "../components/ui/Form";
 import { api } from "../lib/api";
 import { askText, showAlert } from "../lib/alerts";
@@ -1228,6 +1228,7 @@ function VentaPopup({ onClose }: { onClose: () => void }) {
 /* Modal ver / operar preventa con historial de auditoría */
 
 function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
+  const { hasRole } = useAuth();
   const [venta, setVenta] = useState<any>(null);
   const [hist, setHist] = useState<
     Array<{
@@ -1245,6 +1246,7 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
   >([]);
   const [loadingVenta, setLoadingVenta] = useState(true);
   const [loadingHist, setLoadingHist] = useState(true);
+  const [loadingTicket, setLoadingTicket] = useState(false);
 
   // carga venta
   async function loadVenta() {
@@ -1307,6 +1309,42 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
 
   const lineItems = venta?.detalles ?? [];
 
+  async function handlePrintTicket() {
+    setLoadingTicket(true);
+    try {
+      // Determinar si es preventa o venta finalizada para el endpoint
+      const esVenta =
+        venta?.EstadoVenta?.nombreEstadoVenta?.toLowerCase() === "finalizada" ||
+        venta?.EstadoVenta?.nombreEstadoVenta?.toLowerCase() === "cancelada"; // Aunque cancelada igual podríamos querer ticket si fue venta
+      // El requerimiento dice: "Facturas (Venta finalizada / comprobante)".
+      // Asumimos que si está en Ventas.tsx y el estado es Finalizada, usamos endpoint de venta.
+      // Si es Presupuesto (Pendiente/Reservado/ListoCaja), usamos endpoint de presupuesto.
+
+      const endpointType = esVenta ? "venta" : "presupuesto";
+
+      const response = await api.get(`/tickets/${endpointType}/${id}`, {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      const filenameType = esVenta ? "factura" : "presupuesto";
+      link.setAttribute("download", `ticket-${filenameType}-${id}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      console.error("Error downloading ticket:", error);
+      await showAlert({
+        type: "error",
+        title: "Error",
+        message: "No se pudo descargar el ticket",
+      });
+    } finally {
+      setLoadingTicket(false);
+    }
+  }
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
@@ -1317,13 +1355,28 @@ function PreventaView({ id, onClose }: { id: number; onClose: () => void }) {
             <h3 className="text-base font-semibold">
               Presupuesto #{id} (solo lectura)
             </h3>
-            <button
-              onClick={onClose}
-              className="p-2 rounded hover:bg-gray-100"
-              aria-label="Cerrar"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex gap-2">
+              {(hasRole("Administrador") ||
+                hasRole("Cajero") ||
+                hasRole("Vendedor")) && (
+                <button
+                  onClick={handlePrintTicket}
+                  disabled={loadingTicket}
+                  className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm hover:bg-gray-100 disabled:opacity-50"
+                  title="Imprimir ticket (PDF)"
+                >
+                  <Printer className="h-4 w-4" />{" "}
+                  {loadingTicket ? "Generando..." : "Imprimir ticket"}
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="p-2 rounded hover:bg-gray-100"
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           {/* Body */}

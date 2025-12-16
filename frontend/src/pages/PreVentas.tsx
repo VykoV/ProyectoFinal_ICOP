@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Eye, Search, Plus, Trash2, X, Pencil } from "lucide-react";
+import { Eye, Search, Plus, Trash2, X, Pencil, Printer } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "../components/DataTable";
 import { Label, Input, Select } from "../components/ui/Form";
@@ -744,6 +744,7 @@ function PreventaView({
   id: number;
   onClose: (reload?: boolean) => void;
 }) {
+  const { hasRole } = useAuth();
   const [venta, setVenta] = useState<any>(null);
   const [hist, setHist] = useState<
     Array<{
@@ -761,6 +762,7 @@ function PreventaView({
   >([]);
   const [loadingVenta, setLoadingVenta] = useState(true);
   const [loadingHist, setLoadingHist] = useState(true);
+  const [loadingTicket, setLoadingTicket] = useState(false);
   const now = new Date();
 
   async function loadVenta() {
@@ -861,6 +863,31 @@ function PreventaView({
 
   const lineItems = venta?.detalles ?? [];
 
+  async function handlePrintTicket() {
+    setLoadingTicket(true);
+    try {
+      const response = await api.get(`/tickets/presupuesto/${id}`, {
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `ticket-presupuesto-${id}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      console.error("Error downloading ticket:", error);
+      await showAlert({
+        type: "error",
+        title: "Error",
+        message: "No se pudo descargar el ticket",
+      });
+    } finally {
+      setLoadingTicket(false);
+    }
+  }
+
   return (
     <>
       <div
@@ -874,13 +901,28 @@ function PreventaView({
             <h3 className="text-base font-semibold">
               Detalle de Presupuesto #{id}
             </h3>
-            <button
-              onClick={() => onClose()}
-              className="p-2 rounded hover:bg-gray-100"
-              aria-label="Cerrar"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex gap-2">
+              {(hasRole("Administrador") ||
+                hasRole("Cajero") ||
+                hasRole("Vendedor")) && (
+                <button
+                  onClick={handlePrintTicket}
+                  disabled={loadingTicket}
+                  className="inline-flex items-center gap-1 rounded border px-3 py-1 text-sm hover:bg-gray-100 disabled:opacity-50"
+                  title="Imprimir ticket (PDF)"
+                >
+                  <Printer className="h-4 w-4" />{" "}
+                  {loadingTicket ? "Generando..." : "Imprimir ticket"}
+                </button>
+              )}
+              <button
+                onClick={() => onClose()}
+                className="p-2 rounded hover:bg-gray-100"
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           {/* Body */}

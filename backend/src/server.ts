@@ -13,6 +13,7 @@ import authRoutes from "./auth";
 import proveedores from "./routes/proveedores";
 import compras from "./routes/compras";
 import statsRoutes from "./routes/stats";
+import ticketsRoutes from "./routes/tickets";
 import { requireAuth } from "./middleware/requireAuth";
 
 const DEV = process.env.NODE_ENV !== "production";
@@ -125,6 +126,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/proveedores", proveedores);
 app.use("/api/compras", compras);
 app.use("/api/stats", statsRoutes);
+app.use("/api/tickets", ticketsRoutes);
 
 // ==========================
 // 5) LOG SIMPLE
