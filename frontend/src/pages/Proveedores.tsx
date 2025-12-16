@@ -128,7 +128,7 @@ export default function ProveedoresPage() {
               onClick={() => onDelete(row.original)}
             >
               <Trash2 className="h-3 w-3" />
-              Borrar
+              Eliminar
             </button>
           </div>
         ),
