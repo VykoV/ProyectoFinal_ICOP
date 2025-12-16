@@ -9,6 +9,7 @@ import { fmtPrice } from "../lib/format";
 import Modal from "../components/Modal";
 import { getProductStock } from "../lib/api/products";
 import { useAuth } from "../context/AuthContext";
+import { useMonedas } from "../context/MonedasContext";
 
 /* Tipos base */
 type VentaRow = {
@@ -1783,6 +1784,7 @@ function ValidarPreventaModal({
   const [monedas, setMonedas] = useState<
     { idMoneda: number; moneda: string; precio: number }[]
   >([]);
+  const { fmtVisual } = useMonedas();
 
   // form state
   const [idCliente, setIdCliente] = useState<number | "">("");
@@ -1798,6 +1800,20 @@ function ValidarPreventaModal({
   const [ajuste, setAjuste] = useState<number>(0);
   const [recargoPago, setRecargoPago] = useState<number>(0);
   const [comentarioCajero, setComentarioCajero] = useState<string>("");
+
+  const monedaSel = monedas.find((m) => m.idMoneda === idMoneda);
+  const esARS =
+    String(monedaSel?.moneda ?? "")
+      .toUpperCase()
+      .includes("ARS") ||
+    String(monedaSel?.moneda ?? "")
+      .toUpperCase()
+      .includes("PESO");
+  const tipoCambioVisual = esARS ? 1 : monedaSel?.precio ?? 1;
+  const fmtV = (
+    n: number,
+    opts?: { minFraction?: number; maxFraction?: number }
+  ) => fmtVisual(Number(n || 0), monedaSel?.moneda ?? "ARS", opts);
 
   // estado actual de la preventa (Pendiente, ListoCaja, Finalizada, Cancelada)
   const estadoActual = venta?.EstadoVenta?.nombreEstadoVenta ?? "Pendiente";
@@ -2431,6 +2447,14 @@ function ValidarPreventaModal({
                         </option>
                       ))}
                     </select>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Tipo de cambio (solo visual):{" "}
+                      {esARS
+                        ? "1"
+                        : `1 ${monedaSel?.moneda ?? "USD"} = $${fmtPrice(
+                            tipoCambioVisual
+                          )}`}
+                    </div>
                   </div>
                 </div>
 
@@ -2708,7 +2732,7 @@ function ValidarPreventaModal({
                                           </td>
                                           <td className="px-3 py-2 text-right">
                                             $
-                                            {fmtPrice(
+                                            {fmtV(
                                               oferta
                                                 ? pu * (1 - pct / 100)
                                                 : pu,
@@ -2882,14 +2906,14 @@ function ValidarPreventaModal({
                                     <div className="flex flex-col items-end">
                                       <span className="line-through text-gray-400">
                                         $
-                                        {fmtPrice(puBase, {
+                                        {fmtV(puBase, {
                                           minFraction: 2,
                                           maxFraction: 2,
                                         })}
                                       </span>
                                       <span className="text-green-700 font-medium">
                                         $
-                                        {fmtPrice(puFinal, {
+                                        {fmtV(puFinal, {
                                           minFraction: 2,
                                           maxFraction: 2,
                                         })}
@@ -2898,7 +2922,7 @@ function ValidarPreventaModal({
                                   ) : (
                                     <>
                                       $
-                                      {fmtPrice(puBase, {
+                                      {fmtV(puBase, {
                                         minFraction: 2,
                                         maxFraction: 2,
                                       })}
@@ -2907,7 +2931,7 @@ function ValidarPreventaModal({
                                 </td>
                                 <td className="px-3 py-2 text-right">
                                   $
-                                  {fmtPrice(tot, {
+                                  {fmtV(tot, {
                                     minFraction: 2,
                                     maxFraction: 2,
                                   })}
@@ -2939,7 +2963,7 @@ function ValidarPreventaModal({
                     <span>Subtotal (sin impuestos)</span>
                     <span className="text-right">
                       $
-                      {fmtPrice(Number(subtotalSinIVA), {
+                      {fmtV(Number(subtotalSinIVA), {
                         minFraction: 2,
                         maxFraction: 2,
                       })}
@@ -2950,7 +2974,7 @@ function ValidarPreventaModal({
                     <span>Impuestos (IVA)</span>
                     <span className="text-right">
                       $
-                      {fmtPrice(Number(impuestos), {
+                      {fmtV(Number(impuestos), {
                         minFraction: 2,
                         maxFraction: 2,
                       })}
@@ -2968,7 +2992,7 @@ function ValidarPreventaModal({
                     <span>Ajuste (+ / -)</span>
                     <span className="text-right">
                       $
-                      {fmtPrice(Number(ajuste), {
+                      {fmtV(Number(ajuste), {
                         minFraction: 2,
                         maxFraction: 2,
                       })}
@@ -2979,7 +3003,7 @@ function ValidarPreventaModal({
                     <span>Recargo crédito / QR</span>
                     <span className="text-right">
                       $
-                      {fmtPrice(Number(recargoPago), {
+                      {fmtV(Number(recargoPago), {
                         minFraction: 2,
                         maxFraction: 2,
                       })}
@@ -2990,10 +3014,13 @@ function ValidarPreventaModal({
                     <span>Total final</span>
                     <span className="text-right">
                       $
-                      {fmtPrice(Number(totalConAjustes), {
+                      {fmtV(Number(totalConAjustes), {
                         minFraction: 2,
                         maxFraction: 2,
                       })}
+                      <span className="ml-2 text-[10px] text-gray-500">
+                        Conversión visual estimada; se almacena en ARS
+                      </span>
                     </span>
                   </div>
 

@@ -16,6 +16,7 @@ import { fmtPrice } from "../lib/format";
 import { api } from "../lib/api";
 import { toast } from "react-hot-toast";
 import { showAlert, askConfirm } from "../lib/alerts";
+import { useMonedas } from "../context/MonedasContext";
 
 function parseMoneda(val: any): number {
   if (val === null || val === undefined) return 0;
@@ -43,6 +44,7 @@ type CompraRow = {
 
 type Opt = { id: number; label: string };
 type ProdOpt = Opt & { precio: number };
+type MonedaOpt = Opt & { precio: number };
 type Item = {
   idProducto: number;
   nombre: string;
@@ -861,7 +863,8 @@ function CompraForm({
   // catálogos
   const [proveedores, setProveedores] = useState<Opt[]>([]);
   const [metodos, setMetodos] = useState<Opt[]>([]);
-  const [monedas, setMonedas] = useState<Opt[]>([]);
+  const [monedas, setMonedas] = useState<MonedaOpt[]>([]);
+  const { fmtVisual } = useMonedas();
 
   // cabecera
   const [idProveedor, setIdProveedor] = useState<string>("");
@@ -912,6 +915,21 @@ function CompraForm({
     return Number.isFinite(n) ? n : 0;
   }
 
+  const monedaSel = monedas.find((m) => m.id === Number(idMoneda));
+  const esARS =
+    String(monedaSel?.label ?? "")
+      .toUpperCase()
+      .includes("ARS") ||
+    String(monedaSel?.label ?? "")
+      .toUpperCase()
+      .includes("PESO");
+  const tipoCambioVisual = esARS ? 1 : monedaSel?.precio ?? 1;
+  const fmtV = (
+    n: number,
+    opts?: { minFraction?: number; maxFraction?: number }
+  ) => fmtVisual(Number(n || 0), monedaSel?.label ?? "ARS", opts);
+  const currencyPrefix = esARS ? "" : `${monedaSel?.label ?? ""} `;
+
   /* Cargas iniciales */
   useEffect(() => {
     (async () => {
@@ -949,6 +967,7 @@ function CompraForm({
         (mn.data ?? []).map((x: any) => ({
           id: x.idMoneda,
           label: x.moneda ?? x.codigo,
+          precio: x.precio,
         }))
       );
     })();
@@ -1495,6 +1514,17 @@ function CompraForm({
                       </option>
                     ))}
                   </Select>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Tipo de cambio (solo visual):{" "}
+                    {esARS
+                      ? "1"
+                      : `1 ${monedaSel?.label ?? "USD"} = $${fmtPrice(
+                          tipoCambioVisual
+                        )}`}
+                  </div>
+                  <div className="text-[10px] text-gray-500">
+                    Mostrando en: {esARS ? "ARS" : monedaSel?.label ?? ""}
+                  </div>
                 </div>
 
                 <div>
@@ -1662,29 +1692,29 @@ function CompraForm({
                           />
                         </td>
                         <td className="px-3 py-2 text-right">
-                          $
-                          {fmtPrice(i.precioUnit, {
+                          {currencyPrefix}$
+                          {fmtV(i.precioUnit, {
                             minFraction: 2,
                             maxFraction: 2,
                           })}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          $
-                          {fmtPrice(i.cantidad * base, {
+                          {currencyPrefix}$
+                          {fmtV(i.cantidad * base, {
                             minFraction: 2,
                             maxFraction: 2,
                           })}
                           <div className="text-[11px] text-gray-500">
                             IVA: $
-                            {fmtPrice(i.cantidad * iva, {
+                            {fmtV(i.cantidad * iva, {
                               minFraction: 2,
                               maxFraction: 2,
                             })}
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right">
-                          $
-                          {fmtPrice(i.cantidad * i.precioUnit, {
+                          {currencyPrefix}$
+                          {fmtV(i.cantidad * i.precioUnit, {
                             minFraction: 2,
                             maxFraction: 2,
                           })}
@@ -1732,22 +1762,28 @@ function CompraForm({
                 <div className="rounded-xl border p-4">
                   <p className="text-sm text-gray-500">Total bruto (con IVA)</p>
                   <p className="text-2xl font-semibold">
-                    ${info.bruto.toFixed(2)}
+                    {currencyPrefix}$
+                    {fmtV(info.bruto, { minFraction: 2, maxFraction: 2 })}
                   </p>
                 </div>
                 <div className="rounded-xl border p-4">
                   <p className="text-sm text-gray-500">Base neta (sin IVA)</p>
                   <p className="text-2xl font-semibold">
-                    ${info.base.toFixed(2)}
+                    {currencyPrefix}$
+                    {fmtV(info.base, { minFraction: 2, maxFraction: 2 })}
                   </p>
                 </div>
                 <div className="rounded-xl border p-4">
                   <p className="text-sm text-gray-500">IVA informativo</p>
                   <p className="text-2xl font-semibold">
-                    ${info.iva.toFixed(2)}
+                    {currencyPrefix}$
+                    {fmtV(info.iva, { minFraction: 2, maxFraction: 2 })}
                   </p>
                 </div>
               </div>
+              <p className="text-[10px] text-gray-500 mt-2 text-right">
+                Conversión visual estimada; se almacena en ARS
+              </p>
 
               <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t">
                 <button
@@ -1846,8 +1882,8 @@ function CompraForm({
                                     {p.nombreProducto ?? p.nombre}
                                   </td>
                                   <td className="px-3 py-2 text-right">
-                                    $
-                                    {fmtPrice(pu, {
+                                    {currencyPrefix}$
+                                    {fmtV(pu, {
                                       minFraction: 2,
                                       maxFraction: 2,
                                     })}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { fmtPrice } from "../lib/format";
 import { useAuth } from "../context/AuthContext";
+import { useMonedas } from "../context/MonedasContext";
 import {
   listMonedas,
   updateMoneda,
@@ -32,6 +33,7 @@ export default function Monedas() {
   const [rows, setRows] = useState<MonedaRow[]>([]);
   const [loading, setLoading] = useState(true);
   const { hasRole } = useAuth();
+  const { refreshMonedas } = useMonedas();
 
   // Estado para formulario de nueva moneda
   const [openNew, setOpenNew] = useState(false);
@@ -86,6 +88,7 @@ export default function Monedas() {
     try {
       await deleteMoneda(r.id);
       await load();
+      await refreshMonedas();
       await showAlert({
         title: "Éxito",
         type: "success",
@@ -246,6 +249,7 @@ export default function Monedas() {
                   await createMoneda(nombre, precio);
                   setOpenNew(false);
                   await load();
+                  await refreshMonedas();
                   await showAlert({
                     title: "Éxito",
                     type: "success",
@@ -326,6 +330,7 @@ export default function Monedas() {
                   await updateMoneda(current.id, { nombre, precio });
                   setOpenEdit(false);
                   await load();
+                  await refreshMonedas();
                   await showAlert({
                     title: "Éxito",
                     type: "success",
