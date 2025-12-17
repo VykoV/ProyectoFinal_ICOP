@@ -1840,6 +1840,7 @@ app.post(
             idEstadoVenta: idPend,
             idTipoPago: Number(idTipoPago),
             idMoneda,
+            idUsuario,
             estadoPago: 'RESERVA',
             ...(descuentoGeneral !== undefined && { descuentoGeneralVenta: new Prisma.Decimal(descuentoGeneral) }),
             ...(recargoPago !== undefined && { recargoPagoVenta: new Prisma.Decimal(recargoPago) }),
@@ -1952,6 +1953,7 @@ app.get(
         estado: v.EstadoVenta?.nombreEstadoVenta ?? "",
         descuentoGeneral: Number(v.descuentoGeneralVenta ?? 0),
         recargoPago: Number(v.recargoPagoVenta ?? 0),
+        idUsuario: v.idUsuario,
         total: await calcularTotal(v.idVenta),
       }))
     );
